@@ -107,14 +107,44 @@ As variáveis locais do Supabase são geradas pelo `supabase start` — preenche
 
 ```bash
 cd services/worker
+
+# Opcional mas recomendado: criar virtualenv
 python -m venv .venv
 source .venv/bin/activate        # Linux/Mac
-# .venv\Scripts\activate         # Windows
+.venv\Scripts\activate           # Windows
+
+# Instalar dependências
+# ATENÇÃO: gprpy não está no PyPI, será instalado do GitHub automaticamente
 pip install -r requirements.txt
+
+# Configurar variáveis de ambiente
+cp .env.example .env             # preencher SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY
+
+# Rodar
 python worker_main.py
 ```
 
 O worker faz polling no Supabase a cada `WORKER_POLL_INTERVAL_SECONDS` segundos (padrão: 10).
+
+#### Observações de instalação
+
+- **`gprpy`** não está no PyPI. O `requirements.txt` usa `gprpy @ git+https://github.com/NSGeophysics/GPRPy.git`. Requer Git instalado.
+- **Redes corporativas com inspeção TLS** (ex: Zscaler): instalar `truststore` (já no requirements.txt). Ele injeta o Windows Certificate Store no Python, resolvendo `CERTIFICATE_VERIFY_FAILED` sem desabilitar SSL. Não é necessário em produção (Railway/VPS).
+
+#### Como verificar jobs no Supabase
+
+```sql
+-- Ver jobs pendentes
+SELECT id, job_type, status, created_at FROM processing_jobs ORDER BY created_at DESC LIMIT 10;
+
+-- Resetar job travado (ex: processo morto durante processamento)
+UPDATE processing_jobs SET status = 'aguardando', started_at = NULL WHERE id = '<job_id>';
+```
+
+Via Supabase CLI:
+```bash
+npx supabase db query "SELECT id, job_type, status FROM processing_jobs ORDER BY created_at DESC LIMIT 5;" --linked
+```
 
 ---
 
@@ -152,8 +182,9 @@ O worker faz polling no Supabase a cada `WORKER_POLL_INTERVAL_SECONDS` segundos 
 
 | Fase | Descrição | Status |
 |---|---|---|
-| **Fase 0** | Fundação: monorepo, schema, RLS, stubs | ✅ Em progresso |
-| Fase 1 | Worker + Pipeline GPR real | Pendente |
+| **Fase 0** | Fundação: monorepo, schema, RLS, stubs | ✅ Concluída |
+| **Fase 1A** | Conexão Supabase real, tipos TypeScript, build validado | ✅ Concluída |
+| **Fase 1B** | Upload .DZT → Storage → Worker → Pipeline → resultados no front | ✅ Concluída |
 | Fase 2 | IA automática (GPT-4o) | Pendente |
 | Fase 3 | Revisão técnica opcional | Pendente |
 | Fase 4 | Cartografia (DXF/KML/GeoJSON) | Pendente |

@@ -1,8 +1,5 @@
 """
 ScanSOLO Worker — polling loop for processing_jobs.
-
-Phase 0: stubs only. Pipeline and AI not yet connected.
-Phase 1: connect pipeline_v1.py and detector_hiperboles.py.
 """
 
 import os
@@ -10,36 +7,65 @@ import time
 import structlog
 from dotenv import load_dotenv
 
+load_dotenv()
+
+# Injetar certificados do Windows Certificate Store no Python (redes corporativas com inspeção TLS)
+# Necessário porque httpx/httpcore não lê o cert store do Windows por padrão
+# Requer: pip install truststore
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass  # se não instalado, continuará com certifi padrão
+
 from clients.supabase_client import SupabaseClient
 from job_gpr import handle_gpr_job
-
-load_dotenv()
 
 log = structlog.get_logger()
 
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL_SECONDS", "10"))
 
 
+def _check_env() -> bool:
+    required = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+    missing = [k for k in required if not os.getenv(k)]
+    if missing:
+        log.error("env_missing", keys=missing)
+        return False
+    log.info("env_ok", keys_present=required)
+    return True
+
+
 def poll_once(supa: SupabaseClient) -> None:
     jobs = supa.fetch_pending_jobs(limit=1)
+    log.info("poll", jobs_found=len(jobs))
+
     if not jobs:
         return
 
     job = jobs[0]
     job_id = job["id"]
     job_type = job["job_type"]
+    project_id = job["project_id"]
 
-    log.info("job_picked", job_id=job_id, job_type=job_type)
+    log.info("job_picked", job_id=job_id, job_type=job_type, project_id=project_id, status_anterior="aguardando")
 
     if job_type == "gpr":
         handle_gpr_job(supa, job)
     else:
-        log.warning("unknown_job_type", job_id=job_id, job_type=job_type)
+        log.warning("unknown_job_type_skipped", job_id=job_id, job_type=job_type)
+        supa.update_job_status(job_id, "erro", error_message=f"job_type '{job_type}' not implemented in this worker version")
 
 
 def main() -> None:
-    log.info("worker_starting", poll_interval=POLL_INTERVAL)
+    log.info("worker_starting", poll_interval_s=POLL_INTERVAL)
+
+    if not _check_env():
+        raise SystemExit(1)
+
     supa = SupabaseClient()
+    log.info("supabase_connected")
+    log.info("polling_started", interval_s=POLL_INTERVAL)
 
     while True:
         try:

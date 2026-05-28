@@ -1,3 +1,4 @@
+truststore>=0.10.0   # injetar Windows cert store no Python (redes com inspeção TLS)
 supabase==2.10.0
 dropbox==12.0.2
 openai==1.55.3
@@ -8,7 +9,9 @@ structlog==24.4.0
 pydantic==2.10.3
 pydantic-settings==2.7.0
 # pipeline dependencies
-gprpy>=0.1.7
+# gprpy is not on PyPI — install from GitHub:
+#   pip install git+https://github.com/NSGeophysics/GPRPy.git
+gprpy @ git+https://github.com/NSGeophysics/GPRPy.git
 numpy>=1.26
 scipy>=1.13
 matplotlib>=3.9
