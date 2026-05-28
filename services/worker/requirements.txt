@@ -7,3 +7,10 @@ tenacity==9.0.0
 structlog==24.4.0
 pydantic==2.10.3
 pydantic-settings==2.7.0
+# pipeline dependencies
+gprpy>=0.1.7
+numpy>=1.26
+scipy>=1.13
+matplotlib>=3.9
+pandas>=2.2
+Pillow>=10.4

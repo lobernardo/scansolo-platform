@@ -81,7 +81,7 @@ class SupabaseClient:
     def get_dzt_files(self, project_id: str) -> list[dict[str, Any]]:
         result = (
             self._client.table("project_files")
-            .select("*")
+            .select("id, file_name, supabase_storage_path, extension")
             .eq("project_id", project_id)
             .eq("extension", "dzt")
             .eq("status", "confirmado")
@@ -100,6 +100,26 @@ class SupabaseClient:
     def insert_detected_targets(self, targets: list[dict[str, Any]]) -> None:
         if targets:
             self._client.table("detected_targets").insert(targets).execute()
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+
+    def download_file(self, bucket: str, path: str) -> bytes:
+        response = self._client.storage.from_(bucket).download(path)
+        return response
+
+    def upload_file(self, bucket: str, path: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        self._client.storage.from_(bucket).upload(
+            path=path,
+            file=data,
+            file_options={"content-type": content_type, "upsert": "true"},
+        )
+
+    def get_public_url(self, bucket: str, path: str) -> str:
+        return self._client.storage.from_(bucket).get_public_url(path)
+
+    def get_signed_url(self, bucket: str, path: str, expires_in: int = 3600) -> str:
+        result = self._client.storage.from_(bucket).create_signed_url(path, expires_in)
+        return result["signedURL"]
 
     # ── Audit log ─────────────────────────────────────────────────────────────
 
