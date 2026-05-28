@@ -35,7 +35,6 @@ export async function createProject(formData: FormData) {
 
   const { data, error } = await supabase
     .from("projects")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .insert(payload as unknown as never)
     .select("id")
     .single();

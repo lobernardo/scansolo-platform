@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export function ProjectStatusPoller({ projectId }: { projectId: string }) {
+export function ProjectStatusPoller() {
   const router = useRouter();
 
   useEffect(() => {

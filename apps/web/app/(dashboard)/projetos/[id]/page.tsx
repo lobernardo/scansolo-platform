@@ -79,7 +79,7 @@ export default async function ProjetoDetailPage({
       </div>
 
       {/* Auto-refresh while processing */}
-      {isProcessing && <ProjectStatusPoller projectId={id} />}
+      {isProcessing && <ProjectStatusPoller />}
 
       {/* Upload prompt if waiting for files */}
       {project.status === "aguardando_arquivos" && (
