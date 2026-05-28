@@ -126,6 +126,9 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
         profile = supa.insert_gpr_profile(profile_payload)
         profile_id: str = profile["id"]
 
+        # Include profile_id in path to avoid collision when a DZT has multiple channels
+        img_prefix = f"{project_id}/{run_id}/{profile_id[:8]}"
+
         img_updates: dict = {}
         for filename, col in [
             (f"{stem}_bruta.png", "imagem_bruta_url"),
@@ -134,13 +137,13 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
             (f"{stem}_anotada_alta_confianca.png", "imagem_alta_conf_url"),
         ]:
             src_dir = images_bruta_dir if "bruta" in filename else images_proc_dir
-            url = _upload_image(supa, project_id, src_dir / filename)
+            url = _upload_image(supa, img_prefix, src_dir / filename)
             if url:
                 img_updates[col] = url
 
         csv_path = targets_dir / f"{stem}_alvos.csv"
         if csv_path.exists():
-            csv_storage_path = f"{project_id}/{run_id}/{stem}_alvos.csv"
+            csv_storage_path = f"{project_id}/{run_id}/{profile_id[:8]}/{stem}_alvos.csv"
             supa.upload_file("gpr-tabelas", csv_storage_path, csv_path.read_bytes(), "text/csv")
             img_updates["csv_alvos_url"] = csv_storage_path
 
@@ -153,10 +156,10 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
             log.info("targets_inserted", profile_id=profile_id, count=len(targets))
 
 
-def _upload_image(supa: "SupabaseClient", project_id: str, path: Path) -> str | None:
+def _upload_image(supa: "SupabaseClient", prefix: str, path: Path) -> str | None:
     if not path.exists():
         return None
-    storage_path = f"{project_id}/{path.name}"
+    storage_path = f"{prefix}/{path.name}"
     supa.upload_file("gpr-images", storage_path, path.read_bytes(), "image/png")
     return supa.get_public_url("gpr-images", storage_path)
 
