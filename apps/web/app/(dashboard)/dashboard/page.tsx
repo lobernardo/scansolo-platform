@@ -2,6 +2,9 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import type { Database } from "@/lib/types/database";
+
+type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -11,12 +14,13 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  const { data } = await supabase
     .from("profiles")
-    .select("name, role")
+    .select("*")
     .eq("id", user.id)
     .single();
 
+  const profile = data as ProfileRow | null;
   const role = profile?.role ?? "operador_campo";
 
   return (
