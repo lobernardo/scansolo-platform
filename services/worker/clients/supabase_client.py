@@ -121,6 +121,58 @@ class SupabaseClient:
         result = self._client.storage.from_(bucket).create_signed_url(path, expires_in)
         return result["signedURL"]
 
+    # ── Detected targets ──────────────────────────────────────────────────────
+
+    def get_targets_for_profile(self, profile_id: str) -> list[dict[str, Any]]:
+        result = (
+            self._client.table("detected_targets")
+            .select("*")
+            .eq("profile_id", profile_id)
+            .order("rank")
+            .execute()
+        )
+        return result.data or []
+
+    def get_profiles_for_project(self, project_id: str) -> list[dict[str, Any]]:
+        result = (
+            self._client.table("gpr_profiles")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at")
+            .execute()
+        )
+        return result.data or []
+
+    def get_latest_run_id(self, project_id: str) -> str | None:
+        result = (
+            self._client.table("gpr_profiles")
+            .select("run_id")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]["run_id"]
+        return None
+
+    # ── AI interpretations ────────────────────────────────────────────────────
+
+    def insert_ai_interpretation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._client.table("ai_interpretations").insert(payload).execute()
+        return result.data[0]
+
+    def get_ai_interpretations_for_targets(self, target_ids: list[str]) -> list[dict[str, Any]]:
+        if not target_ids:
+            return []
+        result = (
+            self._client.table("ai_interpretations")
+            .select("*")
+            .in_("target_id", target_ids)
+            .execute()
+        )
+        return result.data or []
+
     # ── Audit log ─────────────────────────────────────────────────────────────
 
     def audit(

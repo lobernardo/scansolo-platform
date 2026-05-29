@@ -10,6 +10,7 @@ type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
 type JobRow = Database["public"]["Tables"]["processing_jobs"]["Row"];
+type AiInterpretationRow = Database["public"]["Tables"]["ai_interpretations"]["Row"];
 
 const PROCESSING_STATUSES = new Set([
   "aguardando_processamento",
@@ -88,10 +89,22 @@ export default async function ProjetoDetailPage({
     targets = (targetsData ?? []) as DetectedTargetRow[];
   }
 
+  const targetIds = targets.map((t) => t.id);
+  let aiInterpretations: AiInterpretationRow[] = [];
+  if (targetIds.length > 0) {
+    const { data: aiData } = await supabase
+      .from("ai_interpretations")
+      .select("*")
+      .in("target_id", targetIds);
+    aiInterpretations = (aiData ?? []) as AiInterpretationRow[];
+  }
+  const aiByTargetId = Object.fromEntries(aiInterpretations.map((ai) => [ai.target_id, ai]));
+
   const isProcessing = PROCESSING_STATUSES.has(project.status);
   const gprJob = jobs.find((j) => j.job_type === "gpr");
   const iaJob = jobs.find((j) => j.job_type === "ia");
-  const iaIsPending = iaJob && (iaJob.status === "aguardando" || iaJob.status === "erro");
+  const iaDone = project.status === "ia_concluida" || iaJob?.status === "concluido";
+  const hasAiResults = aiInterpretations.length > 0;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
@@ -151,13 +164,21 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
-      {/* IA pending notice — NOT an error, Fase 2 */}
-      {iaIsPending && project.status === "gpr_concluido" && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <p className="text-sm text-gray-600">
-            <span className="font-medium">Interpretação IA:</span> disponível na Fase 2.
-            Os resultados GPR já estão completos abaixo.
+      {/* IA done with results */}
+      {iaDone && hasAiResults && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <p className="text-sm text-green-800">
+            <span className="font-medium">Interpretação IA concluída.</span>{" "}
+            {aiInterpretations.length} alvo{aiInterpretations.length !== 1 ? "s" : ""} interpretado{aiInterpretations.length !== 1 ? "s" : ""} por GPT-4o.
           </p>
+        </div>
+      )}
+
+      {/* IA error */}
+      {iaJob?.status === "erro" && iaJob.error_message && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-red-700 mb-1">Erro na interpretação IA</p>
+          <p className="text-xs text-red-600 font-mono break-all">{iaJob.error_message}</p>
         </div>
       )}
 
@@ -186,6 +207,7 @@ export default async function ProjetoDetailPage({
                 key={profile.id}
                 profile={profile}
                 targets={targets.filter((t) => t.profile_id === profile.id)}
+                aiByTargetId={aiByTargetId}
               />
             ))}
           </div>
@@ -250,9 +272,11 @@ function StatusBadge({ status }: { status: string }) {
 function ProfileCard({
   profile,
   targets,
+  aiByTargetId,
 }: {
   profile: GprProfileRow;
   targets: DetectedTargetRow[];
+  aiByTargetId: Record<string, AiInterpretationRow>;
 }) {
   const hasImages =
     profile.imagem_bruta_url || profile.imagem_processada_url || profile.imagem_anotada_url;
@@ -317,22 +341,45 @@ function ProfileCard({
                 <th className="px-3 py-2 font-medium text-gray-500">Material</th>
                 <th className="px-3 py-2 font-medium text-gray-500">Score</th>
                 <th className="px-3 py-2 font-medium text-gray-500">Confiança</th>
+                <th className="px-3 py-2 font-medium text-gray-500">IA — Tipo</th>
+                <th className="px-3 py-2 font-medium text-gray-500">IA — Conf.</th>
+                <th className="px-3 py-2 font-medium text-gray-500">Planta</th>
+                <th className="px-3 py-2 font-medium text-gray-500">Relatório</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {targets.map((t) => (
-                <tr key={t.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500">{t.rank}</td>
-                  <td className="px-3 py-2">{t.x_m?.toFixed(2) ?? "—"}</td>
-                  <td className="px-3 py-2">{t.depth_m?.toFixed(2) ?? "—"}</td>
-                  <td className="px-3 py-2">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
-                  <td className="px-3 py-2">{t.tipo_material ?? "—"}</td>
-                  <td className="px-3 py-2">{t.confidence_score ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <ConfidenceBadge label={t.confidence_label_relatorio} />
-                  </td>
-                </tr>
-              ))}
+              {targets.map((t) => {
+                const ai = aiByTargetId[t.id] ?? null;
+                return (
+                  <tr key={t.id} className="hover:bg-gray-50" title={ai?.ia_descricao ?? undefined}>
+                    <td className="px-3 py-2 text-gray-500">{t.rank}</td>
+                    <td className="px-3 py-2">{t.x_m?.toFixed(2) ?? "—"}</td>
+                    <td className="px-3 py-2">{t.depth_m?.toFixed(2) ?? "—"}</td>
+                    <td className="px-3 py-2">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
+                    <td className="px-3 py-2">{t.tipo_material ?? "—"}</td>
+                    <td className="px-3 py-2">{t.confidence_score ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <ConfidenceBadge label={t.confidence_label_relatorio} />
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">
+                      {ai ? (ai.ia_tipo_sugerido ?? "—") : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      {ai ? <ConfidenceBadge label={ai.ia_confianca} /> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {ai
+                        ? (ai.vai_para_planta_sugerido ? <span className="text-green-600 font-bold">✓</span> : <span className="text-gray-300">✗</span>)
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {ai
+                        ? (ai.vai_para_relatorio_sugerido ? <span className="text-green-600 font-bold">✓</span> : <span className="text-gray-300">✗</span>)
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
