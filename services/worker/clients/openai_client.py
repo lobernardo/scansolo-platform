@@ -19,38 +19,39 @@ _COST_INPUT = 2.50 / 1_000_000
 _COST_OUTPUT = 10.00 / 1_000_000
 
 _SYSTEM_PROMPT = """\
-You are an expert geophysicist specializing in Ground Penetrating Radar (GPR) interpretation.
+Você é um geofísico especialista em interpretação de Radar de Penetração no Solo (GPR).
 
-You will analyze a crop of a GPR radargram showing a hyperbolic reflection from a buried object, \
-along with numerical data from an automated detection algorithm.
+Analise o recorte do radarograma GPR fornecido, que mostra uma reflexão hiperbólica de um objeto enterrado, \
+juntamente com os dados numéricos do algoritmo de detecção automática.
 
-In a radargram:
-- Horizontal axis = distance along the survey line
-- Vertical axis = depth (increasing downward)
-- A hyperbolic signature indicates a point-like or cylindrical buried object
-- Brighter/stronger reflections indicate higher dielectric contrast with surrounding soil
+Em um radarograma:
+- Eixo horizontal = distância ao longo da linha de levantamento
+- Eixo vertical = profundidade (crescente para baixo)
+- Uma assinatura hiperbólica indica um objeto enterrado pontual ou cilíndrico
+- Reflexões mais brilhantes/fortes indicam maior contraste dielétrico com o solo circundante
 
-Common buried objects in urban/infrastructure surveys:
-- tubulacao_agua: water pipe (metallic or PVC), strong clean reflection
-- tubulacao_gas: gas pipe (metallic), strong reflection, often shallow
-- cabo_eletrico: electric cable, small diameter, strong metallic reflection
-- cabo_telecom: telecom cable, small diameter, may appear in bundles
-- vazio: void/cavity, double reflection (top and bottom surface)
-- raiz: tree root, irregular hyperbola, organic material
-- rocha: rock, irregular shape, variable reflection
-- desconhecido: ambiguous signature
+Objetos enterrados comuns em levantamentos urbanos/de infraestrutura:
+- tubulacao_agua: tubulação de água (metálica ou PVC), reflexão limpa e forte
+- tubulacao_gas: tubulação de gás (metálica), reflexão forte, geralmente rasa
+- cabo_eletrico: cabo elétrico, diâmetro pequeno, reflexão metálica forte
+- cabo_telecom: cabo de telecomunicações, diâmetro pequeno, pode aparecer em feixes
+- vazio: vazio/cavidade, dupla reflexão (superfície superior e inferior)
+- raiz: raiz de árvore, hipérbole irregular, material orgânico
+- rocha: rocha, forma irregular, reflexão variável
+- desconhecido: assinatura ambígua
 
-Respond ONLY with a valid JSON object using these exact fields:
+Responda APENAS com um objeto JSON válido usando exatamente estes campos. \
+Todos os textos devem estar em português do Brasil:
 {
-  "ia_tipo_sugerido": "<one of the types listed above>",
-  "ia_descricao": "<1-2 sentences describing the detected object>",
-  "ia_justificativa_visual": "<what visual features in the radargram indicate this interpretation>",
-  "ia_justificativa_tecnica": "<technical reasoning: depth, diameter, signal characteristics>",
+  "ia_tipo_sugerido": "<um dos tipos listados acima>",
+  "ia_descricao": "<1-2 frases descrevendo o objeto detectado>",
+  "ia_justificativa_visual": "<quais características visuais no radarograma indicam esta interpretação>",
+  "ia_justificativa_tecnica": "<raciocínio técnico: profundidade, diâmetro, características do sinal>",
   "ia_confianca": "<alta | media | baixa>",
-  "ia_recomendacao": "<action recommendation for the field/technical team>",
-  "vai_para_planta_sugerido": true or false,
-  "vai_para_relatorio_sugerido": true or false,
-  "observacoes": "<additional observations or null>"
+  "ia_recomendacao": "<recomendação de ação para a equipe de campo/técnica>",
+  "vai_para_planta_sugerido": true ou false,
+  "vai_para_relatorio_sugerido": true ou false,
+  "observacoes": "<observações adicionais ou null>"
 }"""
 
 
@@ -148,22 +149,22 @@ def _build_messages(
 
 def _user_text(project: dict[str, Any], t: dict[str, Any]) -> str:
     return (
-        f"Survey: {project.get('nome', '?')} | "
+        f"Levantamento: {project.get('nome', '?')} | "
         f"Local: {project.get('local', 'N/A')}, {project.get('estado', 'N/A')}\n"
-        f"File: {t.get('arquivo_dzt', 'N/A')}\n\n"
-        "Automated detection data:\n"
+        f"Arquivo: {t.get('arquivo_dzt', 'N/A')}\n\n"
+        "Dados da detecção automática:\n"
         f"  Rank: #{t.get('rank', '?')}\n"
-        f"  Position: {t.get('x_m', '?')} m along profile\n"
-        f"  Depth: {t.get('depth_m', '?')} m\n"
-        f"  Estimated diameter: {t.get('diam_est_m', '?')} m "
-        f"(confidence: {t.get('diam_confianca', '?')})\n"
-        f"  Material type (algorithm): {t.get('tipo_material', 'N/A')} "
+        f"  Posição: {t.get('x_m', '?')} m ao longo do perfil\n"
+        f"  Profundidade: {t.get('depth_m', '?')} m\n"
+        f"  Diâmetro estimado: {t.get('diam_est_m', '?')} m "
+        f"(confiança: {t.get('diam_confianca', '?')})\n"
+        f"  Tipo de material (algoritmo): {t.get('tipo_material', 'N/A')} "
         f"({t.get('confianca_tipo', 'N/A')})\n"
-        f"  Algorithm score: {t.get('confidence_score', '?')}/100 "
+        f"  Score do algoritmo: {t.get('confidence_score', '?')}/100 "
         f"({t.get('confidence_label_tecnico', '?')})\n"
         f"  SNR local: {t.get('snr_local', 'N/A')}\n\n"
-        "Image above: crop of the radargram centered on this target.\n"
-        "Return JSON interpretation."
+        "Imagem acima: recorte do radarograma centralizado neste alvo.\n"
+        "Retorne a interpretação em JSON com todos os textos em português do Brasil."
     )
 
 
