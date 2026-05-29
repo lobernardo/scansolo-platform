@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Database } from "@/lib/types/database";
 import { ProjectStatusPoller } from "./ProjectStatusPoller";
 import { acceptAllIaSuggestions } from "./revisao/actions";
+import { startCartografia } from "./cartografia/actions";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -17,6 +18,7 @@ const PROCESSING_STATUSES = new Set([
   "aguardando_processamento",
   "processando_gpr",
   "processando_ia",
+  "aguardando_cartografia",
 ]);
 
 const STATUS_LABEL: Record<string, string> = {
@@ -29,6 +31,9 @@ const STATUS_LABEL: Record<string, string> = {
   ia_concluida: "IA concluída",
   revisao_em_andamento: "Revisão em andamento",
   revisao_concluida: "Revisão concluída",
+  aguardando_cartografia: "Cartografia em andamento",
+  cartografia_concluida: "Cartografia concluída",
+  cartografia_pendente_dados: "Cartografia — dados pendentes",
   erro: "Erro",
   finalizado: "Finalizado",
 };
@@ -43,6 +48,9 @@ const STATUS_COLOR: Record<string, string> = {
   ia_concluida: "bg-green-200 text-green-800",
   revisao_em_andamento: "bg-orange-100 text-orange-700",
   revisao_concluida: "bg-teal-100 text-teal-700",
+  aguardando_cartografia: "bg-indigo-100 text-indigo-700",
+  cartografia_concluida: "bg-indigo-200 text-indigo-800",
+  cartografia_pendente_dados: "bg-yellow-100 text-yellow-700",
   erro: "bg-red-50 text-red-700",
   finalizado: "bg-green-200 text-green-900",
 };
@@ -210,13 +218,70 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
-      {/* Revisão concluída */}
+      {/* Revisão concluída — iniciar cartografia */}
       {project.status === "revisao_concluida" && (
-        <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+        <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 space-y-3">
           <p className="text-sm text-teal-800">
             <span className="font-medium">Revisão técnica concluída.</span>{" "}
-            Projeto pronto para a próxima etapa.
+            Pronto para gerar os arquivos cartográficos.
           </p>
+          <form action={startCartografia.bind(null, project.id)}>
+            <button
+              type="submit"
+              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+            >
+              Gerar arquivos cartográficos
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Cartografia em andamento */}
+      {project.status === "aguardando_cartografia" && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+            <p className="text-sm text-indigo-800">
+              Gerando arquivos cartográficos…
+            </p>
+          </div>
+          <Link
+            href={`/projetos/${id}/cartografia`}
+            className="text-sm font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+          >
+            Ver resultado →
+          </Link>
+        </div>
+      )}
+
+      {/* Cartografia pendente dados */}
+      {project.status === "cartografia_pendente_dados" && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 flex items-center justify-between">
+          <p className="text-sm text-yellow-800">
+            <span className="font-medium">Cartografia — dados pendentes.</span>{" "}
+            Arquivos de referência necessários.
+          </p>
+          <Link
+            href={`/projetos/${id}/cartografia`}
+            className="text-sm font-medium text-yellow-700 underline underline-offset-2 hover:text-yellow-900"
+          >
+            Ver detalhes →
+          </Link>
+        </div>
+      )}
+
+      {/* Cartografia concluída */}
+      {project.status === "cartografia_concluida" && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 flex items-center justify-between">
+          <p className="text-sm text-indigo-800">
+            <span className="font-medium">Cartografia concluída.</span>
+          </p>
+          <Link
+            href={`/projetos/${id}/cartografia`}
+            className="text-sm font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+          >
+            Baixar arquivos →
+          </Link>
         </div>
       )}
 

@@ -21,6 +21,7 @@ except ImportError:
 from clients.supabase_client import SupabaseClient
 from job_gpr import handle_gpr_job
 from job_ia import handle_ia_job
+from job_cartografia import handle_cartografia_job
 
 log = structlog.get_logger()
 
@@ -55,6 +56,8 @@ def poll_once(supa: SupabaseClient) -> None:
         handle_gpr_job(supa, job)
     elif job_type == "ia":
         handle_ia_job(supa, job)
+    elif job_type == "cartografia":
+        handle_cartografia_job(supa, job)
     else:
         log.warning("unknown_job_type_skipped", job_id=job_id, job_type=job_type)
         supa.update_job_status(job_id, "erro", error_message=f"job_type '{job_type}' not implemented in this worker version")

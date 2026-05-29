@@ -173,6 +173,96 @@ class SupabaseClient:
         )
         return result.data or []
 
+    # ── Cartography ───────────────────────────────────────────────────────────
+
+    def get_all_project_files(self, project_id: str) -> list[dict[str, Any]]:
+        """All confirmed project files (any extension)."""
+        result = (
+            self._client.table("project_files")
+            .select("id, file_name, supabase_storage_path, extension, status")
+            .eq("project_id", project_id)
+            .eq("status", "confirmado")
+            .execute()
+        )
+        return result.data or []
+
+    def get_reviewed_targets(self, project_id: str) -> list[dict[str, Any]]:
+        """
+        Returns detected_targets merged with technical_reviews + ai_interpretations
+        for the latest run, filtered to vai_para_planta OR vai_para_relatorio = true.
+        """
+        run_id = self.get_latest_run_id(project_id)
+        if not run_id:
+            return []
+
+        profiles = [p for p in self.get_profiles_for_project(project_id) if p.get("run_id") == run_id]
+        profile_ids = [p["id"] for p in profiles]
+        if not profile_ids:
+            return []
+
+        t_result = (
+            self._client.table("detected_targets")
+            .select("*")
+            .in_("profile_id", profile_ids)
+            .order("rank")
+            .execute()
+        )
+        targets = t_result.data or []
+        target_ids = [t["id"] for t in targets]
+        if not target_ids:
+            return []
+
+        r_result = (
+            self._client.table("technical_reviews")
+            .select("*")
+            .in_("target_id", target_ids)
+            .execute()
+        )
+        reviews = {r["target_id"]: r for r in (r_result.data or [])}
+
+        ai_result = (
+            self._client.table("ai_interpretations")
+            .select("target_id, ia_tipo_sugerido, ia_confianca, vai_para_planta_sugerido, vai_para_relatorio_sugerido")
+            .in_("target_id", target_ids)
+            .execute()
+        )
+        ai_map = {a["target_id"]: a for a in (ai_result.data or [])}
+
+        merged = []
+        for t in targets:
+            rv = reviews.get(t["id"], {})
+            ai = ai_map.get(t["id"], {})
+            vai_planta = rv.get("vai_para_planta") or False
+            vai_rel = rv.get("vai_para_relatorio") or False
+            if not vai_planta and not vai_rel:
+                continue
+            merged.append({
+                **t,
+                "tipo_final": rv.get("tipo_final") or ai.get("ia_tipo_sugerido"),
+                "vai_para_planta": vai_planta,
+                "vai_para_relatorio": vai_rel,
+                "observacao_revisao": rv.get("observacao"),
+                "review_status": rv.get("status_review", "pendente"),
+                "ia_tipo_sugerido": ai.get("ia_tipo_sugerido"),
+                "ia_confianca": ai.get("ia_confianca"),
+            })
+        return merged
+
+    def insert_cartography_output(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._client.table("cartography_outputs").insert(payload).execute()
+        return result.data[0]
+
+    def get_cartography_output(self, project_id: str) -> dict[str, Any] | None:
+        result = (
+            self._client.table("cartography_outputs")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
     # ── Audit log ─────────────────────────────────────────────────────────────
 
     def audit(

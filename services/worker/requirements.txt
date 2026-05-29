@@ -8,6 +8,7 @@ tenacity==9.0.0
 structlog==24.4.0
 pydantic==2.10.3
 pydantic-settings==2.7.0
+ezdxf>=1.3            # DXF generation (Fase 4 - Cartografia)
 # pipeline dependencies
 # gprpy is not on PyPI — install from GitHub:
 #   pip install git+https://github.com/NSGeophysics/GPRPy.git
