@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Database } from "@/lib/types/database";
 import { ProjectStatusPoller } from "./ProjectStatusPoller";
+import { acceptAllIaSuggestions } from "./revisao/actions";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -26,6 +27,8 @@ const STATUS_LABEL: Record<string, string> = {
   gpr_concluido: "GPR concluído",
   processando_ia: "Processando IA",
   ia_concluida: "IA concluída",
+  revisao_em_andamento: "Revisão em andamento",
+  revisao_concluida: "Revisão concluída",
   erro: "Erro",
   finalizado: "Finalizado",
 };
@@ -38,6 +41,8 @@ const STATUS_COLOR: Record<string, string> = {
   gpr_concluido: "bg-green-100 text-green-700",
   processando_ia: "bg-purple-50 text-purple-700",
   ia_concluida: "bg-green-200 text-green-800",
+  revisao_em_andamento: "bg-orange-100 text-orange-700",
+  revisao_concluida: "bg-teal-100 text-teal-700",
   erro: "bg-red-50 text-red-700",
   finalizado: "bg-green-200 text-green-900",
 };
@@ -164,12 +169,53 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
-      {/* IA done with results */}
-      {iaDone && hasAiResults && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+      {/* IA done — decision banner */}
+      {iaDone && hasAiResults && project.status === "ia_concluida" && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
           <p className="text-sm text-green-800">
             <span className="font-medium">Interpretação IA concluída.</span>{" "}
-            {aiInterpretations.length} alvo{aiInterpretations.length !== 1 ? "s" : ""} interpretado{aiInterpretations.length !== 1 ? "s" : ""} por GPT-4o.
+            {aiInterpretations.length} alvo{aiInterpretations.length !== 1 ? "s" : ""} interpretado{aiInterpretations.length !== 1 ? "s" : ""} por GPT-4o. Escolha como prosseguir:
+          </p>
+          <div className="flex gap-3 flex-wrap">
+            <form action={acceptAllIaSuggestions.bind(null, project.id)}>
+              <button
+                type="submit"
+                className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 transition-colors"
+              >
+                Aceitar todas as sugestões da IA
+              </button>
+            </form>
+            <Link
+              href={`/projetos/${id}/revisao`}
+              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Revisar alvos manualmente
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Revisão em andamento */}
+      {project.status === "revisao_em_andamento" && (
+        <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 flex items-center justify-between">
+          <p className="text-sm text-orange-800">
+            <span className="font-medium">Revisão técnica em andamento.</span>
+          </p>
+          <Link
+            href={`/projetos/${id}/revisao`}
+            className="text-sm font-medium text-orange-700 underline underline-offset-2 hover:text-orange-900"
+          >
+            Continuar revisão →
+          </Link>
+        </div>
+      )}
+
+      {/* Revisão concluída */}
+      {project.status === "revisao_concluida" && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+          <p className="text-sm text-teal-800">
+            <span className="font-medium">Revisão técnica concluída.</span>{" "}
+            Projeto pronto para a próxima etapa.
           </p>
         </div>
       )}
