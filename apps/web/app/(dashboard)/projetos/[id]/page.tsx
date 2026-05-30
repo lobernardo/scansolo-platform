@@ -7,6 +7,7 @@ import type { Database } from "@/lib/types/database";
 import { ProjectStatusPoller } from "./ProjectStatusPoller";
 import { acceptAllIaSuggestions } from "./revisao/actions";
 import { startCartografia } from "./cartografia/actions";
+import { startRelatorio } from "./relatorio/actions";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -19,6 +20,8 @@ const PROCESSING_STATUSES = new Set([
   "processando_gpr",
   "processando_ia",
   "aguardando_cartografia",
+  "aguardando_relatorio",
+  "relatorio_em_andamento",
 ]);
 
 const STATUS_LABEL: Record<string, string> = {
@@ -34,8 +37,12 @@ const STATUS_LABEL: Record<string, string> = {
   aguardando_cartografia: "Cartografia em andamento",
   cartografia_concluida: "Cartografia concluída",
   cartografia_pendente_dados: "Cartografia — dados pendentes",
-  erro: "Erro",
+  aguardando_relatorio: "Gerando relatório",
+  relatorio_em_andamento: "Relatório em andamento",
+  relatorio_gerado: "Relatório gerado",
+  aguardando_aprovacao: "Aguardando aprovação",
   finalizado: "Finalizado",
+  erro: "Erro",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -51,8 +58,12 @@ const STATUS_COLOR: Record<string, string> = {
   aguardando_cartografia: "bg-indigo-100 text-indigo-700",
   cartografia_concluida: "bg-indigo-200 text-indigo-800",
   cartografia_pendente_dados: "bg-yellow-100 text-yellow-700",
+  aguardando_relatorio: "bg-violet-100 text-violet-700",
+  relatorio_em_andamento: "bg-violet-100 text-violet-700",
+  relatorio_gerado: "bg-violet-200 text-violet-800",
+  aguardando_aprovacao: "bg-violet-200 text-violet-800",
+  finalizado: "bg-green-300 text-green-900",
   erro: "bg-red-50 text-red-700",
-  finalizado: "bg-green-200 text-green-900",
 };
 
 export default async function ProjetoDetailPage({
@@ -270,17 +281,75 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
-      {/* Cartografia concluída */}
+      {/* Cartografia concluída — iniciar relatório */}
       {project.status === "cartografia_concluida" && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 flex items-center justify-between">
-          <p className="text-sm text-indigo-800">
-            <span className="font-medium">Cartografia concluída.</span>
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-indigo-800">
+              <span className="font-medium">Cartografia concluída.</span>
+            </p>
+            <Link
+              href={`/projetos/${id}/cartografia`}
+              className="text-xs font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-800"
+            >
+              Ver arquivos
+            </Link>
+          </div>
+          <form action={startRelatorio.bind(null, project.id)}>
+            <button
+              type="submit"
+              className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 transition-colors"
+            >
+              Gerar relatório
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Relatório em andamento */}
+      {(project.status === "aguardando_relatorio" || project.status === "relatorio_em_andamento") && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-violet-400 animate-pulse shrink-0" />
+            <p className="text-sm text-violet-800">Gerando relatório…</p>
+          </div>
+          <Link
+            href={`/projetos/${id}/relatorio`}
+            className="text-sm font-medium text-violet-700 underline underline-offset-2 hover:text-violet-900"
+          >
+            Ver status →
+          </Link>
+        </div>
+      )}
+
+      {/* Relatório gerado */}
+      {project.status === "relatorio_gerado" && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 flex items-center justify-between">
+          <p className="text-sm text-violet-800">
+            <span className="font-medium">Relatório gerado.</span>{" "}
+            Pronto para revisão e aprovação.
           </p>
           <Link
-            href={`/projetos/${id}/cartografia`}
-            className="text-sm font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+            href={`/projetos/${id}/relatorio`}
+            className="text-sm font-medium text-violet-700 underline underline-offset-2 hover:text-violet-900"
           >
-            Baixar arquivos →
+            Abrir relatório →
+          </Link>
+        </div>
+      )}
+
+      {/* Finalizado */}
+      {project.status === "finalizado" && (
+        <div className="rounded-lg border border-green-300 bg-green-50 p-4 flex items-center justify-between">
+          <p className="text-sm text-green-800">
+            <span className="font-medium">Projeto finalizado.</span>{" "}
+            Relatório aprovado.
+          </p>
+          <Link
+            href={`/projetos/${id}/relatorio`}
+            className="text-sm font-medium text-green-700 underline underline-offset-2 hover:text-green-900"
+          >
+            Ver relatório →
           </Link>
         </div>
       )}

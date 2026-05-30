@@ -445,14 +445,23 @@ def _gen_dxf(
                 (x, y), r,
                 dxfattribs={"layer": "SCANSOLO_ALVOS", "color": color},
             )
-            msp.add_text(
-                f"#{t.get('rank')} {tipo[:12]} {(t.get('depth_m') or 0):.2f}m",
-                dxfattribs={
-                    "layer": "SCANSOLO_TEXTOS",
-                    "height": 0.07,
-                    "insert": (x, y - r - 0.12),
-                },
-            )
+            # Label padrão ScanSOLO (3 linhas)
+            diam_mm = int(round((t.get("diam_est_m") or 0.06) * 1000))
+            depth_br = f"{(t.get('depth_m') or 0):.2f}".replace(".", ",")
+            lh = 0.09  # line height spacing
+            for li, label in enumerate([
+                "INTERFERÊNCIA",
+                f"DIÂMETRO APARENTE={diam_mm}mm⌀",
+                f"PROF. GS= {depth_br}m",
+            ]):
+                msp.add_text(
+                    label,
+                    dxfattribs={
+                        "layer": "SCANSOLO_TEXTOS",
+                        "height": 0.065 if li == 0 else 0.055,
+                        "insert": (x, y - r - 0.10 - li * lh),
+                    },
+                )
 
         y_offset -= depth_max + gap
 

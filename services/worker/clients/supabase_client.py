@@ -263,6 +263,33 @@ class SupabaseClient:
         )
         return result.data[0] if result.data else None
 
+    # ── Report outputs ────────────────────────────────────────────────────────
+
+    def get_report_outputs(self, project_id: str) -> list[dict[str, Any]]:
+        result = (
+            self._client.table("report_outputs")
+            .select("id, version, status, created_at")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data or []
+
+    def insert_report_output(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._client.table("report_outputs").insert(payload).execute()
+        return result.data[0]
+
+    def get_latest_report_output(self, project_id: str) -> dict[str, Any] | None:
+        result = (
+            self._client.table("report_outputs")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
     # ── Audit log ─────────────────────────────────────────────────────────────
 
     def audit(
