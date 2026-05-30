@@ -119,14 +119,14 @@ def handle_cartografia_job(supa: "SupabaseClient", job: dict) -> None:
 
     # GeoJSON — always (local coords if no GPS)
     geojson_path = f"{prefix}/{pid8}_alvos.geojson"
-    supa.upload_file(STORAGE_BUCKET, geojson_path, _gen_geojson(targets, project, gps_path), "application/geo+json")
+    supa.upload_file(STORAGE_BUCKET, geojson_path, _gen_geojson(targets, project, gps_path), "text/plain")
     urls["geojson_path"] = geojson_path
     log.info("cartografia_geojson_done")
 
     # DXF — always (cross-section view)
     try:
         dxf_path = f"{prefix}/{pid8}_alvos.dxf"
-        supa.upload_file(STORAGE_BUCKET, dxf_path, _gen_dxf(targets, profiles, project), "application/dxf")
+        supa.upload_file(STORAGE_BUCKET, dxf_path, _gen_dxf(targets, profiles, project), "application/octet-stream")
         urls["dxf_dropbox_path"] = dxf_path
         log.info("cartografia_dxf_done")
     except Exception as exc:
@@ -137,7 +137,7 @@ def handle_cartografia_job(supa: "SupabaseClient", job: dict) -> None:
     if gps_path:
         try:
             kml_path = f"{prefix}/{pid8}_alvos.kml"
-            supa.upload_file(STORAGE_BUCKET, kml_path, _gen_kml(targets, gps_path, project), "application/vnd.google-earth.kml+xml")
+            supa.upload_file(STORAGE_BUCKET, kml_path, _gen_kml(targets, gps_path, project), "text/plain")
             urls["kml_dropbox_path"] = kml_path
             log.info("cartografia_kml_done")
         except Exception as exc:
@@ -466,9 +466,9 @@ def _gen_dxf(
         dxfattribs={"layer": "SCANSOLO_TITULO", "height": 0.10, "insert": (0, y_offset - 0.85)},
     )
 
-    buf = io.BytesIO()
+    buf = io.StringIO()
     doc.write(buf)
-    return buf.getvalue()
+    return buf.getvalue().encode("utf-8")
 
 
 def _setup_dxf_layers(doc: Any) -> None:
