@@ -32,34 +32,18 @@ export default function NovaEntradaPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Área levantada (m²)
-            </label>
-            <input
-              type="number"
-              name="area_m2"
-              min="1"
-              step="1"
-              placeholder="500"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Antena GPR (MHz)
-            </label>
-            <select
-              name="antena_freq_mhz"
-              defaultValue="270"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-            >
-              <option value="270">270 MHz</option>
-              <option value="400">400 MHz</option>
-              <option value="900">900 MHz</option>
-            </select>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Área levantada (m²)
+          </label>
+          <input
+            type="number"
+            name="area_m2"
+            min="1"
+            step="1"
+            placeholder="500"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          />
         </div>
 
         <div className="flex items-center gap-2">

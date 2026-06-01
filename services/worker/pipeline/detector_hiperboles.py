@@ -586,10 +586,19 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
     dx = params["dx_m"]
     dt = params["dt_s"]
     v  = params["v_m_per_s"]
+    col_search_half = params.get("col_search_half", 80)
 
     accum, depths = hough_hiperbola(arr_processado, params)
     peaks = nms_hough(accum, depths, dx, params["nms_radius_m"])
     peaks = peaks[:top_n]
+
+    largura_hiperbole_m = round(col_search_half * dx * 2, 3)
+    if largura_hiperbole_m < 1.5:
+        tipo_tamanho_global = "pequena"
+    elif largura_hiperbole_m <= 3.0:
+        tipo_tamanho_global = "media"
+    else:
+        tipo_tamanho_global = "grande"
 
     rows_out = []
     for rank, (col0_hough, d_idx, score) in enumerate(peaks, start=1):
@@ -602,15 +611,21 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
         diam, confianca = estimar_diametro_delta_t(
             arr_processado, col0_ref, row_apex, params
         )
+        prof_topo_m = round(h_ref - diam / 2, 3) if diam > 0 else h_ref
+        altura_hiperbole_m = round(diam * 1.5, 3) if diam > 0 else round(h_ref * 0.8, 3)
         rows_out.append({
-            "rank":           rank,
-            "x_m":            round(col0_ref * dx, 2),
-            "depth_m":        h_ref,
-            "depth_hough_m":  round(h_hough, 3),
-            "fit_ok":         fit_ok,
-            "diam_est_m":     diam,
-            "diam_confianca": confianca,
-            "score":          round(score, 3),
+            "rank":                rank,
+            "x_m":                 round(col0_ref * dx, 2),
+            "depth_m":             h_ref,
+            "depth_hough_m":       round(h_hough, 3),
+            "fit_ok":              fit_ok,
+            "diam_est_m":          diam,
+            "diam_confianca":      confianca,
+            "score":               round(score, 3),
+            "prof_topo_m":         prof_topo_m,
+            "largura_hiperbole_m": largura_hiperbole_m,
+            "altura_hiperbole_m":  altura_hiperbole_m,
+            "tipo_tamanho":        tipo_tamanho_global,
         })
 
     return pd.DataFrame(rows_out), accum, depths

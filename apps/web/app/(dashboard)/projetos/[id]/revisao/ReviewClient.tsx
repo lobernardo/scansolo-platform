@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { reviewTarget, finalizeReview } from "./actions";
 import type { Database } from "@/lib/types/database";
@@ -8,6 +8,16 @@ import type { Database } from "@/lib/types/database";
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
 type AiInterpretationRow = Database["public"]["Tables"]["ai_interpretations"]["Row"];
 type TechnicalReviewRow = Database["public"]["Tables"]["technical_reviews"]["Row"];
+
+type ProfileSlim = {
+  id: string;
+  arquivo_dzt: string | null;
+  imagem_bruta_url: string | null;
+  imagem_processada_url: string | null;
+  imagem_anotada_url: string | null;
+};
+
+type LightboxState = { images: { url: string; label: string }[]; index: number };
 
 type ReviewStatus = "pendente" | "aprovado" | "ajustado" | "descartado";
 
@@ -46,15 +56,51 @@ const STATUS_LABEL: Record<ReviewStatus, string> = {
 export function ReviewClient({
   project,
   targets,
+  profiles = [],
   aiByTargetId,
   existingReviews,
 }: {
   project: { id: string; nome: string };
   targets: DetectedTargetRow[];
+  profiles?: ProfileSlim[];
   aiByTargetId: Record<string, AiInterpretationRow>;
   existingReviews: Record<string, TechnicalReviewRow>;
 }) {
   const router = useRouter();
+
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+
+  const prevImage = useCallback(() => {
+    setLightbox((lb) => lb ? { ...lb, index: (lb.index - 1 + lb.images.length) % lb.images.length } : null);
+  }, []);
+
+  const nextImage = useCallback(() => {
+    setLightbox((lb) => lb ? { ...lb, index: (lb.index + 1) % lb.images.length } : null);
+  }, []);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeLightbox();
+      else if (e.key === "ArrowLeft") prevImage();
+      else if (e.key === "ArrowRight") nextImage();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox, closeLightbox, prevImage, nextImage]);
+
+  function openLightbox(profile: ProfileSlim, startIndex: number) {
+    const imgs: { url: string; label: string }[] = [
+      { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
+      { url: profile.imagem_processada_url ?? "", label: "Processada" },
+      { url: profile.imagem_anotada_url ?? "", label: "Anotada" },
+    ].filter((i) => i.url);
+    if (imgs.length === 0) return;
+    const safeIndex = Math.min(startIndex, imgs.length - 1);
+    setLightbox({ images: imgs, index: safeIndex });
+  }
 
   const [statuses, setStatuses] = useState<Record<string, ReviewStatus>>(() => {
     const init: Record<string, ReviewStatus> = {};
@@ -204,6 +250,91 @@ export function ReviewClient({
           style={{ width: `${total > 0 ? (reviewed / total) * 100 : 0}%` }}
         />
       </div>
+
+      {/* Profile image thumbnails */}
+      {profiles.length > 0 && (
+        <div className="space-y-3">
+          {profiles.map((prof) => {
+            const imgs = [
+              { url: prof.imagem_bruta_url, label: "Bruta" },
+              { url: prof.imagem_processada_url, label: "Processada" },
+              { url: prof.imagem_anotada_url, label: "Anotada" },
+            ].filter((i): i is { url: string; label: string } => !!i.url);
+            if (imgs.length === 0) return null;
+            return (
+              <div key={prof.id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                <p className="text-xs font-medium text-gray-500 px-3 py-1.5 border-b border-gray-100">
+                  {prof.arquivo_dzt ?? prof.id}
+                </p>
+                <div className="flex gap-2 p-2">
+                  {imgs.map((img, idx) => (
+                    <button
+                      key={img.label}
+                      onClick={() => openLightbox(prof, idx)}
+                      className="relative group rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors"
+                      title={`Abrir ${img.label}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.url} alt={img.label} className="h-20 w-auto object-cover" />
+                      <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {img.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Lightbox overlay */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={closeLightbox}
+        >
+          <button
+            onClick={closeLightbox}
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-gray-300"
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
+
+          {lightbox.images.length > 1 && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); prevImage(); }}
+                className="absolute left-4 text-white text-3xl leading-none hover:text-gray-300 px-2"
+                aria-label="Anterior"
+              >
+                ←
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); nextImage(); }}
+                className="absolute right-12 text-white text-3xl leading-none hover:text-gray-300 px-2"
+                aria-label="Próxima"
+              >
+                →
+              </button>
+            </>
+          )}
+
+          <div className="flex flex-col items-center gap-3 max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.images[lightbox.index].url}
+              alt={lightbox.images[lightbox.index].label}
+              className="max-w-full max-h-[80vh] object-contain rounded"
+            />
+            <div className="flex gap-3 items-center">
+              <span className="text-white text-sm">{lightbox.images[lightbox.index].label}</span>
+              <span className="text-gray-400 text-xs">{lightbox.index + 1} / {lightbox.images.length}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (

@@ -50,10 +50,12 @@ export default async function RevisaoPage({
 
   const { data: profilesRaw } = await supabase
     .from("gpr_profiles")
-    .select("id")
+    .select("id, arquivo_dzt, imagem_bruta_url, imagem_processada_url, imagem_anotada_url")
     .eq("project_id", id)
     .order("created_at", { ascending: false });
-  const profileIds = ((profilesRaw ?? []) as { id: string }[]).map((p) => p.id);
+  type ProfileSlim = { id: string; arquivo_dzt: string | null; imagem_bruta_url: string | null; imagem_processada_url: string | null; imagem_anotada_url: string | null };
+  const profiles = (profilesRaw ?? []) as ProfileSlim[];
+  const profileIds = profiles.map((p) => p.id);
 
   let targets: DetectedTargetRow[] = [];
   if (profileIds.length > 0) {
@@ -96,6 +98,7 @@ export default async function RevisaoPage({
       <ReviewClient
         project={{ id: projectData.id, nome: projectData.nome }}
         targets={targets}
+        profiles={profiles}
         aiByTargetId={aiByTargetId}
         existingReviews={existingReviewsByTargetId}
       />

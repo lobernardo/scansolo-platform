@@ -22,8 +22,7 @@ export async function createProject(formData: FormData) {
   const contato_nome = (formData.get("contato_nome") as string)?.trim() || null;
   const area_m2_raw = formData.get("area_m2") as string;
   const area_m2 = area_m2_raw ? parseFloat(area_m2_raw) : null;
-  const antena_freq_mhz_raw = formData.get("antena_freq_mhz") as string;
-  const antena_freq_mhz = antena_freq_mhz_raw ? parseInt(antena_freq_mhz_raw, 10) : 270;
+  const antena_freq_mhz = 270;
   const tem_pipe_locator = formData.get("tem_pipe_locator") === "true";
 
   if (!nome || !cliente || !estado || !data_levantamento) {

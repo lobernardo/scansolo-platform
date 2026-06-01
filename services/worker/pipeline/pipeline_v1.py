@@ -76,11 +76,11 @@ PRESETS = {
         "bandpass_low_mhz":  80,
         "bandpass_high_mhz": 500,
         "bandpass_order":    5,
-        "bgremoval_traces":  30,
-        "tpow_power":        0.5,
+        "bgremoval_traces":  50,
+        "tpow_power":        0.8,
         "agc_window":        150,
         "velocity_mns":      0.1,
-        "contrast":          3.0,
+        "contrast":          3.5,
         "colormap":          "gray",
         "dpi":               150,
         # Detector de hiperboles
@@ -670,11 +670,39 @@ def main():
     pd.DataFrame(registros).to_csv(
         pasta_saida / "index_projeto.csv", index=False, encoding="utf-8"
     )
+    logger.info("index_projeto.csv salvo")
+
+    # Tabela de campo: consolida todos os alvos alta+media, ordenado por arquivo e prof_topo_m
+    _COLUNAS_CAMPO = [
+        "arquivo_dzt", "rank", "x_m", "prof_topo_m", "depth_m", "diam_est_m",
+        "largura_hiperbole_m", "tipo_tamanho", "tipo_material",
+        "confidence_label_relatorio", "score", "motivo_confianca",
+    ]
+    try:
+        csv_alvos = sorted((caminhos["alvos"]).glob("*_alvos.csv"))
+        if csv_alvos:
+            dfs = []
+            for f in csv_alvos:
+                try:
+                    dfs.append(pd.read_csv(str(f)))
+                except Exception:
+                    pass
+            if dfs:
+                df_all = pd.concat(dfs, ignore_index=True)
+                mask = df_all.get("confidence_label_relatorio", pd.Series(dtype=str)).isin(["alta", "media"])
+                df_campo = df_all[mask].copy()
+                colunas_presentes = [c for c in _COLUNAS_CAMPO if c in df_campo.columns]
+                df_campo = df_campo[colunas_presentes]
+                sort_cols = [c for c in ["arquivo_dzt", "prof_topo_m"] if c in df_campo.columns]
+                if sort_cols:
+                    df_campo = df_campo.sort_values(sort_cols).reset_index(drop=True)
+                df_campo.to_csv(str(pasta_saida / "tabela_campo.csv"), index=False, encoding="utf-8")
+                logger.info(f"tabela_campo.csv: {len(df_campo)} alvos (alta+media)")
+    except Exception as e:
+        logger.warning(f"tabela_campo.csv nao gerado: {e}")
 
     total_alvos = sum(r.get("n_alvos_detectados", 0) for r in registros
                       if isinstance(r.get("n_alvos_detectados"), int))
-
-    logger.info("index_projeto.csv salvo")
     logger.info("=" * 65)
     logger.info(f"Concluido    : {len(registros)-erros} ok  |  {erros} erro(s)  |  {total_alvos} alvo(s)")
     logger.info(f"Saida        : {pasta_saida}")
