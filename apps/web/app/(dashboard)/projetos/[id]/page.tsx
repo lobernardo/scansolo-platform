@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -8,6 +9,8 @@ import { ProjectStatusPoller } from "./ProjectStatusPoller";
 import { acceptAllIaSuggestions } from "./revisao/actions";
 import { startCartografia } from "./cartografia/actions";
 import { startRelatorio } from "./relatorio/actions";
+import { ProjectDetailClient } from "./ProjectDetailClient";
+import type { DownloadFile } from "./ProjectDetailClient";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -66,6 +69,20 @@ const STATUS_COLOR: Record<string, string> = {
   erro: "bg-red-50 text-red-700",
 };
 
+async function trySignedUrl(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bucket: string,
+  path: string | null | undefined
+): Promise<string | null> {
+  if (!path) return null;
+  try {
+    const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+    return data?.signedUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function ProjetoDetailPage({
   params,
 }: {
@@ -87,7 +104,6 @@ export default async function ProjetoDetailPage({
   if (!projectData) redirect("/projetos");
   const project = projectData as ProjectRow;
 
-  // Fetch all jobs for this project (for IA status display)
   const { data: jobsData } = await supabase
     .from("processing_jobs")
     .select("*")
@@ -124,6 +140,55 @@ export default async function ProjetoDetailPage({
   }
   const aiByTargetId = Object.fromEntries(aiInterpretations.map((ai) => [ai.target_id, ai]));
 
+  // Cartography and report outputs
+  const { data: cartRaw } = await supabase
+    .from("cartography_outputs")
+    .select("*")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const cartOutput = ((cartRaw ?? []) as Record<string, unknown>[])[0] ?? null;
+
+  const { data: reportRaw } = await supabase
+    .from("report_outputs")
+    .select("*")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const reportOutput = ((reportRaw ?? []) as Record<string, unknown>[])[0] ?? null;
+
+  // Generate signed URLs for downloadable files
+  const [dxfUrl, kmlUrl, docxUrl, pdfUrl] = await Promise.all([
+    trySignedUrl(supabase, "gpr-tabelas", cartOutput?.dxf_dropbox_path as string | null),
+    trySignedUrl(supabase, "gpr-tabelas", cartOutput?.kml_dropbox_path as string | null),
+    trySignedUrl(supabase, "gpr-tabelas", reportOutput?.docx_dropbox_path as string | null),
+    trySignedUrl(supabase, "gpr-tabelas", reportOutput?.pdf_dropbox_path as string | null),
+  ]);
+
+  // Fall back to stored public URL if signed URL failed
+  const downloadFiles: DownloadFile[] = [
+    {
+      label: "Relatório — DOCX (Word)",
+      url: docxUrl ?? (reportOutput?.docx_storage_url as string | null) ?? null,
+      ext: "docx",
+    },
+    {
+      label: "Relatório — PDF",
+      url: pdfUrl ?? (reportOutput?.pdf_storage_url as string | null) ?? null,
+      ext: "pdf",
+    },
+    {
+      label: "Cartografia — DXF (AutoCAD)",
+      url: dxfUrl ?? (cartOutput?.dxf_storage_url as string | null) ?? null,
+      ext: "dxf",
+    },
+    {
+      label: "Cartografia — KML (Google Earth)",
+      url: kmlUrl ?? (cartOutput?.kml_storage_url as string | null) ?? null,
+      ext: "kml",
+    },
+  ];
+
   const isProcessing = PROCESSING_STATUSES.has(project.status);
   const gprJob = jobs.find((j) => j.job_type === "gpr");
   const iaJob = jobs.find((j) => j.job_type === "ia");
@@ -131,9 +196,9 @@ export default async function ProjetoDetailPage({
   const hasAiResults = aiInterpretations.length > 0;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link href="/projetos" className="text-sm text-gray-500 hover:text-gray-700">
@@ -144,11 +209,18 @@ export default async function ProjetoDetailPage({
           </div>
           <h1 className="text-2xl font-bold">{project.nome}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {project.cliente}{project.local ? ` — ${project.local}` : ""} · {project.estado}
+            {project.cliente}
+            {project.local ? ` — ${project.local}` : ""} · {project.estado}
+            {(project as unknown as Record<string, unknown>).codigo_projeto
+              ? ` · ${(project as unknown as Record<string, unknown>).codigo_projeto}`
+              : ""}
           </p>
         </div>
         <StatusBadge status={project.status} />
       </div>
+
+      {/* Pipeline progress (Tarefa 4) */}
+      <PipelineProgress status={project.status} />
 
       {/* Auto-refresh while processing */}
       {isProcessing && <ProjectStatusPoller />}
@@ -193,7 +265,9 @@ export default async function ProjetoDetailPage({
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
           <p className="text-sm text-green-800">
             <span className="font-medium">Interpretação IA concluída.</span>{" "}
-            {aiInterpretations.length} alvo{aiInterpretations.length !== 1 ? "s" : ""} interpretado{aiInterpretations.length !== 1 ? "s" : ""} por GPT-4o. Escolha como prosseguir:
+            {aiInterpretations.length} alvo
+            {aiInterpretations.length !== 1 ? "s" : ""} interpretado
+            {aiInterpretations.length !== 1 ? "s" : ""} por GPT-4o.
           </p>
           <div className="flex gap-3 flex-wrap">
             <form action={acceptAllIaSuggestions.bind(null, project.id)}>
@@ -252,9 +326,7 @@ export default async function ProjetoDetailPage({
         <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-indigo-400 animate-pulse shrink-0" />
-            <p className="text-sm text-indigo-800">
-              Gerando arquivos cartográficos…
-            </p>
+            <p className="text-sm text-indigo-800">Gerando arquivos cartográficos…</p>
           </div>
           <Link
             href={`/projetos/${id}/cartografia`}
@@ -307,7 +379,8 @@ export default async function ProjetoDetailPage({
       )}
 
       {/* Relatório em andamento */}
-      {(project.status === "aguardando_relatorio" || project.status === "relatorio_em_andamento") && (
+      {(project.status === "aguardando_relatorio" ||
+        project.status === "relatorio_em_andamento") && (
         <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-violet-400 animate-pulse shrink-0" />
@@ -342,8 +415,7 @@ export default async function ProjetoDetailPage({
       {project.status === "finalizado" && (
         <div className="rounded-lg border border-green-300 bg-green-50 p-4 flex items-center justify-between">
           <p className="text-sm text-green-800">
-            <span className="font-medium">Projeto finalizado.</span>{" "}
-            Relatório aprovado.
+            <span className="font-medium">Projeto finalizado.</span> Relatório aprovado.
           </p>
           <Link
             href={`/projetos/${id}/relatorio`}
@@ -362,52 +434,127 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
-      {/* Jobs timeline (compact) */}
+      {/* Jobs timeline */}
       {jobs.length > 0 && (
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
           {jobs.map((job) => (
             <JobChip key={job.id} job={job} />
           ))}
         </div>
       )}
 
-      {/* GPR Profiles */}
-      {profiles.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold mb-4">
-            Perfis GPR{" "}
-            <span className="text-sm font-normal text-gray-400">
-              ({profiles.length} perfil{profiles.length !== 1 ? "s" : ""} ·{" "}
-              {targets.length} alvo{targets.length !== 1 ? "s" : ""} total)
-            </span>
-          </h2>
-          <div className="grid gap-6">
-            {profiles.map((profile) => (
-              <ProfileCard
-                key={profile.id}
-                profile={profile}
-                targets={targets.filter((t) => t.profile_id === profile.id)}
-                aiByTargetId={aiByTargetId}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Empty state after processing */}
-      {!isProcessing && profiles.length === 0 && project.status !== "aguardando_arquivos" && (
-        <p className="text-sm text-gray-400">Nenhum perfil GPR disponível.</p>
+      {/* Interactive sections: profile cards + targets table + files */}
+      {profiles.length > 0 || downloadFiles.some((f) => f.url) ? (
+        <ProjectDetailClient
+          profiles={profiles}
+          targets={targets}
+          aiByTargetId={aiByTargetId}
+          downloadFiles={downloadFiles}
+        />
+      ) : (
+        !isProcessing && project.status !== "aguardando_arquivos" && (
+          <p className="text-sm text-gray-400">Nenhum perfil GPR disponível.</p>
+        )
       )}
     </div>
   );
 }
 
+// ── Pipeline progress bar (Tarefa 4) ─────────────────────────────────────────
+
+type StageState = "done" | "active" | "pending";
+
+const PIPELINE_STAGES = [
+  { id: "gpr", label: "GPR", icon: "📡" },
+  { id: "ia", label: "IA", icon: "🤖" },
+  { id: "revisao", label: "Revisão", icon: "🔍" },
+  { id: "cartografia", label: "Cartografia", icon: "🗺️" },
+  { id: "relatorio", label: "Relatório", icon: "📄" },
+] as const;
+
+type StageId = (typeof PIPELINE_STAGES)[number]["id"];
+
+function getStageState(stageId: StageId, status: string): StageState {
+  const GPR_DONE = new Set(["gpr_concluido","processando_ia","ia_concluida","revisao_em_andamento","revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const IA_DONE  = new Set(["ia_concluida","revisao_em_andamento","revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const REV_DONE = new Set(["revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const CAR_DONE = new Set(["cartografia_concluida","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const REL_DONE = new Set(["relatorio_gerado","finalizado"]);
+
+  const GPR_ACT = new Set(["aguardando_processamento","processando_gpr"]);
+  const IA_ACT  = new Set(["processando_ia"]);
+  const REV_ACT = new Set(["ia_concluida","revisao_em_andamento"]);
+  const CAR_ACT = new Set(["revisao_concluida","aguardando_cartografia","cartografia_pendente_dados"]);
+  const REL_ACT = new Set(["cartografia_concluida","aguardando_relatorio","relatorio_em_andamento"]);
+
+  const maps: Record<StageId, { done: Set<string>; active: Set<string> }> = {
+    gpr:        { done: GPR_DONE, active: GPR_ACT },
+    ia:         { done: IA_DONE,  active: IA_ACT  },
+    revisao:    { done: REV_DONE, active: REV_ACT  },
+    cartografia:{ done: CAR_DONE, active: CAR_ACT  },
+    relatorio:  { done: REL_DONE, active: REL_ACT  },
+  };
+
+  const { done, active } = maps[stageId];
+  if (done.has(status)) return "done";
+  if (active.has(status)) return "active";
+  return "pending";
+}
+
+function PipelineProgress({ status }: { status: string }) {
+  if (["criado", "aguardando_arquivos"].includes(status)) return null;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-6 py-4">
+      <div className="flex items-start">
+        {PIPELINE_STAGES.map((stage, idx) => {
+          const state = getStageState(stage.id, status);
+          return (
+            <Fragment key={stage.id}>
+              <div className="flex flex-col items-center gap-1.5 shrink-0 w-16">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-base font-semibold transition-colors ${
+                    state === "done"
+                      ? "bg-green-500 text-white"
+                      : state === "active"
+                      ? "bg-blue-500 text-white animate-pulse"
+                      : "bg-gray-100 text-gray-400"
+                  }`}
+                >
+                  {state === "done" ? "✓" : stage.icon}
+                </div>
+                <span
+                  className={`text-[10px] font-medium text-center leading-tight ${
+                    state === "done"
+                      ? "text-green-600"
+                      : state === "active"
+                      ? "text-blue-600"
+                      : "text-gray-400"
+                  }`}
+                >
+                  {stage.label}
+                </span>
+              </div>
+              {idx < PIPELINE_STAGES.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mt-5 mx-0.5 transition-colors ${
+                    state === "done" ? "bg-green-300" : "bg-gray-200"
+                  }`}
+                />
+              )}
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Helper components ─────────────────────────────────────────────────────────
+
 function JobChip({ job }: { job: JobRow }) {
   const typeLabel: Record<string, string> = {
-    gpr: "GPR",
-    ia: "IA",
-    cartografia: "Cartografia",
-    relatorio: "Relatório",
+    gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório",
   };
   const statusColor: Record<string, string> = {
     aguardando: "bg-gray-100 text-gray-500",
@@ -423,7 +570,7 @@ function JobChip({ job }: { job: JobRow }) {
     processando_ia: "processando",
     processando: "processando",
     concluido: "concluído",
-    erro: job.job_type === "ia" ? "pendente (Fase 2)" : "erro",
+    erro: "erro",
   };
   return (
     <span
@@ -440,148 +587,11 @@ function JobChip({ job }: { job: JobRow }) {
 function StatusBadge({ status }: { status: string }) {
   return (
     <span
-      className={`text-xs font-medium px-3 py-1 rounded-full ${
+      className={`text-xs font-medium px-3 py-1 rounded-full shrink-0 ${
         STATUS_COLOR[status] ?? "bg-gray-100 text-gray-600"
       }`}
     >
       {STATUS_LABEL[status] ?? status}
     </span>
-  );
-}
-
-function ProfileCard({
-  profile,
-  targets,
-  aiByTargetId,
-}: {
-  profile: GprProfileRow;
-  targets: DetectedTargetRow[];
-  aiByTargetId: Record<string, AiInterpretationRow>;
-}) {
-  const hasImages =
-    profile.imagem_bruta_url || profile.imagem_processada_url || profile.imagem_anotada_url;
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-      {/* Profile header */}
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <p className="font-medium text-gray-900">{profile.arquivo_dzt}</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {profile.n_tracos != null ? `${profile.n_tracos} traços` : "—"} ·{" "}
-            {profile.profundidade_max_m != null
-              ? `${profile.profundidade_max_m.toFixed(2)} m prof.`
-              : "—"}{" "}
-            ·{" "}
-            {profile.distancia_max_m != null
-              ? `${profile.distancia_max_m.toFixed(2)} m dist.`
-              : "—"}
-          </p>
-        </div>
-        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded">
-          {targets.length} alvo{targets.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* Images */}
-      {hasImages && (
-        <div className="grid grid-cols-1 md:grid-cols-3 border-b border-gray-100">
-          {[
-            { url: profile.imagem_bruta_url, label: "Bruta" },
-            { url: profile.imagem_processada_url, label: "Processada" },
-            { url: profile.imagem_anotada_url, label: "Anotada" },
-          ]
-            .filter((img) => img.url)
-            .map((img, i) => (
-              <div key={img.label} className={`relative ${i > 0 ? "md:border-l border-gray-100" : ""}`}>
-                <span className="absolute top-2 left-2 text-xs bg-black/50 text-white px-1.5 py-0.5 rounded z-10">
-                  {img.label}
-                </span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.url!}
-                  alt={img.label}
-                  className="w-full h-48 object-cover"
-                />
-              </div>
-            ))}
-        </div>
-      )}
-
-      {/* Targets table */}
-      {targets.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-left">
-                <th className="px-3 py-2 font-medium text-gray-500">#</th>
-                <th className="px-3 py-2 font-medium text-gray-500">X (m)</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Prof (m)</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Diâm (m)</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Material</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Score</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Confiança</th>
-                <th className="px-3 py-2 font-medium text-gray-500">IA — Tipo</th>
-                <th className="px-3 py-2 font-medium text-gray-500">IA — Conf.</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Planta</th>
-                <th className="px-3 py-2 font-medium text-gray-500">Relatório</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {targets.map((t) => {
-                const ai = aiByTargetId[t.id] ?? null;
-                return (
-                  <tr key={t.id} className="hover:bg-gray-50" title={ai?.ia_descricao ?? undefined}>
-                    <td className="px-3 py-2 text-gray-500">{t.rank}</td>
-                    <td className="px-3 py-2">{t.x_m?.toFixed(2) ?? "—"}</td>
-                    <td className="px-3 py-2">{t.depth_m?.toFixed(2) ?? "—"}</td>
-                    <td className="px-3 py-2">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
-                    <td className="px-3 py-2">{t.tipo_material ?? "—"}</td>
-                    <td className="px-3 py-2">{t.confidence_score ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <ConfidenceBadge label={t.confidence_label_relatorio} />
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {ai ? (ai.ia_tipo_sugerido ?? "—") : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-3 py-2">
-                      {ai ? <ConfidenceBadge label={ai.ia_confianca} /> : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {ai
-                        ? (ai.vai_para_planta_sugerido ? <span className="text-green-600 font-bold">✓</span> : <span className="text-gray-300">✗</span>)
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      {ai
-                        ? (ai.vai_para_relatorio_sugerido ? <span className="text-green-600 font-bold">✓</span> : <span className="text-gray-300">✗</span>)
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {targets.length === 0 && !hasImages && (
-        <p className="text-xs text-gray-400 p-4">Aguardando resultados…</p>
-      )}
-      {targets.length === 0 && hasImages && (
-        <p className="text-xs text-gray-400 p-4">Nenhum alvo detectado neste perfil.</p>
-      )}
-    </div>
-  );
-}
-
-function ConfidenceBadge({ label }: { label: string | null }) {
-  if (!label) return <span className="text-gray-400">—</span>;
-  const colors =
-    label === "alta"
-      ? "bg-green-100 text-green-700"
-      : "bg-yellow-100 text-yellow-700";
-  return (
-    <span className={`px-1.5 py-0.5 rounded font-medium ${colors}`}>{label}</span>
   );
 }
