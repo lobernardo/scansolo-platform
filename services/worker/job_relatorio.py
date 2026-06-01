@@ -14,6 +14,9 @@ TODO (pós-validação com Marcos):
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import tempfile
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -30,7 +33,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 STORAGE_BUCKET = "gpr-tabelas"
-SUPABASE_URL = __import__("os").environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
 
 # ── Mapeamento de tipo interno → rótulo para o relatório ───────────────────
 _TIPO_LABEL: dict[str, str] = {
@@ -44,25 +47,46 @@ _TIPO_LABEL: dict[str, str] = {
     "desconhecido": "Interferência Não Identificada",
 }
 
-# ── Textos boilerplate (TODO: substituir com versão final aprovada pela ScanSOLO)
 _BOILERPLATE_GPR = (
-    "O Georadar, também conhecido como Ground Penetrating Radar (GPR), é um método geofísico "
-    "de alta resolução que utiliza ondas eletromagnéticas de radiofrequência para investigar o "
-    "interior do terreno de forma não destrutiva. As ondas são emitidas por uma antena "
-    "transmissora e penetram no solo, sendo refletidas nas interfaces entre materiais com "
-    "diferentes propriedades dielétricas. O tempo de retorno das reflexões é registrado e "
-    "processado para gerar perfis bidimensionais (radargramas) que permitem identificar e "
-    "mapear estruturas e interferências subterrâneas com precisão centimétrica em profundidade."
+    "As interferências lineares, como tubulações e envelopes de concreto, são detectadas pelo "
+    "Georadar sob a forma de uma hipérbole cujas profundidades e dimensões indicam as "
+    "características das interferências, permitindo sua individualização. A hipérbole é formada "
+    "pelo fato de a interferência ser detectada lateralmente em vários pontos do caminhamento "
+    "com o radar de solo. Nota: Embora a energia emitida pelo Georadar seja predominantemente "
+    "direcionada para o subsolo, parte da energia acaba sendo emitida para a superfície, o que "
+    "acarreta que interferências como postes, fios aéreos e prédios sejam detectados pelo "
+    "Georadar. Partes desses ruídos são eliminados no processamento, enquanto outra parte é "
+    "descartada durante a interpretação."
+    "\n\n"
+    "Ao longo de uma linha de sondagem as interferências melhores detectadas são aquelas "
+    "alinhadas perpendicularmente à direção da linha de sondagem, por esse motivo normalmente os "
+    "levantamentos com o Georadar são realizados na forma de uma malha, com linhas de sondagem "
+    "perpendiculares entre si. Esse procedimento busca detectar interferência alinhada em "
+    "qualquer direção."
+    "\n\n"
+    "Por tratar-se de um método de imageamento eletromagnético o Georadar possui uma grande "
+    "capacidade de distinção e identificação dos diferentes formatos de alvos detectados no "
+    "subsolo. Entre os principais alvos destacam-se tubulações metálicas, cabos elétricos, "
+    "galerias ou dutos de concreto, tubulações não metálicas e possíveis zonas de solo perturbado "
+    "ou vazios. As tubulações metálicas apresentam reflexões de alta amplitude e hipérboles bem "
+    "definidas, enquanto cabos elétricos e condutos menores produzem respostas mais discretas e "
+    "contínuas. Estruturas de maior porte, como galerias subterrâneas e dutos de concreto, são "
+    "identificadas por reflexões extensas e contínuas, normalmente associadas a fortes contrastes "
+    "dielétricos."
 )
 
 _BOILERPLATE_PIPE_LOCATOR = (
-    "O Pipe Locator é um equipamento eletromagnético utilizado para localizar e mapear redes "
-    "de tubulações e cabos enterrados condutivos. O método baseia-se na detecção do campo "
-    "eletromagnético gerado pela passagem de corrente elétrica (ativa ou induzida) pelo "
-    "condutor metálico. O equipamento é composto por um transmissor, que injeta ou induz "
-    "sinal de radiofrequência no condutor, e um receptor portátil, que detecta o campo "
-    "eletromagnético resultante. A técnica é complementar ao GPR, sendo especialmente eficaz "
-    "para localização de tubulações metálicas, cabos elétricos e de telecomunicações."
+    "O método Pipe Locator utiliza a captação de campos eletromagnéticos gerados por um meio "
+    "condutor de eletricidade, como cabos e tubulações metálicas, para a detecção de "
+    "interferências presentes no subsolo. O método guarda semelhança com os princípios básicos "
+    "presentes em detectores de metal. O sistema fornece leitura de profundidade, indicação da "
+    "direção da tubulação em forma de bússola, modos de conexão direta e indutiva, além de "
+    "múltiplas frequências para maior precisão na identificação das interferências subterrâneas. "
+    "Utiliza várias frequências de captação selecionáveis para a identificação de cada tipo de "
+    "interferência, como cabos elétricos (frequência 50 Hz), tubulações metálicas de gás "
+    "(frequência CPS de proteção catódica), etc. O Pipe Locator é atualmente empregado como um "
+    "método adicional ao Georadar, permitindo uma melhor assertividade de resultados obtidos em "
+    "levantamentos de interferências presentes no subsolo."
 )
 
 _BOILERPLATE_DISCLAIMER = (
@@ -74,18 +98,58 @@ _BOILERPLATE_DISCLAIMER = (
 )
 
 _BOILERPLATE_CONCLUSAO = (
-    "Com base nos resultados obtidos pelo levantamento geofísico com Georadar (GPR) e "
-    "Pipe Locator, foi possível identificar e mapear as interferências subterrâneas presentes "
-    "na área investigada. As interferências identificadas foram classificadas por tipo, "
-    "profundidade estimada e diâmetro aparente, conforme detalhado na seção de Resultados "
-    "deste relatório.\n\n"
-    "Recomenda-se que qualquer escavação ou intervenção na área seja precedida de inspeção "
-    "visual e localização precisa das interferências identificadas, utilizando técnicas não "
-    "destrutivas adicionais quando necessário. A ScanSOLO disponibiliza-se para "
-    "esclarecimentos adicionais sobre os resultados apresentados neste relatório."
+    "Com base nos dados adquiridos e processados, foram identificadas anomalias compatíveis com "
+    "interferências subterrâneas distribuídas na área investigada. As ocorrências foram "
+    "interpretadas, georreferenciadas e representadas em planta anexa, com indicação de "
+    "profundidade estimada da geratriz superior e diâmetro aparente quando aplicável. "
+    "Recomenda-se que qualquer atividade de escavação seja precedida de análise da planta de "
+    "interferências e realizada de forma controlada, principalmente nas proximidades das anomalias "
+    "mapeadas."
+    "\n\n"
+    "As informações obtidas com a interpretação das imagens do Georadar e das leituras do Pipe "
+    "Locator foram compiladas em arquivo em formato PDF anexo ao presente relatório, com a "
+    "profundidade da geratriz superior e diâmetro aparente de cada interferência detectada "
+    "anotada em um layer próprio."
+    "\n\n"
+    "ANEXO I – PLANTA / CROQUI EM ARQUIVO PDF COM INTERFERÊNCIAS SUBTERRÂNEAS"
+    "\n\n"
+    "Colocamo-nos a vossa inteira disposição para quaisquer esclarecimentos adicionais,"
+    "\n\n"
+    "Atenciosamente,"
 )
 
 _RODAPE_FIXO = "ScanSOLO Geofísica Aplicada  ·  +55 (11) 99999-9999  ·  contato@scansolo.com.br"
+
+
+# ── PDF conversion ────────────────────────────────────────────────────────────
+
+def _convert_docx_to_pdf(docx_bytes: bytes) -> bytes | None:
+    """Converte DOCX para PDF via LibreOffice headless. Retorna None se falhar."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        docx_path = os.path.join(tmpdir, "relatorio.docx")
+        with open(docx_path, "wb") as f:
+            f.write(docx_bytes)
+        try:
+            result = subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", tmpdir, docx_path],
+                capture_output=True,
+                timeout=60,
+            )
+        except FileNotFoundError:
+            log.warning("libreoffice_not_found", hint="instale libreoffice para gerar PDF automático")
+            return None
+        except subprocess.TimeoutExpired:
+            log.warning("libreoffice_timeout")
+            return None
+        if result.returncode != 0:
+            log.warning("libreoffice_failed", stderr=result.stderr.decode(errors="replace"))
+            return None
+        pdf_path = os.path.join(tmpdir, "relatorio.pdf")
+        if os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as f:
+                return f.read()
+    return None
 
 
 # ── Job entry point ──────────────────────────────────────────────────────────
@@ -120,14 +184,24 @@ def handle_relatorio_job(supa: "SupabaseClient", job: dict) -> None:
     # Gerar DOCX
     docx_bytes = _gen_docx(project, relatorio_targets, profiles, ai_map)
 
-    # Upload
+    # Upload DOCX
     docx_path = f"{project_id}/relatorio/relatorio_v{version:02d}.docx"
     supa.upload_file(STORAGE_BUCKET, docx_path, docx_bytes,
                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     log.info("relatorio_docx_uploaded", path=docx_path)
 
+    # PDF via LibreOffice headless (opcional — não bloqueia o job se ausente)
+    pdf_storage_path: str | None = None
+    pdf_bytes = _convert_docx_to_pdf(docx_bytes)
+    if pdf_bytes:
+        pdf_storage_path = f"{project_id}/relatorio/relatorio_v{version:02d}.pdf"
+        supa.upload_file(STORAGE_BUCKET, pdf_storage_path, pdf_bytes, "application/pdf")
+        log.info("relatorio_pdf_uploaded", path=pdf_storage_path)
+    else:
+        log.warning("relatorio_pdf_skipped", reason="LibreOffice indisponível ou falhou")
+
     # Inserir record
-    supa.insert_report_output({
+    output_payload: dict = {
         "project_id": project_id,
         "version": version,
         "docx_dropbox_path": docx_path,
@@ -138,7 +212,13 @@ def handle_relatorio_job(supa: "SupabaseClient", job: dict) -> None:
             "n_profiles": len(profiles),
             "run_id": run_id,
         },
-    })
+    }
+    if pdf_storage_path:
+        output_payload["pdf_dropbox_path"] = pdf_storage_path
+        output_payload["pdf_storage_url"] = (
+            f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{pdf_storage_path}"
+        )
+    supa.insert_report_output(output_payload)
 
     supa.update_job_status(job_id, "concluido")
     supa.update_project_status(project_id, "relatorio_gerado")

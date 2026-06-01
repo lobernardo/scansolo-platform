@@ -15,8 +15,17 @@ const STATUS_LABEL: Record<string, string> = {
   gpr_concluido: "GPR concluído",
   processando_ia: "Processando IA",
   ia_concluida: "IA concluída",
-  erro: "Erro",
+  revisao_em_andamento: "Revisão em andamento",
+  revisao_concluida: "Revisão concluída",
+  aguardando_cartografia: "Cartografia em andamento",
+  cartografia_concluida: "Cartografia concluída",
+  cartografia_pendente_dados: "Cartografia — dados pendentes",
+  aguardando_relatorio: "Gerando relatório",
+  relatorio_em_andamento: "Relatório em andamento",
+  relatorio_gerado: "Relatório gerado",
+  aguardando_aprovacao: "Aguardando aprovação",
   finalizado: "Finalizado",
+  erro: "Erro",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -27,8 +36,17 @@ const STATUS_COLOR: Record<string, string> = {
   gpr_concluido: "bg-green-50 text-green-700",
   processando_ia: "bg-purple-50 text-purple-700",
   ia_concluida: "bg-green-100 text-green-800",
+  revisao_em_andamento: "bg-orange-100 text-orange-700",
+  revisao_concluida: "bg-teal-100 text-teal-700",
+  aguardando_cartografia: "bg-indigo-100 text-indigo-700",
+  cartografia_concluida: "bg-indigo-200 text-indigo-800",
+  cartografia_pendente_dados: "bg-yellow-100 text-yellow-700",
+  aguardando_relatorio: "bg-violet-100 text-violet-700",
+  relatorio_em_andamento: "bg-violet-100 text-violet-700",
+  relatorio_gerado: "bg-violet-200 text-violet-800",
+  aguardando_aprovacao: "bg-violet-200 text-violet-800",
+  finalizado: "bg-green-300 text-green-900",
   erro: "bg-red-50 text-red-700",
-  finalizado: "bg-green-200 text-green-900",
 };
 
 export default async function ProjetosPage() {
