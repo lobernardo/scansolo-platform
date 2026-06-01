@@ -393,6 +393,7 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     deteccoes.to_csv(str(path_csv), index=False, encoding="utf-8")
 
     # --- Imagem anotada completa (todos os candidatos) ---
+    caminhos["processadas"].mkdir(parents=True, exist_ok=True)
     path_completa = caminhos["processadas"] / f"{nome}_anotada_completa.png"
     nome_completa = None
     try:
@@ -709,7 +710,6 @@ def main():
     logger.info(f"V1.1 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
     logger.info(f"               *_anotada_completa.png | *_anotada_alta_confianca.png")
     logger.info(f"               config_used.json | confidence_score_0_100 no CSV")
-    logger.info("=" * 65)
     if erros:
         sys.exit(1)
 

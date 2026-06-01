@@ -592,13 +592,48 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
     peaks = nms_hough(accum, depths, dx, params["nms_radius_m"])
     peaks = peaks[:top_n]
 
-    largura_hiperbole_m = round(col_search_half * dx * 2, 3)
-    if largura_hiperbole_m < 1.5:
-        tipo_tamanho_global = "pequena"
-    elif largura_hiperbole_m <= 3.0:
-        tipo_tamanho_global = "media"
-    else:
-        tipo_tamanho_global = "grande"
+    from scipy.signal import hilbert as _hilbert
+
+    def _medir_largura_hiperbole(arr, col0, h, v, dx, dt, amp_frac=0.25):
+        """
+        Mede a largura real do arco da hipérbole para um dado alvo.
+        Percorre colunas à esquerda e direita do apex, seguindo a curva teórica,
+        e mede até onde a amplitude fica acima de amp_frac * amp_apex.
+        Retorna largura em metros.
+        """
+        n_samples, n_traces = arr.shape
+        env = np.abs(_hilbert(arr, axis=0))
+
+        # amplitude no apex
+        row_apex = int(round((2 * h / v) / dt))
+        row_apex = max(0, min(n_samples - 1, row_apex))
+        amp_apex = env[row_apex, col0] if 0 <= col0 < n_traces else 0
+        if amp_apex < 1e-10:
+            return round(col_search_half * dx * 2, 3)  # fallback
+
+        threshold = amp_frac * amp_apex
+        col_left, col_right = col0, col0
+
+        # expandir para a esquerda
+        for c in range(col0 - 1, max(-1, col0 - col_search_half - 1), -1):
+            row_c = int(round((2 / v) * np.sqrt(max(h**2 + ((c - col0) * dx)**2, 0)) / dt))
+            row_c = max(0, min(n_samples - 1, row_c))
+            if env[row_c, c] >= threshold:
+                col_left = c
+            else:
+                break
+
+        # expandir para a direita
+        for c in range(col0 + 1, min(n_traces, col0 + col_search_half + 1)):
+            row_c = int(round((2 / v) * np.sqrt(max(h**2 + ((c - col0) * dx)**2, 0)) / dt))
+            row_c = max(0, min(n_samples - 1, row_c))
+            if env[row_c, c] >= threshold:
+                col_right = c
+            else:
+                break
+
+        largura = round((col_right - col_left) * dx, 3)
+        return max(largura, dx * 2)  # mínimo de 2 traços
 
     rows_out = []
     for rank, (col0_hough, d_idx, score) in enumerate(peaks, start=1):
@@ -613,6 +648,18 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
         )
         prof_topo_m = round(h_ref - diam / 2, 3) if diam > 0 else h_ref
         altura_hiperbole_m = round(diam * 1.5, 3) if diam > 0 else round(h_ref * 0.8, 3)
+
+        # largura real medida por alvo (não mais valor global fixo)
+        largura_hiperbole_m = _medir_largura_hiperbole(
+            arr_processado, col0_ref, h_ref, v, dx, dt, amp_frac=0.25
+        )
+        if largura_hiperbole_m < 1.5:
+            tipo_tamanho = "pequena"
+        elif largura_hiperbole_m <= 3.0:
+            tipo_tamanho = "media"
+        else:
+            tipo_tamanho = "grande"
+
         rows_out.append({
             "rank":                rank,
             "x_m":                 round(col0_ref * dx, 2),
@@ -625,7 +672,7 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
             "prof_topo_m":         prof_topo_m,
             "largura_hiperbole_m": largura_hiperbole_m,
             "altura_hiperbole_m":  altura_hiperbole_m,
-            "tipo_tamanho":        tipo_tamanho_global,
+            "tipo_tamanho":        tipo_tamanho,
         })
 
     return pd.DataFrame(rows_out), accum, depths
@@ -691,6 +738,8 @@ def plotar_deteccoes(arr_processado, deteccoes, params, output_path=None,
             ax.set_title("Alta Confianca — Nenhum alvo com score >= 70", fontsize=11)
             plt.tight_layout()
             if output_path:
+                from pathlib import Path as _Path
+                _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 plt.savefig(str(output_path), dpi=150, bbox_inches="tight")
                 plt.close()
             else:
@@ -769,6 +818,8 @@ def plotar_deteccoes(arr_processado, deteccoes, params, output_path=None,
 
     plt.tight_layout()
     if output_path:
+        from pathlib import Path as _Path
+        _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(str(output_path), dpi=150, bbox_inches="tight")
         plt.close()
     else:
