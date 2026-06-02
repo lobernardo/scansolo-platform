@@ -59,6 +59,25 @@ export default function NovaEntradaPage() {
           </label>
         </div>
 
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="auto_accept_ia"
+              id="auto_accept_ia"
+              value="true"
+              className="h-4 w-4 rounded border-gray-300 text-gray-900"
+            />
+            <label htmlFor="auto_accept_ia" className="text-sm font-medium text-gray-800">
+              Aprovação automática pela IA (sem revisão manual)
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 pl-6">
+            Alta confiança → planta + relatório. Média confiança → só planta.
+            Baixa confiança → descartado. Projeto avança direto para cartografia.
+          </p>
+        </div>
+
         <div className="pt-2">
           <button
             type="submit"

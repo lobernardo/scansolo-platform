@@ -24,6 +24,7 @@ export async function createProject(formData: FormData) {
   const area_m2 = area_m2_raw ? parseFloat(area_m2_raw) : null;
   const antena_freq_mhz = 270;
   const tem_pipe_locator = formData.get("tem_pipe_locator") === "true";
+  const auto_accept_ia = formData.get("auto_accept_ia") === "true";
 
   if (!nome || !cliente || !estado || !data_levantamento) {
     throw new Error("Campos obrigatórios ausentes");
@@ -40,6 +41,7 @@ export async function createProject(formData: FormData) {
     area_m2,
     antena_freq_mhz,
     tem_pipe_locator,
+    auto_accept_ia,
     created_by: user.id,
     status: "aguardando_arquivos",
   };

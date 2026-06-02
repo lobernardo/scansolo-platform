@@ -19,39 +19,40 @@ _COST_INPUT = 2.50 / 1_000_000
 _COST_OUTPUT = 10.00 / 1_000_000
 
 _SYSTEM_PROMPT = """\
-Você é um geofísico especialista em interpretação de Radar de Penetração no Solo (GPR).
+You are a GPR (Ground Penetrating Radar) expert geophysicist.
 
-Analise o recorte do radarograma GPR fornecido, que mostra uma reflexão hiperbólica de um objeto enterrado, \
-juntamente com os dados numéricos do algoritmo de detecção automática.
+Analyze the detected target from a 270MHz GSSI antenna radargram. The crop image shows the \
+hyperbolic reflection centered on the target.
 
-Em um radarograma:
-- Eixo horizontal = distância ao longo da linha de levantamento
-- Eixo vertical = profundidade (crescente para baixo)
-- Uma assinatura hiperbólica indica um objeto enterrado pontual ou cilíndrico
-- Reflexões mais brilhantes/fortes indicam maior contraste dielétrico com o solo circundante
+In a radargram:
+- Horizontal axis = distance along the survey line
+- Vertical axis = depth (increasing downward)
+- A hyperbolic signature indicates a buried point or cylindrical object
+- Brighter/stronger reflections indicate higher dielectric contrast with surrounding soil
 
-Objetos enterrados comuns em levantamentos urbanos/de infraestrutura:
-- tubulacao_agua: tubulação de água (metálica ou PVC), reflexão limpa e forte
-- tubulacao_gas: tubulação de gás (metálica), reflexão forte, geralmente rasa
-- cabo_eletrico: cabo elétrico, diâmetro pequeno, reflexão metálica forte
-- cabo_telecom: cabo de telecomunicações, diâmetro pequeno, pode aparecer em feixes
-- vazio: vazio/cavidade, dupla reflexão (superfície superior e inferior)
-- raiz: raiz de árvore, hipérbole irregular, material orgânico
-- rocha: rocha, forma irregular, reflexão variável
-- desconhecido: assinatura ambígua
+Common buried objects in urban/infrastructure surveys:
+- tubulacao_agua: water pipe (metal or PVC) — clean strong reflection
+- tubulacao_gas: gas pipe (metal) — strong reflection, usually shallow
+- tubulacao_esgoto: sewer pipe (concrete/PVC) — larger diameter, moderate reflection
+- cabo_eletrico: electrical cable — small diameter, strong metallic reflection
+- cabo_telecom: telecom cable — small diameter, may appear in bundles
+- galeria_concreto: concrete gallery/culvert — large, double reflection (top+bottom)
+- vazio_ar: void/cavity — double reflection surface+bottom
+- rocha: rock — irregular shape, variable reflection
+- inconclusivo: ambiguous signature
 
-Responda APENAS com um objeto JSON válido usando exatamente estes campos. \
-Todos os textos devem estar em português do Brasil:
+Respond ONLY with a valid JSON object. All description text must be in Brazilian Portuguese:
 {
-  "ia_tipo_sugerido": "<um dos tipos listados acima>",
-  "ia_descricao": "<1-2 frases descrevendo o objeto detectado>",
-  "ia_justificativa_visual": "<quais características visuais no radarograma indicam esta interpretação>",
-  "ia_justificativa_tecnica": "<raciocínio técnico: profundidade, diâmetro, características do sinal>",
+  "ia_tipo_sugerido": "<one of the types listed above>",
+  "ia_descricao": "<1-2 sentences describing the detected object in Portuguese>",
+  "ia_justificativa_visual": "<visual features in the radargram supporting this interpretation, in Portuguese>",
+  "ia_justificativa_tecnica": "<technical reasoning: depth, diameter, signal characteristics, in Portuguese>",
   "ia_confianca": "<alta | media | baixa>",
-  "ia_recomendacao": "<recomendação de ação para a equipe de campo/técnica>",
-  "vai_para_planta_sugerido": true ou false,
-  "vai_para_relatorio_sugerido": true ou false,
-  "observacoes": "<observações adicionais ou null>"
+  "ia_confianca_pct": <integer 0-100>,
+  "ia_recomendacao": "<recommended action for field/technical team, in Portuguese>",
+  "vai_para_planta_sugerido": true or false,
+  "vai_para_relatorio_sugerido": true or false,
+  "observacoes": "<additional observations or null>"
 }"""
 
 
@@ -104,12 +105,18 @@ class OpenAIClient:
             cost_usd=cost,
         )
 
+        confianca_cat = parsed.get("ia_confianca", "baixa")
+        confianca_pct = int(parsed.get("ia_confianca_pct", 0)) if parsed.get("ia_confianca_pct") else (
+            85 if confianca_cat == "alta" else 60 if confianca_cat == "media" else 30
+        )
+
         return {
             "ia_tipo_sugerido": parsed.get("ia_tipo_sugerido", "desconhecido"),
             "ia_descricao": parsed.get("ia_descricao"),
             "ia_justificativa_visual": parsed.get("ia_justificativa_visual"),
             "ia_justificativa_tecnica": parsed.get("ia_justificativa_tecnica"),
-            "ia_confianca": parsed.get("ia_confianca", "baixa"),
+            "ia_confianca": confianca_cat,
+            "ia_confianca_pct": confianca_pct,
             "ia_recomendacao": parsed.get("ia_recomendacao"),
             "vai_para_planta_sugerido": bool(parsed.get("vai_para_planta_sugerido", False)),
             "vai_para_relatorio_sugerido": bool(parsed.get("vai_para_relatorio_sugerido", True)),
@@ -148,23 +155,28 @@ def _build_messages(
 
 
 def _user_text(project: dict[str, Any], t: dict[str, Any]) -> str:
+    freq = t.get("freq_dominante_mhz")
+    freq_str = f"{freq} MHz" if freq else "N/A"
     return (
-        f"Levantamento: {project.get('nome', '?')} | "
-        f"Local: {project.get('local', 'N/A')}, {project.get('estado', 'N/A')}\n"
-        f"Arquivo: {t.get('arquivo_dzt', 'N/A')}\n\n"
-        "Dados da detecção automática:\n"
+        f"Survey: {project.get('nome', '?')} | "
+        f"Location: {project.get('local', 'N/A')}, {project.get('estado', 'N/A')}\n"
+        f"File: {t.get('arquivo_dzt', 'N/A')}\n\n"
+        "Automatic detection parameters:\n"
         f"  Rank: #{t.get('rank', '?')}\n"
-        f"  Posição: {t.get('x_m', '?')} m ao longo do perfil\n"
-        f"  Profundidade: {t.get('depth_m', '?')} m\n"
-        f"  Diâmetro estimado: {t.get('diam_est_m', '?')} m "
-        f"(confiança: {t.get('diam_confianca', '?')})\n"
-        f"  Tipo de material (algoritmo): {t.get('tipo_material', 'N/A')} "
+        f"  Position: {t.get('x_m', '?')} m along profile\n"
+        f"  Depth to top (geratriz): {t.get('prof_topo_m', '?')} m\n"
+        f"  Center depth: {t.get('depth_m', '?')} m\n"
+        f"  Estimated diameter: {t.get('diam_est_m', '?')} m "
+        f"(confidence: {t.get('diam_confianca', '?')})\n"
+        f"  Hyperbola width: {t.get('largura_hiperbole_m', 'N/A')} m\n"
+        f"  Physical classification: {t.get('tipo_material', 'N/A')} "
         f"({t.get('confianca_tipo', 'N/A')})\n"
-        f"  Score do algoritmo: {t.get('confidence_score', '?')}/100 "
+        f"  Algorithm score: {t.get('confidence_score', '?')}/100 "
         f"({t.get('confidence_label_tecnico', '?')})\n"
-        f"  SNR local: {t.get('snr_local', 'N/A')}\n\n"
-        "Imagem acima: recorte do radarograma centralizado neste alvo.\n"
-        "Retorne a interpretação em JSON com todos os textos em português do Brasil."
+        f"  SNR: {t.get('snr_local', 'N/A')}\n"
+        f"  Dominant frequency: {freq_str}\n\n"
+        "The crop image above is centered on this target's hyperbola apex.\n"
+        "Return JSON with all description text in Brazilian Portuguese."
     )
 
 
