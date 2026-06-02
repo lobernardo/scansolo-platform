@@ -3,24 +3,23 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
-export async function uploadDztFiles(projectId: string, formData: FormData) {
+export async function uploadDztFiles(
+  projectId: string,
+  formData: FormData
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) return { ok: false, error: "Não autenticado" };
 
   const files = formData.getAll("files") as File[];
-  if (!files.length || !files[0].size) {
-    throw new Error("Nenhum arquivo selecionado");
-  }
+  if (!files.length || !files[0].size)
+    return { ok: false, error: "Nenhum arquivo selecionado" };
 
-  const dztFiles = files.filter((f) =>
-    f.name.toLowerCase().endsWith(".dzt")
-  );
-  if (!dztFiles.length) {
-    throw new Error("Apenas arquivos .DZT são aceitos");
-  }
+  const dztFiles = files.filter((f) => f.name.toLowerCase().endsWith(".dzt"));
+  if (!dztFiles.length)
+    return { ok: false, error: "Apenas arquivos .DZT são aceitos" };
 
   for (const file of dztFiles) {
     const bytes = await file.arrayBuffer();
@@ -28,12 +27,8 @@ export async function uploadDztFiles(projectId: string, formData: FormData) {
 
     const { error: storageError } = await supabase.storage
       .from("gpr-uploads")
-      .upload(storagePath, bytes, {
-        contentType: "application/octet-stream",
-        upsert: true,
-      });
-
-    if (storageError) throw new Error(storageError.message);
+      .upload(storagePath, bytes, { contentType: "application/octet-stream", upsert: true });
+    if (storageError) return { ok: false, error: storageError.message };
 
     const { error: dbError } = await supabase.from("project_files").insert({
       project_id: projectId,
@@ -44,20 +39,50 @@ export async function uploadDztFiles(projectId: string, formData: FormData) {
       uploaded_by: user.id,
       status: "confirmado",
     } as unknown as never);
-
-    if (dbError) throw new Error(dbError.message);
+    if (dbError) return { ok: false, error: dbError.message };
   }
+
+  return { ok: true };
+}
+
+export type FilterConfig = {
+  filtros_ativos: {
+    dewow: boolean;
+    bandpass: boolean;
+    background_removal: boolean;
+    tpow_gain: boolean;
+    agc: boolean;
+    ia_imagem: boolean;
+  };
+  bgremoval_traces: number;
+  tpow_power: number;
+  contrast: number;
+  agc_window: number;
+};
+
+export async function startProcessingWithConfig(
+  projectId: string,
+  config: FilterConfig
+): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   await supabase
     .from("projects")
-    .update({ status: "aguardando_processamento" } as unknown as never)
+    .update({
+      status: "aguardando_processamento",
+      processing_config: config,
+    } as unknown as never)
     .eq("id", projectId);
 
-  const { error: jobError } = await supabase
+  const { error } = await supabase
     .from("processing_jobs")
     .insert({ project_id: projectId, job_type: "gpr", status: "aguardando" } as unknown as never);
 
-  if (jobError) throw new Error(jobError.message);
+  if (error) throw new Error(error.message);
 
   redirect(`/projetos/${projectId}`);
 }

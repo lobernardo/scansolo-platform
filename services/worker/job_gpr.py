@@ -13,6 +13,7 @@ Flow:
 from __future__ import annotations
 
 import csv
+import json
 import os
 import shutil
 import subprocess
@@ -57,7 +58,9 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
             data = supa.download_file("gpr-uploads", f["supabase_storage_path"])
             (input_dir / f["file_name"]).write_bytes(data)
 
-        _run_pipeline(input_dir, output_dir)
+        # Ler processing_config do projeto (se existir)
+        processing_config = _get_processing_config(supa, project_id)
+        _run_pipeline(input_dir, output_dir, processing_config=processing_config)
 
         run_id = str(uuid.uuid4())
         _persist_outputs(supa, project_id, run_id, output_dir)
@@ -78,7 +81,19 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _run_pipeline(input_dir: Path, output_dir: Path) -> None:
+def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | None:
+    try:
+        result = supa._client.table("projects").select("processing_config").eq("id", project_id).single().execute()
+        cfg = (result.data or {}).get("processing_config")
+        if cfg and isinstance(cfg, dict):
+            return cfg
+    except Exception:
+        pass
+    return None
+
+
+def _run_pipeline(input_dir: Path, output_dir: Path,
+                  processing_config: dict | None = None) -> None:
     cmd = [
         sys.executable,
         str(PIPELINE_SCRIPT),
@@ -86,6 +101,17 @@ def _run_pipeline(input_dir: Path, output_dir: Path) -> None:
         "--output", str(output_dir),
         "--preset", DEFAULT_PRESET,
     ]
+
+    # Salvar config em JSON temporario e passar ao pipeline
+    if processing_config:
+        cfg_path = output_dir / "filter_config.json"
+        cfg_path.write_text(json.dumps(processing_config), encoding="utf-8")
+        cmd += ["--filter-config", str(cfg_path)]
+        log.info("pipeline_filter_config", config=processing_config)
+    else:
+        # Sem config especifica: desativar IA de imagem por padrao
+        cmd.append("--sem-ia-imagem")
+
     log.info("pipeline_start", cmd=" ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:

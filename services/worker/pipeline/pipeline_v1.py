@@ -31,7 +31,7 @@ Flags opcionais:
   --sem-fisica     Pula analises fisicas (material/espectro) mas mantem deteccao geometrica
 """
 
-import os, sys, json, hashlib, shutil, argparse, logging, warnings
+import os, sys, json, hashlib, shutil, argparse, logging, warnings, io, base64
 from datetime import datetime
 from pathlib import Path
 
@@ -76,13 +76,21 @@ PRESETS = {
         "bandpass_low_mhz":  80,
         "bandpass_high_mhz": 500,
         "bandpass_order":    5,
-        "bgremoval_traces":  50,
-        "tpow_power":        0.8,
+        "bgremoval_traces":  30,
+        "tpow_power":        0.5,
         "agc_window":        150,
         "velocity_mns":      0.1,
-        "contrast":          3.5,
+        "contrast":          2.5,
         "colormap":          "gray",
         "dpi":               150,
+        "filtros_ativos": {
+            "dewow":              True,
+            "bandpass":           True,
+            "background_removal": True,
+            "tpow_gain":          True,
+            "agc":                True,
+            "ia_imagem":          False,   # off por padrao — custo de API
+        },
         # Detector de hiperboles
         "det_amp_threshold": 0.45,
         "det_h_min_m":       0.10,
@@ -252,6 +260,73 @@ def salvar_config_json(pasta_saida, preset, preset_nome, config_hash):
     with open(str(caminho), "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2, ensure_ascii=False)
     return caminho
+
+
+def melhorar_imagem_ia(path_processada: Path, api_key: str, logger,
+                       expected_shape: tuple | None = None):
+    """
+    Envia radargrama para gpt-image-1 para melhoria visual.
+    Retorna (path_melhorada, arr_ia) ou (None, None) se falhar.
+    arr_ia esta no range aproximado de arr_proc (media=0, std=1).
+    Se expected_shape for fornecido e o shape nao bater apos resize,
+    retorna (path_melhorada, None) — imagem salva mas nao usada no detector.
+    """
+    PROMPT = (
+        "This is a GPR (Ground Penetrating Radar) subsurface radargram. "
+        "Enhance contrast and highlight hyperbola patterns (inverted-U arcs) "
+        "that indicate underground utilities. Reduce horizontal background noise. "
+        "Preserve the original scale and proportions exactly."
+    )
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        with open(str(path_processada), "rb") as f:
+            response = client.images.edit(
+                model="gpt-image-1",
+                image=f,
+                prompt=PROMPT,
+            )
+
+        img_b64 = response.data[0].b64_json
+        img_bytes = base64.b64decode(img_b64)
+
+        # Salvar imagem melhorada
+        stem = path_processada.stem.replace("_processada", "")
+        path_melhorada = path_processada.parent / f"{stem}_melhorada_ia.png"
+        path_melhorada.write_bytes(img_bytes)
+        logger.info(f"  IA imagem: {path_melhorada.name}")
+
+        # Converter para array numpy (escala de cinza, normalizado)
+        import matplotlib.image as _mpimg
+        arr_rgb = _mpimg.imread(io.BytesIO(img_bytes))
+        if arr_rgb.ndim == 3:
+            arr_gray = np.mean(arr_rgb[:, :, :3], axis=2).astype(float)
+        else:
+            arr_gray = arr_rgb.astype(float)
+
+        # Redimensionar para bater com expected_shape se necessario
+        if expected_shape is not None and arr_gray.shape != expected_shape:
+            try:
+                from scipy.ndimage import zoom as _zoom
+                zh = expected_shape[0] / arr_gray.shape[0]
+                zw = expected_shape[1] / arr_gray.shape[1]
+                arr_gray = _zoom(arr_gray, (zh, zw), order=1)
+                logger.debug(f"  IA imagem redimensionada para {arr_gray.shape}")
+            except Exception as ze:
+                logger.warning(f"  IA imagem resize falhou: {ze} — usando arr_proc")
+                return path_melhorada, None
+
+        # Normalizar para range similar ao arr_proc pos-AGC (media=0, std=1)
+        arr_ia = (arr_gray - arr_gray.mean()) / (arr_gray.std() + 1e-10)
+        return path_melhorada, arr_ia
+
+    except ImportError:
+        logger.warning("  openai nao instalado — pulando melhorar_imagem_ia")
+        return None, None
+    except Exception as e:
+        logger.warning(f"  melhorar_imagem_ia falhou ({type(e).__name__}: {e}) — usando arr_proc")
+        return None, None
 
 
 def _salvar_npy_seguro(arr, caminho):
@@ -438,7 +513,8 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
 # PROCESSAMENTO DE UM DZT V1.1
 # ---------------------------------------------------------------------------
 def processar_dzt(arquivo_dzt, caminhos, preset, logger,
-                  usar_detector=True, usar_fisica=True, config_hash=None):
+                  usar_detector=True, usar_fisica=True, config_hash=None,
+                  usar_ia_imagem=False, openai_api_key=None):
     nome = arquivo_dzt.stem
     t_inicio = datetime.now()
     logger.info(f"Iniciando: {arquivo_dzt.name}")
@@ -474,22 +550,28 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha bruta: {e}")
         return None
 
-    # 2. Cadeia de filtros (sem AGC ainda)
-    prof.dewow(preset["dewow_window"])
-    logger.debug(f"  dewow({preset['dewow_window']})")
+    # 2. Cadeia de filtros configuravel (sem AGC ainda)
+    filtros = preset.get("filtros_ativos", {})
 
-    try:
-        aplicar_bandpass(prof, preset["bandpass_low_mhz"],
-                         preset["bandpass_high_mhz"], preset["bandpass_order"])
-        logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
-    except Exception as e:
-        logger.warning(f"  Bandpass falhou (continuando): {e}")
+    if filtros.get("dewow", True):
+        prof.dewow(preset["dewow_window"])
+        logger.debug(f"  dewow({preset['dewow_window']})")
 
-    prof.remMeanTrace(preset["bgremoval_traces"])
-    logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
+    if filtros.get("bandpass", True):
+        try:
+            aplicar_bandpass(prof, preset["bandpass_low_mhz"],
+                             preset["bandpass_high_mhz"], preset["bandpass_order"])
+            logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
+        except Exception as e:
+            logger.warning(f"  Bandpass falhou (continuando): {e}")
 
-    prof.tpowGain(power=preset["tpow_power"])
-    logger.debug(f"  tpowGain(power={preset['tpow_power']})")
+    if filtros.get("background_removal", True):
+        prof.remMeanTrace(preset["bgremoval_traces"])
+        logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
+
+    if filtros.get("tpow_gain", True):
+        prof.tpowGain(power=preset["tpow_power"])
+        logger.debug(f"  tpowGain(power={preset['tpow_power']})")
 
     # V1.1 — Captura arr_sem_agc ANTES do AGC
     # Esta e a matriz correta para analise de amplitude/fase/material.
@@ -499,8 +581,9 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     logger.debug(f"  processado_sem_agc.npy salvo shape={arr_sem_agc.shape}")
 
     # 3. AGC + setVelocity (para visualizacao e deteccao geometrica)
-    prof.agcGain(preset["agc_window"])
-    logger.debug(f"  agcGain({preset['agc_window']})")
+    if filtros.get("agc", True):
+        prof.agcGain(preset["agc_window"])
+        logger.debug(f"  agcGain({preset['agc_window']})")
 
     prof.setVelocity(preset["velocity_mns"])
     depth_max = round(float(prof.depth[-1]), 2)
@@ -526,14 +609,25 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha processada: {e}")
         return None
 
+    # 4b. IA de melhoria de imagem (opcional, off por padrao)
+    arr_ia = None
+    path_melhorada = None
+    if usar_ia_imagem and openai_api_key and path_proc.exists():
+        path_melhorada, arr_ia = melhorar_imagem_ia(
+            path_proc, openai_api_key, logger,
+            expected_shape=(n_amostras, n_tracos),
+        )
+
     # 5. Deteccao de alvos V1.1 (passa 3 matrizes)
     _met0 = {"n_alvos_alta": 0, "n_alvos_media": 0, "n_alvos_baixa": 0,
              "n_fit_ok": 0, "n_evidencia_raw": 0, "n_evidencia_sem_agc": 0}
     n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = 0, None, None, None, {}, _met0
     if usar_detector:
         arr_proc = np.asarray(prof.data).astype(float)
+        # Usa imagem melhorada pela IA se disponivel; senao arr_proc normal
+        arr_detector = arr_ia if arr_ia is not None else arr_proc
         n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = detectar_e_salvar_alvos(
-            arr_proc, arr_sem_agc, arr_raw,
+            arr_detector, arr_sem_agc, arr_raw,
             prof, preset, nome, caminhos, logger,
             usar_fisica=usar_fisica
         )
@@ -561,6 +655,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         # Imagens
         "imagem_bruta":                  path_bruta.name,
         "imagem_processada":             path_proc.name,
+        "imagem_melhorada_ia":           path_melhorada.name if path_melhorada else "",
         "imagem_anotada":                png_completa or "",   # backward compat
         "imagem_anotada_completa":       png_completa or "",
         "imagem_anotada_alta":           png_alta or "",       # backward compat
@@ -611,21 +706,48 @@ def main():
     parser.add_argument("--input",        default=None)
     parser.add_argument("--output",       default=None)
     parser.add_argument("--preset",       default="270mhz", choices=list(PRESETS.keys()))
-    parser.add_argument("--sem-detector", action="store_true",
+    parser.add_argument("--sem-detector",   action="store_true",
                         help="Pula deteccao de alvos (so processamento de imagens + .npy)")
-    parser.add_argument("--sem-fisica",   action="store_true",
+    parser.add_argument("--sem-fisica",     action="store_true",
                         help="Pula analises fisicas (material/espectro) mas mantem deteccao geometrica")
+    parser.add_argument("--sem-ia-imagem",  action="store_true",
+                        help="Pula etapa de melhoria de imagem via gpt-image-1")
+    parser.add_argument("--filter-config",  default=None,
+                        help="Caminho para JSON com overrides de filtros do projeto")
     args = parser.parse_args()
 
     script_dir    = Path(__file__).resolve().parent
     pasta_entrada = Path(args.input)  if args.input  else script_dir.parent / "Exemplos_dados_bruos_georadar"
     pasta_saida   = Path(args.output) if args.output else script_dir / "exemplo_saida"
-    preset        = PRESETS[args.preset]
+    preset        = dict(PRESETS[args.preset])   # copia mutavel
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
 
+    # Mesclar overrides de filtros do projeto
+    if args.filter_config:
+        try:
+            with open(args.filter_config, encoding="utf-8") as _f:
+                user_cfg = json.load(_f)
+            for k, v in user_cfg.items():
+                if k == "filtros_ativos":
+                    preset.setdefault("filtros_ativos", {}).update(v)
+                else:
+                    preset[k] = v
+        except Exception as _e:
+            pass   # log apos configurar logger
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    usar_ia_imagem = (
+        not args.sem_ia_imagem
+        and bool(openai_api_key)
+        and preset.get("filtros_ativos", {}).get("ia_imagem", False)
+    )
+
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])
+
+    if args.filter_config:
+        logger.info(f"filter-config  : {args.filter_config}")
 
     # Config hash para rastreabilidade
     config_str  = json.dumps(preset, sort_keys=True, default=str)
@@ -639,6 +761,7 @@ def main():
     logger.info(f"Config hash  : {config_hash}")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
+    logger.info(f"IA imagem    : {'ativa (gpt-image-1)' if usar_ia_imagem else 'desativada'}")
     logger.info(f"Matrizes V1.1: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
     logger.info("=" * 65)
 
@@ -658,7 +781,9 @@ def main():
     registros, erros = [], 0
     for dzt in dzts:
         resultado = processar_dzt(dzt, caminhos, preset, logger, usar_detector, usar_fisica,
-                                  config_hash=config_hash)
+                                  config_hash=config_hash,
+                                  usar_ia_imagem=usar_ia_imagem,
+                                  openai_api_key=openai_api_key)
         if resultado:
             registros.append(resultado)
         else:
@@ -676,7 +801,7 @@ def main():
     # Tabela de campo: consolida todos os alvos alta+media, ordenado por arquivo e prof_topo_m
     _COLUNAS_CAMPO = [
         "arquivo_dzt", "rank", "x_m", "prof_topo_m", "depth_m", "diam_est_m",
-        "largura_hiperbole_m", "tipo_tamanho", "tipo_material",
+        "largura_hiperbole_m", "altura_hiperbole_m", "tipo_tamanho", "tipo_material",
         "confidence_label_relatorio", "score", "motivo_confianca",
     ]
     try:
