@@ -83,6 +83,7 @@ PRESETS = {
         "contrast":          2.5,
         "colormap":          "gray",
         "dpi":               150,
+        "migracao_ativa": True,
         "filtros_ativos": {
             "dewow":              True,
             "bandpass":           True,
@@ -329,6 +330,43 @@ def melhorar_imagem_ia(path_processada: Path, api_key: str, logger,
         return None, None
 
 
+def _kirchhoff_migration(arr_proc, dt_ns, dx_m, velocity_mns):
+    """
+    Kirchhoff diffraction-summation migration via numpy.
+
+    Para cada ponto de saida (iz, ix), soma as amostras de entrada
+    ao longo da hiperbole teorica. Colapsa hiperboles em pontos,
+    producindo imagem de interferencias sem difracoes de lado.
+
+    Parametros:
+      arr_proc      : array (n_amostras, n_tracos) — normalmente arr_proc_save
+      dt_ns         : intervalo de amostragem em tempo [ns]
+      dx_m          : espaco entre tracos [m]
+      velocity_mns  : velocidade de propagacao [m/ns]
+
+    Retorna: array migrado com mesmo shape de arr_proc
+    """
+    n_samples, n_traces = arr_proc.shape
+    v = velocity_mns          # m/ns
+
+    z_m  = np.arange(n_samples) * dt_ns * v / 2.0   # profundidade por amostra [m]
+    ix2  = np.arange(n_traces)
+
+    migrated = np.zeros_like(arr_proc, dtype=float)
+
+    for ix in range(n_traces):
+        dx_dist = np.abs(ix2 - ix) * dx_m               # (n_tracos,) [m]
+        # Tempo de ida e volta para cada profundidade e traco: (n_amostras, n_tracos) [ns]
+        t_hyp = (2.0 / v) * np.sqrt(z_m[:, None]**2 + dx_dist[None, :]**2)
+        rows  = np.round(t_hyp / dt_ns).astype(np.int32)
+        np.clip(rows, 0, n_samples - 1, out=rows)
+        migrated[:, ix] = arr_proc[rows, ix2[None, :]].sum(axis=1)
+
+    # Normalizar pelo numero de tracos para preservar amplitude relativa
+    migrated /= float(n_traces)
+    return migrated.astype(np.float32)
+
+
 def _salvar_npy_seguro(arr, caminho):
     """
     Salva array .npy de forma atomica: escreve em arquivo temporario e renomeia.
@@ -514,7 +552,8 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
 # ---------------------------------------------------------------------------
 def processar_dzt(arquivo_dzt, caminhos, preset, logger,
                   usar_detector=True, usar_fisica=True, config_hash=None,
-                  usar_ia_imagem=False, openai_api_key=None):
+                  usar_ia_imagem=False, openai_api_key=None,
+                  usar_migracao=True):
     nome = arquivo_dzt.stem
     t_inicio = datetime.now()
     logger.info(f"Iniciando: {arquivo_dzt.name}")
@@ -609,7 +648,31 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha processada: {e}")
         return None
 
-    # 4b. IA de melhoria de imagem (opcional, off por padrao)
+    # 4b. Migracao Kirchhoff (numpy) — colapsa hiperboles em pontos
+    arr_migrado  = None
+    path_migrada = None
+    if usar_migracao:
+        try:
+            _dx_m = dist_max / max(n_tracos - 1, 1)
+            arr_migrado  = _kirchhoff_migration(
+                arr_proc_save, dt_ns, _dx_m, preset["velocity_mns"]
+            )
+            path_migrada = caminhos["processadas"] / f"{nome}_migrada.png"
+            titulo_mig   = (f"{arquivo_dzt.name}  |  Migrada (Kirchhoff)  |  "
+                            f"v={preset['velocity_mns']} m/ns  |  "
+                            f"{datetime.now().strftime('%Y-%m-%d')}")
+            # Salvar migrada usando prof temporariamente modificado para reutilizar salvar_imagem
+            _data_orig  = prof.data.copy()
+            prof.data   = np.matrix(arr_migrado.astype(np.float64))
+            salvar_imagem(prof, path_migrada, preset, titulo=titulo_mig)
+            prof.data   = _data_orig
+            logger.info(f"  Migrada: {path_migrada.name}")
+        except Exception as e:
+            logger.warning(f"  migracao falhou: {e} — usando arr_proc")
+            arr_migrado  = None
+            path_migrada = None
+
+    # 4c. IA de melhoria de imagem (opcional, off por padrao)
     arr_ia = None
     path_melhorada = None
     if usar_ia_imagem and openai_api_key and path_proc.exists():
@@ -624,8 +687,12 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = 0, None, None, None, {}, _met0
     if usar_detector:
         arr_proc = np.asarray(prof.data).astype(float)
-        # Usa imagem melhorada pela IA se disponivel; senao arr_proc normal
-        arr_detector = arr_ia if arr_ia is not None else arr_proc
+        # Prioridade: migrado > ia > proc
+        arr_detector = (
+            arr_migrado if arr_migrado is not None else
+            arr_ia      if arr_ia      is not None else
+            arr_proc
+        )
         n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = detectar_e_salvar_alvos(
             arr_detector, arr_sem_agc, arr_raw,
             prof, preset, nome, caminhos, logger,
@@ -655,6 +722,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         # Imagens
         "imagem_bruta":                  path_bruta.name,
         "imagem_processada":             path_proc.name,
+        "imagem_migrada":                path_migrada.name if path_migrada else "",
         "imagem_melhorada_ia":           path_melhorada.name if path_melhorada else "",
         "imagem_anotada":                png_completa or "",   # backward compat
         "imagem_anotada_completa":       png_completa or "",
@@ -686,10 +754,12 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "tpow_power":              preset["tpow_power"],
         "agc_window":              preset["agc_window"],
         # Velocidade e calibracao
-        "velocity_mns":            preset["velocity_mns"],
-        "velocity_calibrada":      False,
-        "metodo_calibracao":       "default",
-        "observacao_calibracao":   "[CALIBRAR] Confirmar com Amilson usando alvo de posicao/profundidade conhecidas",
+        "velocity_mns":                   preset["velocity_mns"],
+        "velocity_estimada_projeto_mns":  espectro.get("velocity_estimada_projeto_mns", ""),
+        "velocity_usada_projeto_mns":     espectro.get("velocity_usada_projeto_mns", ""),
+        "velocity_calibrada":             False,
+        "metodo_calibracao":              "default",
+        "observacao_calibracao":          "[CALIBRAR] Confirmar com Amilson usando alvo de posicao/profundidade conhecidas",
         "config_hash":             config_hash or "",
         # Metadata
         "status":                  "processado",
@@ -712,6 +782,8 @@ def main():
                         help="Pula analises fisicas (material/espectro) mas mantem deteccao geometrica")
     parser.add_argument("--sem-ia-imagem",  action="store_true",
                         help="Pula etapa de melhoria de imagem via gpt-image-1")
+    parser.add_argument("--sem-migracao",   action="store_true",
+                        help="Pula migracao Kirchhoff (util para comparacao e testes)")
     parser.add_argument("--filter-config",  default=None,
                         help="Caminho para JSON com overrides de filtros do projeto")
     args = parser.parse_args()
@@ -742,6 +814,10 @@ def main():
         and bool(openai_api_key)
         and preset.get("filtros_ativos", {}).get("ia_imagem", False)
     )
+    usar_migracao = (
+        not args.sem_migracao
+        and preset.get("migracao_ativa", False)
+    )
 
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])
@@ -762,6 +838,7 @@ def main():
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
     logger.info(f"IA imagem    : {'ativa (gpt-image-1)' if usar_ia_imagem else 'desativada'}")
+    logger.info(f"Migracao     : {'ativa (F-K Stolt)' if usar_migracao else 'desativada'}")
     logger.info(f"Matrizes V1.1: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
     logger.info("=" * 65)
 
@@ -783,7 +860,8 @@ def main():
         resultado = processar_dzt(dzt, caminhos, preset, logger, usar_detector, usar_fisica,
                                   config_hash=config_hash,
                                   usar_ia_imagem=usar_ia_imagem,
-                                  openai_api_key=openai_api_key)
+                                  openai_api_key=openai_api_key,
+                                  usar_migracao=usar_migracao)
         if resultado:
             registros.append(resultado)
         else:

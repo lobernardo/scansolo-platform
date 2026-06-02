@@ -515,6 +515,14 @@ def enriquecer_deteccoes_fisica(arr_detector, arr_sem_agc, arr_raw, deteccoes, p
         row_apex = int(round((2.0 * row["depth_m"] / v) / dt))
         row_apex = max(0, min(arr_fis.shape[0] - 1, row_apex))
         fis = classificar_material_por_fisica(arr_fis, arr_raw, col0, row_apex, params)
+        # Analise espectral do traco central (usa arr_sem_agc — amplitudes preservadas)
+        try:
+            freq_dom, freq_cen, razao_ab = _espectro_alvo(arr_fis, col0, dt)
+        except Exception:
+            freq_dom, freq_cen, razao_ab = 0.0, 0.0, 0.0
+        fis["freq_dominante_mhz"]  = freq_dom
+        fis["freq_centroide_mhz"]  = freq_cen
+        fis["razao_alta_baixa"]    = razao_ab
         resultados.append(fis)
 
     df = deteccoes.copy()
@@ -522,6 +530,7 @@ def enriquecer_deteccoes_fisica(arr_detector, arr_sem_agc, arr_raw, deteccoes, p
         "tipo_material", "confianca_tipo", "amplitude_relativa_sem_agc",
         "amplitude_relativa_raw", "fase_consistente", "evidencia_raw",
         "evidencia_sem_agc", "snr_local",
+        "freq_dominante_mhz", "freq_centroide_mhz", "razao_alta_baixa",
     ]
     for campo in campos_fis:
         df[campo] = [r[campo] for r in resultados]
@@ -567,7 +576,115 @@ def enriquecer_deteccoes_fisica(arr_detector, arr_sem_agc, arr_raw, deteccoes, p
 
     # Espectro do solo roda no arr_detector (AGC ok para espectral)
     espectro = analisar_espectro_solo(arr_detector, params)
+
+    # Adicionar velocity info ao espectro (para index_projeto.csv)
+    if "velocity_usada_mns" in df.columns and not df.empty:
+        espectro["velocity_usada_projeto_mns"]    = round(float(df["velocity_usada_mns"].iloc[0]), 4)
+        espectro["velocity_estimada_projeto_mns"] = round(float(df["velocity_estimada_mns"].iloc[0]), 4)
+
     return df, espectro
+
+
+# ---------------------------------------------------------------------------
+# ESTIMATIVA AUTOMATICA DE VELOCITY (semblance simplificado)
+# ---------------------------------------------------------------------------
+def estimar_velocity(arr_sem_agc, params):
+    """
+    Estima a velocity de propagacao no solo por semblance simplificado.
+
+    Varre velocidades de 0.06 a 0.16 m/ns e mede quanto a hiperbole mais forte
+    "colapsa" (maior coerencia ao longo da curva teorica).
+
+    Parametros:
+      arr_sem_agc : array sem AGC (amplitudes fisicas preservadas)
+      params      : dict com dt_s, dx_m, h_min_m, h_max_m, col_search_half
+
+    Retorna: (velocity_estimada_mns, confidence 0-1)
+    """
+    from scipy.signal import hilbert as _hilbert
+
+    velocities = np.arange(0.06, 0.165, 0.005)
+    dt       = params["dt_s"]
+    dx       = params["dx_m"]
+    h_min    = params.get("h_min_m", 0.10)
+    h_max    = params.get("h_max_m", 3.00)
+    col_half = min(params.get("col_search_half", 80), 60)
+    n_samples, n_traces = arr_sem_agc.shape
+
+    env      = np.abs(_hilbert(arr_sem_agc, axis=0))
+    env_norm = env / (env.max() + 1e-10)
+
+    # Apex mais forte do envelope
+    row0, col0 = np.unravel_index(np.argmax(env_norm), env_norm.shape)
+
+    scores = []
+    for v_mns in velocities:
+        v   = v_mns * 1e9          # m/s
+        h   = row0 * dt * v / 2.0  # profundidade estimada para este v
+
+        if not (h_min <= h <= h_max):
+            scores.append(0.0)
+            continue
+
+        score  = 0.0
+        n_pts  = 0
+        for dc in range(-col_half, col_half + 1, 2):   # passo 2 para velocidade
+            c = col0 + dc
+            if not (0 <= c < n_traces):
+                continue
+            t_hyp   = (2.0 / v) * np.sqrt(h**2 + (dc * dx)**2)
+            row_hyp = int(round(t_hyp / dt))
+            if 0 <= row_hyp < n_samples:
+                score += env_norm[row_hyp, c]
+                n_pts += 1
+
+        scores.append(score / max(n_pts, 1))
+
+    scores_arr = np.array(scores)
+    if scores_arr.max() < 1e-10:
+        return round(float(params["v_m_per_s"] / 1e9), 4), 0.0
+
+    best_idx   = int(np.argmax(scores_arr))
+    v_est      = round(float(velocities[best_idx]), 4)
+    # confidence: quao destacado e o pico em relacao ao resto
+    scores_n   = scores_arr / scores_arr.max()
+    confidence = round(float(1.0 - float(np.median(scores_n))), 3)
+    return v_est, confidence
+
+
+# ---------------------------------------------------------------------------
+# ANALISE ESPECTRAL DE UM ALVO INDIVIDUAL
+# ---------------------------------------------------------------------------
+def _espectro_alvo(arr_sem_agc, col0, dt):
+    """
+    FFT do traco central do alvo no dado sem AGC.
+
+    Retorna: (freq_dominante_mhz, freq_centroide_mhz, razao_alta_baixa)
+    """
+    from scipy.fft import rfft as _rfft, rfftfreq as _rfftfreq
+
+    col0  = max(0, min(arr_sem_agc.shape[1] - 1, col0))
+    trace = arr_sem_agc[:, col0].astype(float)
+    n     = len(trace)
+
+    freqs    = _rfftfreq(n, d=dt)          # Hz
+    spectrum = np.abs(_rfft(trace))
+
+    # Frequencia de pico (ignora DC)
+    idx_peak       = int(np.argmax(spectrum[1:])) + 1
+    freq_dominante = round(float(freqs[idx_peak]) / 1e6, 2)
+
+    # Centroide espectral
+    total         = float(spectrum.sum()) + 1e-10
+    freq_centroide = round(float(np.sum(freqs * spectrum) / total) / 1e6, 2)
+
+    # Razao alta/baixa (threshold 200 MHz)
+    thresh     = 200e6
+    pow_high   = float(spectrum[freqs > thresh].sum())
+    pow_low    = float(spectrum[freqs <= thresh].sum())
+    razao      = round(pow_high / (pow_low + 1e-10), 4)
+
+    return freq_dominante, freq_centroide, razao
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +699,19 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
     """
     if params is None:
         params = DEFAULT_PARAMS
+
+    # Estimar velocity automaticamente (semblance)
+    velocity_estimada_mns, vel_conf = estimar_velocity(arr_processado, params)
+    velocity_preset_mns = params["v_m_per_s"] / 1e9
+    # Usar estimativa se confianca >= 0.3 e diferenca relevante (> 0.005 m/ns)
+    if vel_conf >= 0.3 and abs(velocity_estimada_mns - velocity_preset_mns) > 0.005:
+        params = dict(params)
+        params["v_m_per_s"] = velocity_estimada_mns * 1e9
+        velocity_fonte = "estimada"
+        velocity_usada_mns = velocity_estimada_mns
+    else:
+        velocity_fonte = "preset"
+        velocity_usada_mns = velocity_preset_mns
 
     dx = params["dx_m"]
     dt = params["dt_s"]
@@ -661,18 +791,22 @@ def detectar_hiperboles(arr_processado, params=None, top_n=30):
             tipo_tamanho = "grande"
 
         rows_out.append({
-            "rank":                rank,
-            "x_m":                 round(col0_ref * dx, 2),
-            "depth_m":             h_ref,
-            "depth_hough_m":       round(h_hough, 3),
-            "fit_ok":              fit_ok,
-            "diam_est_m":          diam,
-            "diam_confianca":      confianca,
-            "score":               round(score, 3),
-            "prof_topo_m":         prof_topo_m,
-            "largura_hiperbole_m": largura_hiperbole_m,
-            "altura_hiperbole_m":  altura_hiperbole_m,
-            "tipo_tamanho":        tipo_tamanho,
+            "rank":                    rank,
+            "x_m":                     round(col0_ref * dx, 2),
+            "depth_m":                 h_ref,
+            "depth_hough_m":           round(h_hough, 3),
+            "fit_ok":                  fit_ok,
+            "diam_est_m":              diam,
+            "diam_confianca":          confianca,
+            "score":                   round(score, 3),
+            "prof_topo_m":             prof_topo_m,
+            "largura_hiperbole_m":     largura_hiperbole_m,
+            "altura_hiperbole_m":      altura_hiperbole_m,
+            "tipo_tamanho":            tipo_tamanho,
+            # Velocity — mesma para todos os alvos do DZT
+            "velocity_usada_mns":      velocity_usada_mns,
+            "velocity_estimada_mns":   velocity_estimada_mns,
+            "velocity_fonte":          velocity_fonte,
         })
 
     return pd.DataFrame(rows_out), accum, depths
