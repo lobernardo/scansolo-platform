@@ -31,7 +31,7 @@ Flags opcionais:
   --sem-fisica     Pula analises fisicas (material/espectro) mas mantem deteccao geometrica
 """
 
-import os, sys, json, hashlib, shutil, argparse, logging, warnings, io, base64
+import os, sys, json, hashlib, shutil, argparse, logging, warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -80,18 +80,9 @@ PRESETS = {
         "tpow_power":        0.5,
         "agc_window":        150,
         "velocity_mns":      0.1,
-        "contrast":          2.5,
+        "contrast":          3.0,
         "colormap":          "gray",
         "dpi":               150,
-        "migracao_ativa": True,
-        "filtros_ativos": {
-            "dewow":              True,
-            "bandpass":           True,
-            "background_removal": True,
-            "tpow_gain":          True,
-            "agc":                True,
-            "ia_imagem":          False,   # off por padrao — custo de API
-        },
         # Detector de hiperboles
         "det_amp_threshold": 0.45,
         "det_h_min_m":       0.10,
@@ -216,6 +207,49 @@ def salvar_imagem(prof, caminho, preset, titulo=None):
     plt.close("all")
 
 
+def salvar_imagem_padrao_amilson(arr, depth_m, dist_m, caminho, preset, nome_arquivo=""):
+    """
+    Gera imagem no padrao visual Amilson:
+      - Titulo simples: nome do arquivo + data
+      - Labels em portugues: 'Profundidade (m)' / 'Distancia (m)'
+      - SEM AGC: preserva decaimento fisico de amplitude com profundidade
+      - Contraste: clip por ±contrast*std (mesmo metodo GPRPy contrast=3.0)
+      - Colormap gray, figsize 14x4 pol, dpi configuravel
+      - Este e o formato entregue ao Amilson e ao cliente.
+
+    arr           : numpy array 2D shape (n_amostras, n_tracos) — usar arr_sem_agc
+    depth_m       : profundidade maxima em metros (eixo Y)
+    dist_m        : distancia total em metros (eixo X)
+    nome_arquivo  : nome do .DZT para o titulo (ex: 'linha_001.DZT')
+    """
+    contrast = preset.get("contrast", 3.0)
+    std = float(np.std(arr))
+    vmin, vmax = -contrast * std, contrast * std
+
+    fig, ax = plt.subplots(figsize=(14, 4))
+    ax.imshow(
+        arr,
+        extent=[0, dist_m, depth_m, 0],
+        aspect="auto",
+        cmap=preset.get("colormap", "gray"),
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    ax.set_xlabel("Distância (m)", fontsize=10)
+    ax.set_ylabel("Profundidade (m)", fontsize=10)
+    ax.set_xlim(0, dist_m)
+    ax.set_ylim(depth_m, 0)
+
+    # Titulo simples: nome do arquivo + data
+    titulo = f"{nome_arquivo}  |  {datetime.now().strftime('%Y-%m-%d')}" if nome_arquivo else datetime.now().strftime('%Y-%m-%d')
+    ax.set_title(titulo, fontsize=9, color="#555555", pad=4)
+
+    plt.tight_layout()
+    plt.savefig(str(caminho), format="png", dpi=preset.get("dpi", 150), bbox_inches="tight")
+    plt.close("all")
+
+
 def salvar_config_json(pasta_saida, preset, preset_nome, config_hash):
     """Salva config_used.json com todos os parametros + metadata do run."""
     config_data = {
@@ -261,110 +295,6 @@ def salvar_config_json(pasta_saida, preset, preset_nome, config_hash):
     with open(str(caminho), "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2, ensure_ascii=False)
     return caminho
-
-
-def melhorar_imagem_ia(path_processada: Path, api_key: str, logger,
-                       expected_shape: tuple | None = None):
-    """
-    Envia radargrama para gpt-image-1 para melhoria visual.
-    Retorna (path_melhorada, arr_ia) ou (None, None) se falhar.
-    arr_ia esta no range aproximado de arr_proc (media=0, std=1).
-    Se expected_shape for fornecido e o shape nao bater apos resize,
-    retorna (path_melhorada, None) — imagem salva mas nao usada no detector.
-    """
-    PROMPT = (
-        "This is a GPR (Ground Penetrating Radar) subsurface radargram. "
-        "Enhance contrast and highlight hyperbola patterns (inverted-U arcs) "
-        "that indicate underground utilities. Reduce horizontal background noise. "
-        "Preserve the original scale and proportions exactly."
-    )
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-
-        with open(str(path_processada), "rb") as f:
-            response = client.images.edit(
-                model="gpt-image-1",
-                image=f,
-                prompt=PROMPT,
-            )
-
-        img_b64 = response.data[0].b64_json
-        img_bytes = base64.b64decode(img_b64)
-
-        # Salvar imagem melhorada
-        stem = path_processada.stem.replace("_processada", "")
-        path_melhorada = path_processada.parent / f"{stem}_melhorada_ia.png"
-        path_melhorada.write_bytes(img_bytes)
-        logger.info(f"  IA imagem: {path_melhorada.name}")
-
-        # Converter para array numpy (escala de cinza, normalizado)
-        import matplotlib.image as _mpimg
-        arr_rgb = _mpimg.imread(io.BytesIO(img_bytes))
-        if arr_rgb.ndim == 3:
-            arr_gray = np.mean(arr_rgb[:, :, :3], axis=2).astype(float)
-        else:
-            arr_gray = arr_rgb.astype(float)
-
-        # Redimensionar para bater com expected_shape se necessario
-        if expected_shape is not None and arr_gray.shape != expected_shape:
-            try:
-                from scipy.ndimage import zoom as _zoom
-                zh = expected_shape[0] / arr_gray.shape[0]
-                zw = expected_shape[1] / arr_gray.shape[1]
-                arr_gray = _zoom(arr_gray, (zh, zw), order=1)
-                logger.debug(f"  IA imagem redimensionada para {arr_gray.shape}")
-            except Exception as ze:
-                logger.warning(f"  IA imagem resize falhou: {ze} — usando arr_proc")
-                return path_melhorada, None
-
-        # Normalizar para range similar ao arr_proc pos-AGC (media=0, std=1)
-        arr_ia = (arr_gray - arr_gray.mean()) / (arr_gray.std() + 1e-10)
-        return path_melhorada, arr_ia
-
-    except ImportError:
-        logger.warning("  openai nao instalado — pulando melhorar_imagem_ia")
-        return None, None
-    except Exception as e:
-        logger.warning(f"  melhorar_imagem_ia falhou ({type(e).__name__}: {e}) — usando arr_proc")
-        return None, None
-
-
-def _kirchhoff_migration(arr_proc, dt_ns, dx_m, velocity_mns):
-    """
-    Kirchhoff diffraction-summation migration via numpy.
-
-    Para cada ponto de saida (iz, ix), soma as amostras de entrada
-    ao longo da hiperbole teorica. Colapsa hiperboles em pontos,
-    producindo imagem de interferencias sem difracoes de lado.
-
-    Parametros:
-      arr_proc      : array (n_amostras, n_tracos) — normalmente arr_proc_save
-      dt_ns         : intervalo de amostragem em tempo [ns]
-      dx_m          : espaco entre tracos [m]
-      velocity_mns  : velocidade de propagacao [m/ns]
-
-    Retorna: array migrado com mesmo shape de arr_proc
-    """
-    n_samples, n_traces = arr_proc.shape
-    v = velocity_mns          # m/ns
-
-    z_m  = np.arange(n_samples) * dt_ns * v / 2.0   # profundidade por amostra [m]
-    ix2  = np.arange(n_traces)
-
-    migrated = np.zeros_like(arr_proc, dtype=float)
-
-    for ix in range(n_traces):
-        dx_dist = np.abs(ix2 - ix) * dx_m               # (n_tracos,) [m]
-        # Tempo de ida e volta para cada profundidade e traco: (n_amostras, n_tracos) [ns]
-        t_hyp = (2.0 / v) * np.sqrt(z_m[:, None]**2 + dx_dist[None, :]**2)
-        rows  = np.round(t_hyp / dt_ns).astype(np.int32)
-        np.clip(rows, 0, n_samples - 1, out=rows)
-        migrated[:, ix] = arr_proc[rows, ix2[None, :]].sum(axis=1)
-
-    # Normalizar pelo numero de tracos para preservar amplitude relativa
-    migrated /= float(n_traces)
-    return migrated.astype(np.float32)
 
 
 def _salvar_npy_seguro(arr, caminho):
@@ -506,7 +436,6 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     deteccoes.to_csv(str(path_csv), index=False, encoding="utf-8")
 
     # --- Imagem anotada completa (todos os candidatos) ---
-    caminhos["processadas"].mkdir(parents=True, exist_ok=True)
     path_completa = caminhos["processadas"] / f"{nome}_anotada_completa.png"
     nome_completa = None
     try:
@@ -551,9 +480,7 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
 # PROCESSAMENTO DE UM DZT V1.1
 # ---------------------------------------------------------------------------
 def processar_dzt(arquivo_dzt, caminhos, preset, logger,
-                  usar_detector=True, usar_fisica=True, config_hash=None,
-                  usar_ia_imagem=False, openai_api_key=None,
-                  usar_migracao=True):
+                  usar_detector=True, usar_fisica=True, config_hash=None):
     nome = arquivo_dzt.stem
     t_inicio = datetime.now()
     logger.info(f"Iniciando: {arquivo_dzt.name}")
@@ -589,97 +516,58 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha bruta: {e}")
         return None
 
-    # 2. Cadeia de filtros configuravel (sem AGC ainda)
-    filtros = preset.get("filtros_ativos", {})
+    # 2. Cadeia de filtros (sem AGC ainda)
+    prof.dewow(preset["dewow_window"])
+    logger.debug(f"  dewow({preset['dewow_window']})")
 
-    if filtros.get("dewow", True):
-        prof.dewow(preset["dewow_window"])
-        logger.debug(f"  dewow({preset['dewow_window']})")
+    try:
+        aplicar_bandpass(prof, preset["bandpass_low_mhz"],
+                         preset["bandpass_high_mhz"], preset["bandpass_order"])
+        logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
+    except Exception as e:
+        logger.warning(f"  Bandpass falhou (continuando): {e}")
 
-    if filtros.get("bandpass", True):
-        try:
-            aplicar_bandpass(prof, preset["bandpass_low_mhz"],
-                             preset["bandpass_high_mhz"], preset["bandpass_order"])
-            logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
-        except Exception as e:
-            logger.warning(f"  Bandpass falhou (continuando): {e}")
+    prof.remMeanTrace(preset["bgremoval_traces"])
+    logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
 
-    if filtros.get("background_removal", True):
-        prof.remMeanTrace(preset["bgremoval_traces"])
-        logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
+    prof.tpowGain(power=preset["tpow_power"])
+    logger.debug(f"  tpowGain(power={preset['tpow_power']})")
 
-    if filtros.get("tpow_gain", True):
-        prof.tpowGain(power=preset["tpow_power"])
-        logger.debug(f"  tpowGain(power={preset['tpow_power']})")
-
-    # V1.1 — Captura arr_sem_agc ANTES do AGC
-    # Esta e a matriz correta para analise de amplitude/fase/material.
-    # AGC normaliza o sinal para visualizacao e destroi relacoes absolutas de amplitude.
+    # V1.2 — Captura arr_sem_agc ANTES do AGC
+    # Esta e a matriz para:
+    #   (a) imagem oficial entregue ao Amilson/cliente — padrao visual Amilson
+    #   (b) analise de amplitude/fase/material — AGC destroi relacoes absolutas
     arr_sem_agc = np.asarray(prof.data).astype(np.float32)
     _salvar_npy_seguro(arr_sem_agc, caminhos["dados"] / f"{nome}_processado_sem_agc.npy")
     logger.debug(f"  processado_sem_agc.npy salvo shape={arr_sem_agc.shape}")
 
-    # 3. AGC + setVelocity (para visualizacao e deteccao geometrica)
-    if filtros.get("agc", True):
-        prof.agcGain(preset["agc_window"])
-        logger.debug(f"  agcGain({preset['agc_window']})")
+    # --- Imagem oficial (padrao Amilson) — SEM AGC ---
+    # Profundidade calculada com velocity antes de setVelocity (twtt em ns)
+    depth_m_oficial = round(float(prof.twtt[-1]) * preset["velocity_mns"] / 2.0, 2)
+    path_proc = caminhos["processadas"] / f"{nome}_processada.png"
+    try:
+        salvar_imagem_padrao_amilson(
+            arr_sem_agc, depth_m_oficial, dist_max, path_proc, preset,
+            nome_arquivo=arquivo_dzt.name
+        )
+        logger.info(f"  Processada (padrao Amilson, sem AGC): {path_proc.name} (max={depth_m_oficial}m)")
+    except Exception as e:
+        logger.error(f"  Falha imagem padrao Amilson: {e}")
+        return None
+
+    # 3. AGC + setVelocity (para deteccao geometrica interna de hiperboles)
+    prof.agcGain(preset["agc_window"])
+    logger.debug(f"  agcGain({preset['agc_window']}) — uso interno: detector")
 
     prof.setVelocity(preset["velocity_mns"])
     depth_max = round(float(prof.depth[-1]), 2)
     logger.debug(f"  setVelocity({preset['velocity_mns']}) -> {depth_max}m")
 
-    # 4. Imagem processada + arrays visuais (.npy)
+    # 4. Arrays visuais com AGC (.npy) — uso interno do detector
     arr_proc_save = np.asarray(prof.data).astype(np.float32)
-    # Backward compat — processado.npy continua sendo gerado
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado.npy")
-    # V1.1 alias explicito
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado_visual.npy")
-    logger.debug(f"  processado.npy + processado_visual.npy salvos shape={arr_proc_save.shape}")
-
-    path_proc = caminhos["processadas"] / f"{nome}_processada.png"
-    try:
-        titulo_proc = (f"{arquivo_dzt.name}  |  "
-                       f"Processada: Dewow+Bandpass+BGRemoval+tpow+AGC  |  "
-                       f"v={preset['velocity_mns']} m/ns  |  "
-                       f"{datetime.now().strftime('%Y-%m-%d')}")
-        salvar_imagem(prof, path_proc, preset, titulo=titulo_proc)
-        logger.info(f"  Processada: {path_proc.name} (max={depth_max}m)")
-    except Exception as e:
-        logger.error(f"  Falha processada: {e}")
-        return None
-
-    # 4b. Migracao Kirchhoff (numpy) — colapsa hiperboles em pontos
-    arr_migrado  = None
-    path_migrada = None
-    if usar_migracao:
-        try:
-            _dx_m = dist_max / max(n_tracos - 1, 1)
-            arr_migrado  = _kirchhoff_migration(
-                arr_proc_save, dt_ns, _dx_m, preset["velocity_mns"]
-            )
-            path_migrada = caminhos["processadas"] / f"{nome}_migrada.png"
-            titulo_mig   = (f"{arquivo_dzt.name}  |  Migrada (Kirchhoff)  |  "
-                            f"v={preset['velocity_mns']} m/ns  |  "
-                            f"{datetime.now().strftime('%Y-%m-%d')}")
-            # Salvar migrada usando prof temporariamente modificado para reutilizar salvar_imagem
-            _data_orig  = prof.data.copy()
-            prof.data   = np.matrix(arr_migrado.astype(np.float64))
-            salvar_imagem(prof, path_migrada, preset, titulo=titulo_mig)
-            prof.data   = _data_orig
-            logger.info(f"  Migrada: {path_migrada.name}")
-        except Exception as e:
-            logger.warning(f"  migracao falhou: {e} — usando arr_proc")
-            arr_migrado  = None
-            path_migrada = None
-
-    # 4c. IA de melhoria de imagem (opcional, off por padrao)
-    arr_ia = None
-    path_melhorada = None
-    if usar_ia_imagem and openai_api_key and path_proc.exists():
-        path_melhorada, arr_ia = melhorar_imagem_ia(
-            path_proc, openai_api_key, logger,
-            expected_shape=(n_amostras, n_tracos),
-        )
+    logger.debug(f"  processado.npy + processado_visual.npy (com AGC) salvos shape={arr_proc_save.shape}")
 
     # 5. Deteccao de alvos V1.1 (passa 3 matrizes)
     _met0 = {"n_alvos_alta": 0, "n_alvos_media": 0, "n_alvos_baixa": 0,
@@ -687,14 +575,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = 0, None, None, None, {}, _met0
     if usar_detector:
         arr_proc = np.asarray(prof.data).astype(float)
-        # Prioridade: migrado > ia > proc
-        arr_detector = (
-            arr_migrado if arr_migrado is not None else
-            arr_ia      if arr_ia      is not None else
-            arr_proc
-        )
         n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = detectar_e_salvar_alvos(
-            arr_detector, arr_sem_agc, arr_raw,
+            arr_proc, arr_sem_agc, arr_raw,
             prof, preset, nome, caminhos, logger,
             usar_fisica=usar_fisica
         )
@@ -722,8 +604,6 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         # Imagens
         "imagem_bruta":                  path_bruta.name,
         "imagem_processada":             path_proc.name,
-        "imagem_migrada":                path_migrada.name if path_migrada else "",
-        "imagem_melhorada_ia":           path_melhorada.name if path_melhorada else "",
         "imagem_anotada":                png_completa or "",   # backward compat
         "imagem_anotada_completa":       png_completa or "",
         "imagem_anotada_alta":           png_alta or "",       # backward compat
@@ -754,12 +634,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "tpow_power":              preset["tpow_power"],
         "agc_window":              preset["agc_window"],
         # Velocidade e calibracao
-        "velocity_mns":                   preset["velocity_mns"],
-        "velocity_estimada_projeto_mns":  espectro.get("velocity_estimada_projeto_mns", ""),
-        "velocity_usada_projeto_mns":     espectro.get("velocity_usada_projeto_mns", ""),
-        "velocity_calibrada":             False,
-        "metodo_calibracao":              "default",
-        "observacao_calibracao":          "[CALIBRAR] Confirmar com Amilson usando alvo de posicao/profundidade conhecidas",
+        "velocity_mns":            preset["velocity_mns"],
+        "velocity_calibrada":      False,
+        "metodo_calibracao":       "default",
+        "observacao_calibracao":   "[CALIBRAR] Confirmar com Amilson usando alvo de posicao/profundidade conhecidas",
         "config_hash":             config_hash or "",
         # Metadata
         "status":                  "processado",
@@ -776,54 +654,21 @@ def main():
     parser.add_argument("--input",        default=None)
     parser.add_argument("--output",       default=None)
     parser.add_argument("--preset",       default="270mhz", choices=list(PRESETS.keys()))
-    parser.add_argument("--sem-detector",   action="store_true",
+    parser.add_argument("--sem-detector", action="store_true",
                         help="Pula deteccao de alvos (so processamento de imagens + .npy)")
-    parser.add_argument("--sem-fisica",     action="store_true",
+    parser.add_argument("--sem-fisica",   action="store_true",
                         help="Pula analises fisicas (material/espectro) mas mantem deteccao geometrica")
-    parser.add_argument("--sem-ia-imagem",  action="store_true",
-                        help="Pula etapa de melhoria de imagem via gpt-image-1")
-    parser.add_argument("--sem-migracao",   action="store_true",
-                        help="Pula migracao Kirchhoff (util para comparacao e testes)")
-    parser.add_argument("--filter-config",  default=None,
-                        help="Caminho para JSON com overrides de filtros do projeto")
     args = parser.parse_args()
 
     script_dir    = Path(__file__).resolve().parent
     pasta_entrada = Path(args.input)  if args.input  else script_dir.parent / "Exemplos_dados_bruos_georadar"
     pasta_saida   = Path(args.output) if args.output else script_dir / "exemplo_saida"
-    preset        = dict(PRESETS[args.preset])   # copia mutavel
+    preset        = PRESETS[args.preset]
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
 
-    # Mesclar overrides de filtros do projeto
-    if args.filter_config:
-        try:
-            with open(args.filter_config, encoding="utf-8") as _f:
-                user_cfg = json.load(_f)
-            for k, v in user_cfg.items():
-                if k == "filtros_ativos":
-                    preset.setdefault("filtros_ativos", {}).update(v)
-                else:
-                    preset[k] = v
-        except Exception as _e:
-            pass   # log apos configurar logger
-
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    usar_ia_imagem = (
-        not args.sem_ia_imagem
-        and bool(openai_api_key)
-        and preset.get("filtros_ativos", {}).get("ia_imagem", False)
-    )
-    usar_migracao = (
-        not args.sem_migracao
-        and preset.get("migracao_ativa", False)
-    )
-
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])
-
-    if args.filter_config:
-        logger.info(f"filter-config  : {args.filter_config}")
 
     # Config hash para rastreabilidade
     config_str  = json.dumps(preset, sort_keys=True, default=str)
@@ -837,8 +682,6 @@ def main():
     logger.info(f"Config hash  : {config_hash}")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
-    logger.info(f"IA imagem    : {'ativa (gpt-image-1)' if usar_ia_imagem else 'desativada'}")
-    logger.info(f"Migracao     : {'ativa (F-K Stolt)' if usar_migracao else 'desativada'}")
     logger.info(f"Matrizes V1.1: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
     logger.info("=" * 65)
 
@@ -858,10 +701,7 @@ def main():
     registros, erros = [], 0
     for dzt in dzts:
         resultado = processar_dzt(dzt, caminhos, preset, logger, usar_detector, usar_fisica,
-                                  config_hash=config_hash,
-                                  usar_ia_imagem=usar_ia_imagem,
-                                  openai_api_key=openai_api_key,
-                                  usar_migracao=usar_migracao)
+                                  config_hash=config_hash)
         if resultado:
             registros.append(resultado)
         else:
@@ -874,45 +714,18 @@ def main():
     pd.DataFrame(registros).to_csv(
         pasta_saida / "index_projeto.csv", index=False, encoding="utf-8"
     )
-    logger.info("index_projeto.csv salvo")
-
-    # Tabela de campo: consolida todos os alvos alta+media, ordenado por arquivo e prof_topo_m
-    _COLUNAS_CAMPO = [
-        "arquivo_dzt", "rank", "x_m", "prof_topo_m", "depth_m", "diam_est_m",
-        "largura_hiperbole_m", "altura_hiperbole_m", "tipo_tamanho", "tipo_material",
-        "confidence_label_relatorio", "score", "motivo_confianca",
-    ]
-    try:
-        csv_alvos = sorted((caminhos["alvos"]).glob("*_alvos.csv"))
-        if csv_alvos:
-            dfs = []
-            for f in csv_alvos:
-                try:
-                    dfs.append(pd.read_csv(str(f)))
-                except Exception:
-                    pass
-            if dfs:
-                df_all = pd.concat(dfs, ignore_index=True)
-                mask = df_all.get("confidence_label_relatorio", pd.Series(dtype=str)).isin(["alta", "media"])
-                df_campo = df_all[mask].copy()
-                colunas_presentes = [c for c in _COLUNAS_CAMPO if c in df_campo.columns]
-                df_campo = df_campo[colunas_presentes]
-                sort_cols = [c for c in ["arquivo_dzt", "prof_topo_m"] if c in df_campo.columns]
-                if sort_cols:
-                    df_campo = df_campo.sort_values(sort_cols).reset_index(drop=True)
-                df_campo.to_csv(str(pasta_saida / "tabela_campo.csv"), index=False, encoding="utf-8")
-                logger.info(f"tabela_campo.csv: {len(df_campo)} alvos (alta+media)")
-    except Exception as e:
-        logger.warning(f"tabela_campo.csv nao gerado: {e}")
 
     total_alvos = sum(r.get("n_alvos_detectados", 0) for r in registros
                       if isinstance(r.get("n_alvos_detectados"), int))
+
+    logger.info("index_projeto.csv salvo")
     logger.info("=" * 65)
     logger.info(f"Concluido    : {len(registros)-erros} ok  |  {erros} erro(s)  |  {total_alvos} alvo(s)")
     logger.info(f"Saida        : {pasta_saida}")
     logger.info(f"V1.1 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
     logger.info(f"               *_anotada_completa.png | *_anotada_alta_confianca.png")
     logger.info(f"               config_used.json | confidence_score_0_100 no CSV")
+    logger.info("=" * 65)
     if erros:
         sys.exit(1)
 

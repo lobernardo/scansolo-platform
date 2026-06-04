@@ -8,7 +8,7 @@ import type { Database } from "@/lib/types/database";
 import { ProjectStatusPoller } from "./ProjectStatusPoller";
 import { acceptAllIaSuggestions } from "./revisao/actions";
 import { startCartografia } from "./cartografia/actions";
-import { startRelatorio } from "./relatorio/actions";
+import { startRelatorio, generateInferenceReport } from "./relatorio/actions";
 import { ProjectDetailClient } from "./ProjectDetailClient";
 import type { DownloadFile } from "./ProjectDetailClient";
 
@@ -188,6 +188,17 @@ export default async function ProjetoDetailPage({
       ext: "kml",
     },
   ];
+
+  // Inference report state
+  const inferenciasJob = jobs.findLast((j) => j.job_type === "inferencias") ?? null;
+  const inferenciasGerada = inferenciasJob?.status === "concluido";
+  const inferenciasProcessando =
+    inferenciasJob?.status === "aguardando" ||
+    (inferenciasJob?.status ?? "").startsWith("processando");
+  const inferenciasUrl = inferenciasGerada
+    ? await trySignedUrl(supabase, "gpr-tabelas", `${id}/inferencias.txt`)
+    : null;
+  const gprDone = profiles.length > 0;
 
   const isProcessing = PROCESSING_STATUSES.has(project.status);
   const gprJob = jobs.find((j) => j.job_type === "gpr");
@@ -443,6 +454,38 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
+      {/* Relatório de inferências (sob demanda) */}
+      {gprDone && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-gray-900">Relatório de inferências</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Tabela alta + média confiança para revisão técnica (.txt)
+            </p>
+          </div>
+          {inferenciasUrl ? (
+            <a
+              href={inferenciasUrl}
+              download="inferencias.txt"
+              className="shrink-0 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+            >
+              ↓ Baixar inferências
+            </a>
+          ) : inferenciasProcessando ? (
+            <span className="shrink-0 text-sm text-gray-400">Gerando…</span>
+          ) : (
+            <form action={generateInferenceReport.bind(null, project.id)}>
+              <button
+                type="submit"
+                className="shrink-0 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Gerar relatório de inferências
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
       {/* Interactive sections: profile cards + targets table + files */}
       {profiles.length > 0 || downloadFiles.some((f) => f.url) ? (
         <ProjectDetailClient
@@ -554,7 +597,7 @@ function PipelineProgress({ status }: { status: string }) {
 
 function JobChip({ job }: { job: JobRow }) {
   const typeLabel: Record<string, string> = {
-    gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório",
+    gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório", inferencias: "Inferências",
   };
   const statusColor: Record<string, string> = {
     aguardando: "bg-gray-100 text-gray-500",

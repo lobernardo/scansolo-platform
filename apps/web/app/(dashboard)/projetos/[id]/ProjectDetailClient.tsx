@@ -138,31 +138,43 @@ export function ProjectDetailClient({
                     )}
                   </div>
 
-                  {/* Thumbnails */}
+                  {/* Thumbnails + download */}
                   {imgs.length > 0 && (
-                    <div className="flex gap-2 p-3 bg-gray-50 border-b border-gray-100">
-                      {imgs.map((img, idx) => (
-                        <button
-                          key={img.label}
-                          onClick={() => openLightbox(profile, idx)}
-                          className="relative group rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors flex-1"
-                          title={`Abrir ${img.label} em tamanho real`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={img.url}
-                            alt={img.label}
-                            className="w-full h-36 object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
-                          <span className="absolute bottom-0 left-0 right-0 bg-black/65 text-white text-[10px] text-center py-1 font-medium">
-                            {img.label}
-                          </span>
-                        </button>
-                      ))}
-                      {imgs.length === 0 && (
-                        <p className="text-xs text-gray-400 py-2">Imagens não disponíveis</p>
-                      )}
+                    <div className="p-3 bg-gray-50 border-b border-gray-100 space-y-2">
+                      <div className="flex gap-2">
+                        {imgs.map((img, idx) => (
+                          <button
+                            key={img.label}
+                            onClick={() => openLightbox(profile, idx)}
+                            className="relative group rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors flex-1"
+                            title={`Abrir ${img.label} em tamanho real`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={img.url}
+                              alt={img.label}
+                              className="w-full h-36 object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
+                            <span className="absolute bottom-0 left-0 right-0 bg-black/65 text-white text-[10px] text-center py-1 font-medium">
+                              {img.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {/* Botões de download por imagem */}
+                      <div className="flex gap-2 flex-wrap">
+                        {imgs.map((img) => (
+                          <a
+                            key={img.label}
+                            href={img.url}
+                            download={`${profile.arquivo_dzt ?? profile.id}_${img.label.toLowerCase().replace(/\s/g, "_")}.png`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-[11px] font-medium text-gray-600 hover:bg-gray-100 transition"
+                          >
+                            ⬇ {img.label}
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   )}
 

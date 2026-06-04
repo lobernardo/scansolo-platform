@@ -57,6 +57,24 @@ export async function approveRelatorio(
   return { ok: true };
 }
 
+export async function generateInferenceReport(projectId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  await supabase
+    .from("processing_jobs")
+    .insert({
+      project_id: projectId,
+      job_type: "inferencias",
+      status: "aguardando",
+    } as unknown as never);
+
+  redirect(`/projetos/${projectId}`);
+}
+
 export async function regenerateRelatorio(projectId: string) {
   const supabase = await createClient();
   const {

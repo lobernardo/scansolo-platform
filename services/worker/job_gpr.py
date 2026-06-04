@@ -219,6 +219,175 @@ def _parse_targets(csv_path: Path, project_id: str, profile_id: str, run_id: str
     return targets
 
 
+def gerar_relatorio_inferencias(
+    df_campo: list[dict],
+    projeto: dict,
+    preset: str = "270mhz",
+) -> str:
+    """Gera relatório .txt de inferências (alta + média confiança) para revisão técnica."""
+    from datetime import date as _date
+
+    def _f(row: dict, key: str, dec: int = 2) -> str:
+        v = row.get(key)
+        if v is None or str(v).strip() in ("", "None", "nan"):
+            return "—"
+        try:
+            return f"{float(v):.{dec}f}"
+        except (ValueError, TypeError):
+            return str(v)
+
+    campo = [
+        r for r in df_campo
+        if r.get("confidence_label_tecnico") in ("alta", "media")
+    ]
+    campo.sort(key=lambda r: (r.get("arquivo_dzt") or "", int(float(r.get("rank") or 0))))
+
+    n_alta = sum(1 for r in campo if r.get("confidence_label_tecnico") == "alta")
+    n_media = len(campo) - n_alta
+
+    nome = projeto.get("nome") or "—"
+    codigo = projeto.get("codigo_projeto") or nome
+    data_str = _date.today().strftime("%d/%m/%Y")
+
+    SEP = "=" * 102
+    DIV = "-" * 102
+
+    col_header = (
+        f"{'Linha':<22} | {'#':>3} | {'Dist.(m)':>8} | {'P.Topo(m)':>9} | "
+        f"{'P.Eixo(m)':>9} | {'Diâm.(m)':>8} | {'Larg.(m)':>8} | {'Tam.':<8} | "
+        f"{'Material':<16} | Conf."
+    )
+
+    lines = [
+        "RELATÓRIO DE INFERÊNCIAS — ScanSOLO",
+        f"Projeto : {nome}  |  Código: {codigo}",
+        f"Data    : {data_str}  |  Preset: {preset}",
+        "",
+        SEP,
+        "INTERFERÊNCIAS DETECTADAS  (alta + média confiança)",
+        SEP,
+        "",
+        col_header,
+        DIV,
+    ]
+
+    for row in campo:
+        arquivo = (row.get("arquivo_dzt") or "—")[:22]
+        rank = row.get("rank") or "—"
+        x_m = _f(row, "x_m")
+        depth_m_str = _f(row, "depth_m")
+
+        # prof_topo: prefer pipeline field, fallback to depth_m - diam/2
+        pt_raw = row.get("prof_topo_m")
+        if pt_raw is None or str(pt_raw).strip() in ("", "None", "nan"):
+            try:
+                d = float(row.get("depth_m") or 0)
+                dm = float(row.get("diam_est_m") or 0)
+                pt_str = f"{d - dm / 2:.2f}"
+            except (ValueError, TypeError):
+                pt_str = "—"
+        else:
+            pt_str = _f(row, "prof_topo_m")
+
+        largura_str = _f(row, "largura_hiperbole_m")
+        tam = (row.get("tipo_tamanho") or "—")[:8]
+        material = (row.get("tipo_material") or "—")[:16]
+        conf = row.get("confidence_label_tecnico") or "—"
+
+        lines.append(
+            f"{arquivo:<22} | {str(rank):>3} | {x_m:>8} | {pt_str:>9} | "
+            f"{depth_m_str:>9} | {_f(row, 'diam_est_m', 3):>8} | {largura_str:>8} | "
+            f"{tam:<8} | {material:<16} | {conf}"
+        )
+
+    total_label = "interferência" if len(campo) == 1 else "interferências"
+    lines += [
+        "",
+        SEP,
+        f"Total: {len(campo)} {total_label}  ({n_alta} alta, {n_media} média)",
+        "",
+        "LEGENDA",
+        DIV,
+        "P.Topo(m)   Profundidade da geratriz superior (topo da interferência)",
+        "P.Eixo(m)   Profundidade do eixo central estimado",
+        "Diâm.(m)    Diâmetro aparente estimado pelo ajuste de hipérbole",
+        "Larg.(m)    Largura da hipérbole medida no radargrama",
+        "Tam.        Classificação por tamanho (pequeno / medio / grande)",
+        "Conf.       Nível de confiança técnico (alta / media)",
+        "",
+        "AVISOS DE CALIBRAÇÃO",
+        DIV,
+        "* Velocity usada: estimada por semblance. Calibrar com escavação de referência antes de confiar nas profundidades.",
+        "* Profundidades e diâmetros são estimativas — variação esperada de ±10–15%.",
+        "* Interferências de confiança baixa foram excluídas desta tabela.",
+        "* Interferências superficiais (< 0,30m) podem corresponder a ruído de superfície.",
+        "* Confirmar resultados por sondagem ou escavação controlada antes de escavar.",
+        "",
+        "Gerado por ScanSOLO Pipeline v1.1.0",
+    ]
+
+    return "\n".join(lines)
+
+
+def handle_inferencias_job(supa: "SupabaseClient", job: dict) -> None:
+    """Gera o relatório de inferências .txt e sobe para gpr-tabelas/{project_id}/inferencias.txt."""
+    job_id: str = job["id"]
+    project_id: str = job["project_id"]
+
+    log.info("inferencias_job_start", job_id=job_id, project_id=project_id)
+    supa.update_job_status(job_id, "processando")
+
+    try:
+        project = supa.get_project(project_id)
+        if not project:
+            raise RuntimeError(f"Project {project_id} not found")
+
+        profiles = supa.get_profiles_for_project(project_id)
+        run_id = supa.get_latest_run_id(project_id)
+        profiles = [p for p in profiles if p.get("run_id") == run_id]
+        if not profiles:
+            raise RuntimeError("No profiles found for latest run")
+
+        # Download per-profile CSVs from storage to get all pipeline columns
+        import io as _io
+        all_rows: list[dict] = []
+        for profile in profiles:
+            csv_path = profile.get("csv_alvos_url")
+            if not csv_path:
+                continue
+            try:
+                data = supa.download_file("gpr-tabelas", csv_path)
+                reader = csv.DictReader(_io.StringIO(data.decode("utf-8")))
+                all_rows.extend(reader)
+            except Exception as exc:
+                log.warning("inferencias_csv_skip", profile_id=profile["id"], error=str(exc))
+
+        # Fallback: use detected_targets from DB if CSVs unavailable
+        if not all_rows:
+            log.warning("inferencias_fallback_db", project_id=project_id)
+            profile_ids = [p["id"] for p in profiles]
+            r = supa._client.table("detected_targets").select("*") \
+                .in_("profile_id", profile_ids).order("rank").execute()
+            all_rows = r.data or []
+
+        processing_config = _get_processing_config(supa, project_id)
+        preset = (processing_config or {}).get("preset", DEFAULT_PRESET)
+
+        texto = gerar_relatorio_inferencias(all_rows, project, preset)
+
+        storage_path = f"{project_id}/inferencias.txt"
+        supa.upload_file("gpr-tabelas", storage_path, texto.encode("utf-8"), "text/plain")
+        log.info("inferencias_uploaded", path=storage_path)
+
+        supa.update_job_status(job_id, "concluido")
+        log.info("inferencias_job_done", job_id=job_id)
+
+    except Exception as exc:
+        log.error("inferencias_job_failed", job_id=job_id, error=str(exc))
+        supa.update_job_status(job_id, "erro", error_message=str(exc))
+        raise
+
+
 def _clamp_label_tecnico(v: str | None) -> str | None:
     return v if v in ("alta", "media", "baixa") else None
 

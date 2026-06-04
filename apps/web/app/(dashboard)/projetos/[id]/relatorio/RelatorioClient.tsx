@@ -10,6 +10,7 @@ type ReportOutput = {
   status: string;
   docx_storage_url: string | null;
   docx_dropbox_path: string | null;
+  pdf_storage_url: string | null;
   created_at: string;
   dados_usados_json: Record<string, unknown> | null;
 };
@@ -107,6 +108,15 @@ export function RelatorioClient({
         <div className="border-t border-gray-100 pt-4">
           <p className="text-sm font-medium text-gray-700 mb-3">Arquivos</p>
           <div className="flex flex-col gap-2">
+            {report.pdf_storage_url && (
+              <a
+                href={report.pdf_storage_url}
+                download
+                className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                ↓ Baixar PDF
+              </a>
+            )}
             {report.docx_storage_url ? (
               <a
                 href={report.docx_storage_url}
@@ -118,9 +128,6 @@ export function RelatorioClient({
             ) : (
               <span className="text-sm text-gray-400">DOCX indisponível</span>
             )}
-            <span className="text-xs text-gray-400">
-              PDF: conversão automática disponível em versão futura.
-            </span>
           </div>
         </div>
       </div>

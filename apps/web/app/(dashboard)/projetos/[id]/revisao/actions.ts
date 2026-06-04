@@ -154,6 +154,111 @@ export async function finalizeReview(
     .update({ status: "revisao_concluida" } as unknown as never)
     .eq("id", projectId);
 
+  // Dispara job para gerar _interpretada.png automaticamente
+  await supabase.from("processing_jobs").insert({
+    project_id: projectId,
+    job_type: "interpretada",
+    status: "aguardando",
+  } as unknown as never);
+
+  return { ok: true };
+}
+
+// ── Workflow da imagem interpretada ──────────────────────────────────────────
+
+export async function aprovarInterpretada(
+  profileId: string,
+  projectId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  const { error } = await supabase
+    .from("gpr_profiles")
+    .update({ imagem_interpretada_status: "aprovado" } as unknown as never)
+    .eq("id", profileId);
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function regenerarInterpretada(
+  profileId: string,
+  projectId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  // Marca como regenerando
+  await supabase
+    .from("gpr_profiles")
+    .update({ imagem_interpretada_status: "regenerando" } as unknown as never)
+    .eq("id", profileId);
+
+  // Dispara novo job interpretada só para este projeto
+  const { error } = await supabase.from("processing_jobs").insert({
+    project_id: projectId,
+    job_type: "interpretada",
+    status: "aguardando",
+  } as unknown as never);
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export type ManualAnnotation = {
+  x_pct: number;       // posição horizontal 0–1 relativa à largura da imagem
+  y_pct: number;       // posição vertical 0–1 relativa à altura
+  tipo: string;
+  profundidade_m: number;
+  diametro_m: number;
+  observacao?: string;
+};
+
+export async function salvarAnotacaoManual(
+  profileId: string,
+  projectId: string,
+  anotacoes: ManualAnnotation[],
+  imagemUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  // Salva anotações manuais no perfil
+  const { error: updateErr } = await supabase
+    .from("gpr_profiles")
+    .update({
+      imagem_interpretada_status: "manual",
+      imagem_interpretada_manual_data: anotacoes,
+    } as unknown as never)
+    .eq("id", profileId);
+
+  if (updateErr) return { ok: false, error: updateErr.message };
+
+  // Salva como exemplo de treino para a IA
+  const { error: trainingErr } = await supabase
+    .from("ia_training_examples")
+    .insert({
+      project_id: projectId,
+      profile_id: profileId,
+      source: "manual",
+      annotation_data: anotacoes,
+      imagem_url: imagemUrl,
+      created_by: user.id,
+    } as unknown as never);
+
+  if (trainingErr) return { ok: false, error: trainingErr.message };
+
+  // Re-dispara job para gerar _interpretada.png com as anotações manuais
+  await supabase.from("processing_jobs").insert({
+    project_id: projectId,
+    job_type: "interpretada",
+    status: "aguardando",
+  } as unknown as never);
+
   return { ok: true };
 }
 
