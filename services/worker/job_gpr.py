@@ -553,7 +553,7 @@ def _clamp_label_tecnico(v: str | None) -> str | None:
 
 
 def _clamp_label_relatorio(v: str | None) -> str | None:
-    return v if v in ("alta", "baixa") else None
+    return v if v in ("alta", "media", "baixa") else None
 
 
 def _int(v: str | None) -> int | None:
