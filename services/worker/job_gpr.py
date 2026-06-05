@@ -1,13 +1,19 @@
 """
-GPR job handler — Fase 1B.
+GPR job handler — Fase 1B + reprocessamento por perfil individual.
 
-Flow:
+Flow (job completo, sem payload.profile_id):
   1. Fetch DZT file records for the project
   2. Download each DZT from Storage into a temp directory
   3. Run pipeline_v1.py via subprocess
   4. Parse CSV outputs → insert gpr_profiles + detected_targets
   5. Upload PNG images and CSV to Storage
   6. Clean up temp directory
+
+Flow (reprocessamento, com payload.profile_id):
+  1. Fetch apenas o DZT do perfil especificado
+  2. Baixar e rodar pipeline com filtros customizados (se fornecidos)
+  3. Persistir novos resultados e atualizar filtros_customizados para rastreabilidade
+  4. NÃO altera status do projeto nem cria job de IA
 """
 
 from __future__ import annotations
@@ -34,13 +40,31 @@ PIPELINE_SCRIPT = Path(__file__).parent / "pipeline" / "pipeline_v1.py"
 DEFAULT_PRESET = "270mhz"
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
     job_id: str = job["id"]
     project_id: str = job["project_id"]
 
-    log.info("gpr_job_start", job_id=job_id, project_id=project_id, status_novo="processando_gpr")
-    supa.update_job_status(job_id, "processando_gpr")
-    supa.update_project_status(project_id, "processando_gpr")
+    # Reprocessamento por perfil individual (payload com profile_id)
+    payload: dict = job.get("payload") or {}
+    profile_id_reprocess: str | None = payload.get("profile_id")
+    filtros_customizados: dict | None = payload.get("filtros_customizados")
+    is_reprocess = bool(profile_id_reprocess)
+
+    if is_reprocess:
+        log.info(
+            "gpr_reprocess_start",
+            job_id=job_id,
+            project_id=project_id,
+            profile_id=profile_id_reprocess,
+        )
+        supa.update_job_status(job_id, "processando")
+        # Não altera status do projeto no reprocessamento de perfil individual
+    else:
+        log.info("gpr_job_start", job_id=job_id, project_id=project_id)
+        supa.update_job_status(job_id, "processando_gpr")
+        supa.update_project_status(project_id, "processando_gpr")
 
     tmp_dir = tempfile.mkdtemp(prefix="scansolo_gpr_")
     try:
@@ -49,41 +73,77 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         input_dir.mkdir()
         output_dir.mkdir()
 
-        dzt_files = supa.get_dzt_files(project_id)
-        if not dzt_files:
-            raise RuntimeError(f"No confirmed DZT files for project {project_id}")
+        # Selecionar DZTs a processar
+        if is_reprocess:
+            dzt_files = _get_profile_dzt(supa, project_id, profile_id_reprocess)
+            if not dzt_files:
+                raise RuntimeError(
+                    f"DZT não encontrado para o perfil {profile_id_reprocess}"
+                )
+        else:
+            dzt_files = supa.get_dzt_files(project_id)
+            if not dzt_files:
+                raise RuntimeError(f"No confirmed DZT files for project {project_id}")
 
         log.info("downloading_dzt_files", count=len(dzt_files))
         for f in dzt_files:
             data = supa.download_file("gpr-uploads", f["supabase_storage_path"])
             (input_dir / f["file_name"]).write_bytes(data)
 
-        # Ler processing_config do projeto (se existir)
-        processing_config = _get_processing_config(supa, project_id)
+        # Determinar config de processamento
+        if filtros_customizados:
+            processing_config = _filtros_to_pipeline_config(filtros_customizados)
+            log.info("reprocess_custom_filters", filters=filtros_customizados, config=processing_config)
+        else:
+            processing_config = _get_processing_config(supa, project_id)
+
         _run_pipeline(input_dir, output_dir, processing_config=processing_config)
 
         run_id = str(uuid.uuid4())
-        _persist_outputs(supa, project_id, run_id, output_dir)
+        new_profiles = _persist_outputs(supa, project_id, run_id, output_dir)
+
+        # Gravar filtros_customizados nos perfis criados (rastreabilidade)
+        if is_reprocess and filtros_customizados and new_profiles:
+            for p in new_profiles:
+                try:
+                    supa._client.table("gpr_profiles") \
+                        .update({"filtros_customizados": filtros_customizados}) \
+                        .eq("id", p["id"]).execute()
+                except Exception as exc:
+                    log.warning("filtros_customizados_update_failed", profile_id=p["id"], error=str(exc))
 
         supa.update_job_status(job_id, "concluido")
-        supa.update_project_status(project_id, "gpr_concluido")
-        log.info("gpr_job_done", job_id=job_id, run_id=run_id, status_novo="concluido")
 
-        supa.create_job(project_id, "ia")
+        if is_reprocess:
+            log.info("gpr_reprocess_done", job_id=job_id, run_id=run_id, profiles=len(new_profiles))
+        else:
+            supa.update_project_status(project_id, "gpr_concluido")
+            log.info("gpr_job_done", job_id=job_id, run_id=run_id)
+            supa.create_job(project_id, "ia")
 
     except Exception as exc:
-        log.error("gpr_job_failed", job_id=job_id, error=str(exc), status_novo="erro")
+        log.error("gpr_job_failed", job_id=job_id, error=str(exc))
         supa.update_job_status(job_id, "erro", error_message=str(exc))
-        supa.update_project_status(project_id, "erro")
+        if not is_reprocess:
+            supa.update_project_status(project_id, "erro")
         raise
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# ── Helpers de configuração ───────────────────────────────────────────────────
+
 def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | None:
+    """Lê processing_config do projeto (preset configurado na UI de nova entrada)."""
     try:
-        result = supa._client.table("projects").select("processing_config").eq("id", project_id).single().execute()
+        result = (
+            supa._client.table("projects")
+            .select("processing_config")
+            .eq("id", project_id)
+            .single()
+            .execute()
+        )
         cfg = (result.data or {}).get("processing_config")
         if cfg and isinstance(cfg, dict):
             return cfg
@@ -92,8 +152,90 @@ def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | No
     return None
 
 
-def _run_pipeline(input_dir: Path, output_dir: Path,
-                  processing_config: dict | None = None) -> None:
+def _get_profile_dzt(
+    supa: "SupabaseClient", project_id: str, profile_id: str
+) -> list[dict]:
+    """Retorna o registro de project_files correspondente ao DZT de um perfil específico."""
+    try:
+        r = (
+            supa._client.table("gpr_profiles")
+            .select("arquivo_dzt")
+            .eq("id", profile_id)
+            .single()
+            .execute()
+        )
+        if not r.data:
+            return []
+        arquivo_dzt: str = r.data["arquivo_dzt"]
+
+        r2 = (
+            supa._client.table("project_files")
+            .select("file_name, supabase_storage_path")
+            .eq("project_id", project_id)
+            .eq("file_name", arquivo_dzt)
+            .eq("status", "confirmado")
+            .limit(1)
+            .execute()
+        )
+        return r2.data or []
+    except Exception as exc:
+        log.warning("get_profile_dzt_failed", profile_id=profile_id, error=str(exc))
+        return []
+
+
+def _filtros_to_pipeline_config(filtros: dict) -> dict:
+    """
+    Converte FilterState (frontend) em dict de override para o preset do pipeline.
+
+    Convenção para desativar filtros: valor 0 → pipeline pula a etapa.
+      dewow_window=0      → sem dewow
+      bgremoval_traces=0  → sem background removal
+      bandpass_low_mhz=0  → sem bandpass
+      tpow_power=0        → sem tpow gain
+    """
+    cfg: dict = {}
+
+    # Dewow
+    if not filtros.get("dewow", True):
+        cfg["dewow_window"] = 0
+
+    # Background removal
+    if not filtros.get("background_removal", True):
+        cfg["bgremoval_traces"] = 0
+
+    # Bandpass
+    if filtros.get("bandpass", True):
+        if "bandpass_low" in filtros:
+            cfg["bandpass_low_mhz"] = int(filtros["bandpass_low"])
+        if "bandpass_high" in filtros:
+            cfg["bandpass_high_mhz"] = int(filtros["bandpass_high"])
+    else:
+        cfg["bandpass_low_mhz"] = 0  # desativa no pipeline
+
+    # Gain
+    if filtros.get("gain", True):
+        gain_type = filtros.get("gain_type", "linear")
+        # tpow_power=0 usa AGC; valores positivos = tpow linear/exponencial
+        if gain_type == "agc":
+            cfg["tpow_power"] = 0  # pipeline usará só AGC
+        # Para linear/exponencial, mantém o preset (tpow já é o padrão)
+    else:
+        cfg["tpow_power"] = 0  # desativa tpow; AGC ainda é aplicado internamente
+
+    # Contraste
+    if "contrast" in filtros:
+        cfg["contrast"] = float(filtros["contrast"])
+
+    return cfg
+
+
+# ── Pipeline subprocess ───────────────────────────────────────────────────────
+
+def _run_pipeline(
+    input_dir: Path,
+    output_dir: Path,
+    processing_config: dict | None = None,
+) -> None:
     cmd = [
         sys.executable,
         str(PIPELINE_SCRIPT),
@@ -102,14 +244,12 @@ def _run_pipeline(input_dir: Path, output_dir: Path,
         "--preset", DEFAULT_PRESET,
     ]
 
-    # Salvar config em JSON temporario e passar ao pipeline
     if processing_config:
         cfg_path = output_dir / "filter_config.json"
         cfg_path.write_text(json.dumps(processing_config), encoding="utf-8")
         cmd += ["--filter-config", str(cfg_path)]
         log.info("pipeline_filter_config", config=processing_config)
     else:
-        # Sem config especifica: desativar IA de imagem por padrao
         cmd.append("--sem-ia-imagem")
 
     log.info("pipeline_start", cmd=" ".join(cmd))
@@ -120,7 +260,15 @@ def _run_pipeline(input_dir: Path, output_dir: Path,
     log.info("pipeline_done", stdout_tail=result.stdout[-500:])
 
 
-def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, output_dir: Path) -> None:
+# ── Persistência ──────────────────────────────────────────────────────────────
+
+def _persist_outputs(
+    supa: "SupabaseClient", project_id: str, run_id: str, output_dir: Path
+) -> list[dict]:
+    """
+    Lê index_projeto.csv, sobe imagens/CSVs e insere gpr_profiles + detected_targets.
+    Retorna a lista de perfis criados (cada item tem ao menos {"id": ..., "arquivo_dzt": ...}).
+    """
     index_path = output_dir / "index_projeto.csv"
     targets_dir = output_dir / "05_Tabela_Alvos"
     images_bruta_dir = output_dir / "01_Imagens_Brutas"
@@ -132,6 +280,8 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
     with open(index_path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         index_rows = list(reader)
+
+    created_profiles: list[dict] = []
 
     for row in index_rows:
         dzt_name: str = row["arquivo_dzt"]
@@ -151,8 +301,8 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
         }
         profile = supa.insert_gpr_profile(profile_payload)
         profile_id: str = profile["id"]
+        created_profiles.append({"id": profile_id, "arquivo_dzt": dzt_name})
 
-        # Include profile_id in path to avoid collision when a DZT has multiple channels
         img_prefix = f"{project_id}/{run_id}/{profile_id[:8]}"
 
         img_updates: dict = {}
@@ -181,6 +331,8 @@ def _persist_outputs(supa: "SupabaseClient", project_id: str, run_id: str, outpu
             supa.insert_detected_targets(targets)
             log.info("targets_inserted", profile_id=profile_id, count=len(targets))
 
+    return created_profiles
+
 
 def _upload_image(supa: "SupabaseClient", prefix: str, path: Path) -> str | None:
     if not path.exists():
@@ -190,7 +342,9 @@ def _upload_image(supa: "SupabaseClient", prefix: str, path: Path) -> str | None
     return supa.get_public_url("gpr-images", storage_path)
 
 
-def _parse_targets(csv_path: Path, project_id: str, profile_id: str, run_id: str) -> list[dict]:
+def _parse_targets(
+    csv_path: Path, project_id: str, profile_id: str, run_id: str
+) -> list[dict]:
     targets = []
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
@@ -218,6 +372,8 @@ def _parse_targets(csv_path: Path, project_id: str, profile_id: str, run_id: str
             })
     return targets
 
+
+# ── Relatório de inferências ──────────────────────────────────────────────────
 
 def gerar_relatorio_inferencias(
     df_campo: list[dict],
@@ -277,7 +433,6 @@ def gerar_relatorio_inferencias(
         x_m = _f(row, "x_m")
         depth_m_str = _f(row, "depth_m")
 
-        # prof_topo: prefer pipeline field, fallback to depth_m - diam/2
         pt_raw = row.get("prof_topo_m")
         if pt_raw is None or str(pt_raw).strip() in ("", "None", "nan"):
             try:
@@ -348,7 +503,6 @@ def handle_inferencias_job(supa: "SupabaseClient", job: dict) -> None:
         if not profiles:
             raise RuntimeError("No profiles found for latest run")
 
-        # Download per-profile CSVs from storage to get all pipeline columns
         import io as _io
         all_rows: list[dict] = []
         for profile in profiles:
@@ -362,12 +516,16 @@ def handle_inferencias_job(supa: "SupabaseClient", job: dict) -> None:
             except Exception as exc:
                 log.warning("inferencias_csv_skip", profile_id=profile["id"], error=str(exc))
 
-        # Fallback: use detected_targets from DB if CSVs unavailable
         if not all_rows:
             log.warning("inferencias_fallback_db", project_id=project_id)
             profile_ids = [p["id"] for p in profiles]
-            r = supa._client.table("detected_targets").select("*") \
-                .in_("profile_id", profile_ids).order("rank").execute()
+            r = (
+                supa._client.table("detected_targets")
+                .select("*")
+                .in_("profile_id", profile_ids)
+                .order("rank")
+                .execute()
+            )
             all_rows = r.data or []
 
         processing_config = _get_processing_config(supa, project_id)
@@ -387,6 +545,8 @@ def handle_inferencias_job(supa: "SupabaseClient", job: dict) -> None:
         supa.update_job_status(job_id, "erro", error_message=str(exc))
         raise
 
+
+# ── Utilitários ───────────────────────────────────────────────────────────────
 
 def _clamp_label_tecnico(v: str | None) -> str | None:
     return v if v in ("alta", "media", "baixa") else None

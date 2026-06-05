@@ -517,21 +517,34 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         return None
 
     # 2. Cadeia de filtros (sem AGC ainda)
-    prof.dewow(preset["dewow_window"])
-    logger.debug(f"  dewow({preset['dewow_window']})")
+    # Valor 0 em qualquer parametro = filtro desativado (para reprocessamento customizado)
+    if preset.get("dewow_window", 5) > 0:
+        prof.dewow(preset["dewow_window"])
+        logger.debug(f"  dewow({preset['dewow_window']})")
+    else:
+        logger.debug("  dewow desativado (dewow_window=0)")
 
-    try:
-        aplicar_bandpass(prof, preset["bandpass_low_mhz"],
-                         preset["bandpass_high_mhz"], preset["bandpass_order"])
-        logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
-    except Exception as e:
-        logger.warning(f"  Bandpass falhou (continuando): {e}")
+    if preset.get("bandpass_low_mhz", 0) > 0:
+        try:
+            aplicar_bandpass(prof, preset["bandpass_low_mhz"],
+                             preset["bandpass_high_mhz"], preset["bandpass_order"])
+            logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
+        except Exception as e:
+            logger.warning(f"  Bandpass falhou (continuando): {e}")
+    else:
+        logger.debug("  bandpass desativado (bandpass_low_mhz=0)")
 
-    prof.remMeanTrace(preset["bgremoval_traces"])
-    logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
+    if preset.get("bgremoval_traces", 0) > 0:
+        prof.remMeanTrace(preset["bgremoval_traces"])
+        logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
+    else:
+        logger.debug("  background removal desativado (bgremoval_traces=0)")
 
-    prof.tpowGain(power=preset["tpow_power"])
-    logger.debug(f"  tpowGain(power={preset['tpow_power']})")
+    if preset.get("tpow_power", 0) > 0:
+        prof.tpowGain(power=preset["tpow_power"])
+        logger.debug(f"  tpowGain(power={preset['tpow_power']})")
+    else:
+        logger.debug("  tpow gain desativado (tpow_power=0)")
 
     # V1.2 — Captura arr_sem_agc ANTES do AGC
     # Esta e a matriz para:
@@ -658,14 +671,31 @@ def main():
                         help="Pula deteccao de alvos (so processamento de imagens + .npy)")
     parser.add_argument("--sem-fisica",   action="store_true",
                         help="Pula analises fisicas (material/espectro) mas mantem deteccao geometrica")
+    parser.add_argument("--sem-ia-imagem", action="store_true",
+                        help="Pula etapa de melhoria por IA de imagem (gpt-image-1)")
+    parser.add_argument("--sem-migracao",  action="store_true",
+                        help="Pula migracao F-K Kirchhoff")
+    parser.add_argument("--filter-config", default=None, metavar="JSON_PATH",
+                        help="JSON com chaves que sobrescrevem o preset selecionado")
     args = parser.parse_args()
 
     script_dir    = Path(__file__).resolve().parent
     pasta_entrada = Path(args.input)  if args.input  else script_dir.parent / "Exemplos_dados_bruos_georadar"
     pasta_saida   = Path(args.output) if args.output else script_dir / "exemplo_saida"
-    preset        = PRESETS[args.preset]
+    preset        = dict(PRESETS[args.preset])  # copia mutavel
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
+
+    # Sobrescrever preset com config customizada (reprocessamento por perfil)
+    if args.filter_config:
+        try:
+            with open(args.filter_config, encoding="utf-8") as _fh:
+                _overrides = json.load(_fh)
+            preset.update(_overrides)
+            logger_root = logging.getLogger()
+            logger_root.info(f"filter-config aplicado: {_overrides}")
+        except Exception as _e:
+            logging.getLogger().warning(f"filter-config ignorado ({_e})")
 
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])

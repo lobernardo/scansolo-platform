@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -306,10 +306,13 @@ export type Database = {
           csv_alvos_url: string | null
           distancia_max_m: number | null
           dropbox_output_path: string | null
+          filtros_customizados: Json | null
           id: string
           imagem_alta_conf_url: string | null
           imagem_anotada_url: string | null
           imagem_bruta_url: string | null
+          imagem_interpretada_manual_data: Json | null
+          imagem_interpretada_status: string
           imagem_interpretada_url: string | null
           imagem_processada_url: string | null
           n_amostras: number | null
@@ -328,10 +331,13 @@ export type Database = {
           csv_alvos_url?: string | null
           distancia_max_m?: number | null
           dropbox_output_path?: string | null
+          filtros_customizados?: Json | null
           id?: string
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_interpretada_manual_data?: Json | null
+          imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
           imagem_processada_url?: string | null
           n_amostras?: number | null
@@ -350,10 +356,13 @@ export type Database = {
           csv_alvos_url?: string | null
           distancia_max_m?: number | null
           dropbox_output_path?: string | null
+          filtros_customizados?: Json | null
           id?: string
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_interpretada_manual_data?: Json | null
+          imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
           imagem_processada_url?: string | null
           n_amostras?: number | null
@@ -375,6 +384,61 @@ export type Database = {
           },
         ]
       }
+      ia_training_examples: {
+        Row: {
+          annotation_data: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          imagem_url: string | null
+          profile_id: string
+          project_id: string
+          source: string
+        }
+        Insert: {
+          annotation_data: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          imagem_url?: string | null
+          profile_id: string
+          project_id: string
+          source: string
+        }
+        Update: {
+          annotation_data?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          imagem_url?: string | null
+          profile_id?: string
+          project_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ia_training_examples_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ia_training_examples_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "gpr_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ia_training_examples_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       processing_jobs: {
         Row: {
           created_at: string
@@ -383,6 +447,7 @@ export type Database = {
           id: string
           job_type: Database["public"]["Enums"]["job_type"]
           logs_path: string | null
+          payload: Json | null
           project_id: string
           started_at: string | null
           status: Database["public"]["Enums"]["job_status"]
@@ -396,6 +461,7 @@ export type Database = {
           id?: string
           job_type: Database["public"]["Enums"]["job_type"]
           logs_path?: string | null
+          payload?: Json | null
           project_id: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["job_status"]
@@ -409,6 +475,7 @@ export type Database = {
           id?: string
           job_type?: Database["public"]["Enums"]["job_type"]
           logs_path?: string | null
+          payload?: Json | null
           project_id?: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["job_status"]
@@ -775,7 +842,14 @@ export type Database = {
         | "processando"
         | "concluido"
         | "erro"
-      job_type: "gpr" | "ia" | "cartografia" | "relatorio"
+        | "processando_interpretada"
+      job_type:
+        | "gpr"
+        | "ia"
+        | "cartografia"
+        | "relatorio"
+        | "inferencias"
+        | "interpretada"
       output_type: "dxf" | "kml" | "geojson" | "csv"
       project_status:
         | "criado"
@@ -803,6 +877,8 @@ export type Database = {
         | "finalizado"
         | "erro"
         | "pendente_dados"
+        | "processando_interpretada"
+        | "interpretada_gerada"
       review_status: "pendente" | "aprovado" | "descartado" | "ajustado"
       saida_desejada: "autocad" | "google_earth" | "ambos" | "decidir_depois"
       user_role: "operador_campo" | "tecnico" | "socio" | "admin"
@@ -941,8 +1017,16 @@ export const Constants = {
         "processando",
         "concluido",
         "erro",
+        "processando_interpretada",
       ],
-      job_type: ["gpr", "ia", "cartografia", "relatorio"],
+      job_type: [
+        "gpr",
+        "ia",
+        "cartografia",
+        "relatorio",
+        "inferencias",
+        "interpretada",
+      ],
       output_type: ["dxf", "kml", "geojson", "csv"],
       project_status: [
         "criado",
@@ -970,6 +1054,8 @@ export const Constants = {
         "finalizado",
         "erro",
         "pendente_dados",
+        "processando_interpretada",
+        "interpretada_gerada",
       ],
       review_status: ["pendente", "aprovado", "descartado", "ajustado"],
       saida_desejada: ["autocad", "google_earth", "ambos", "decidir_depois"],
