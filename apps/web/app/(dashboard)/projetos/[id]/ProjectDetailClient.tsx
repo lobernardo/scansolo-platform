@@ -311,10 +311,10 @@ export function ProjectDetailClient({
           className="fixed inset-0 z-50 bg-black/92 flex items-center justify-center"
           onClick={closeLightbox}
         >
-          {/* Close button — 3a */}
+          {/* Close button — fixed acima do overlay (z-50) */}
           <button
-            onClick={closeLightbox}
-            className="absolute top-4 right-4 z-10 flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300 hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-colors"
+            onClick={(e) => { e.stopPropagation(); closeLightbox(); }}
+            className="fixed top-4 right-4 z-[9999] flex items-center justify-center w-10 h-10 rounded-lg bg-black/70 border border-white/20 text-white text-lg hover:bg-red-500/40 transition-colors"
             aria-label="Fechar"
           >
             ✕
