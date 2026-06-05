@@ -2,6 +2,8 @@
 
 import { Fragment, useState, useEffect, useCallback } from "react";
 import type { Database } from "@/lib/types/database";
+import { reprocessProfile } from "./actions";
+import type { FilterState } from "./actions";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
@@ -15,6 +17,21 @@ export type DownloadFile = {
   url: string | null;
   ext: string;
 };
+
+// ── Filter state ──────────────────────────────────────────────────────────────
+
+const DEFAULT_FILTERS: FilterState = {
+  dewow: true,
+  background_removal: true,
+  bandpass: true,
+  bandpass_low: 80,
+  bandpass_high: 300,
+  gain: true,
+  gain_type: "linear",
+  contrast: 1.0,
+};
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function ProjectDetailClient({
   profiles,
@@ -30,15 +47,28 @@ export function ProjectDetailClient({
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
 
+  // Per-profile filter state
+  const [filterStates, setFilterStates] = useState<Record<string, FilterState>>({});
+  const [expandedFilters, setExpandedFilters] = useState<Record<string, boolean>>({});
+  const [reprocessStatus, setReprocessStatus] = useState<
+    Record<string, "idle" | "loading" | "ok" | "error">
+  >({});
+
   const closeLightbox = useCallback(() => setLightbox(null), []);
-  const prevImage = useCallback(() =>
-    setLightbox((lb) =>
-      lb ? { ...lb, index: (lb.index - 1 + lb.images.length) % lb.images.length } : null
-    ), []);
-  const nextImage = useCallback(() =>
-    setLightbox((lb) =>
-      lb ? { ...lb, index: (lb.index + 1) % lb.images.length } : null
-    ), []);
+  const prevImage = useCallback(
+    () =>
+      setLightbox((lb) =>
+        lb ? { ...lb, index: (lb.index - 1 + lb.images.length) % lb.images.length } : null
+      ),
+    []
+  );
+  const nextImage = useCallback(
+    () =>
+      setLightbox((lb) =>
+        lb ? { ...lb, index: (lb.index + 1) % lb.images.length } : null
+      ),
+    []
+  );
 
   useEffect(() => {
     if (!lightbox) return;
@@ -55,17 +85,62 @@ export function ProjectDetailClient({
     const imgs: { url: string; label: string }[] = [
       { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
       { url: profile.imagem_processada_url ?? "", label: "Processada" },
-      { url: profile.imagem_anotada_url ?? "", label: "Anotada (IA)" },
+      { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
     ].filter((i) => i.url);
     if (!imgs.length) return;
     setLightbox({ images: imgs, index: Math.min(startIndex, imgs.length - 1) });
   }
 
-  // Build profile map for targets table
+  // ── Filter helpers ──────────────────────────────────────────────────────────
+
+  function getFilters(profileId: string): FilterState {
+    return filterStates[profileId] ?? DEFAULT_FILTERS;
+  }
+
+  function isCustomized(profileId: string): boolean {
+    const fs = filterStates[profileId];
+    if (!fs) return false;
+    return JSON.stringify(fs) !== JSON.stringify(DEFAULT_FILTERS);
+  }
+
+  function updateFilter(profileId: string, patch: Partial<FilterState>) {
+    setFilterStates((prev) => ({
+      ...prev,
+      [profileId]: { ...(prev[profileId] ?? DEFAULT_FILTERS), ...patch },
+    }));
+  }
+
+  function resetFilters(profileId: string) {
+    setFilterStates((prev) => ({ ...prev, [profileId]: DEFAULT_FILTERS }));
+  }
+
+  function toggleFilterPanel(profileId: string) {
+    setExpandedFilters((prev) => ({ ...prev, [profileId]: !prev[profileId] }));
+  }
+
+  async function handleReprocess(profileId: string) {
+    setReprocessStatus((prev) => ({ ...prev, [profileId]: "loading" }));
+    try {
+      const result = await reprocessProfile(profileId, getFilters(profileId));
+      setReprocessStatus((prev) => ({
+        ...prev,
+        [profileId]: result.ok ? "ok" : "error",
+      }));
+      if (result.ok) {
+        setTimeout(() => {
+          setReprocessStatus((prev) => ({ ...prev, [profileId]: "idle" }));
+        }, 2500);
+      }
+    } catch {
+      setReprocessStatus((prev) => ({ ...prev, [profileId]: "error" }));
+    }
+  }
+
+  // ── Build profile / target maps ─────────────────────────────────────────────
+
   const profileMap: Record<string, GprProfileRow> = {};
   for (const p of profiles) profileMap[p.id] = p;
 
-  // Target counts
   const nAlta = targets.filter((t) => t.confidence_label_relatorio === "alta").length;
   const nMedia = targets.filter((t) => t.confidence_label_relatorio === "media").length;
   const nBaixa = targets.filter((t) => t.confidence_label_relatorio === "baixa").length;
@@ -92,21 +167,36 @@ export function ProjectDetailClient({
           <div className="grid gap-4">
             {profiles.map((profile) => {
               const pTargets = targets.filter((t) => t.profile_id === profile.id);
-              const pAlta = pTargets.filter((t) => t.confidence_label_relatorio === "alta").length;
-              const pMedia = pTargets.filter((t) => t.confidence_label_relatorio === "media").length;
-              const pBaixa = pTargets.filter((t) => t.confidence_label_relatorio === "baixa").length;
+              const pAlta = pTargets.filter(
+                (t) => t.confidence_label_relatorio === "alta"
+              ).length;
+              const pMedia = pTargets.filter(
+                (t) => t.confidence_label_relatorio === "media"
+              ).length;
+              const pBaixa = pTargets.filter(
+                (t) => t.confidence_label_relatorio === "baixa"
+              ).length;
               const imgs = [
                 { url: profile.imagem_bruta_url, label: "Bruta" },
                 { url: profile.imagem_processada_url, label: "Processada" },
                 { url: profile.imagem_anotada_url, label: "Anotada IA" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
+              const customized = isCustomized(profile.id);
+              const expanded = expandedFilters[profile.id] ?? false;
+              const rpStatus = reprocessStatus[profile.id] ?? "idle";
+
               return (
-                <div key={profile.id} className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
+                <div
+                  key={profile.id}
+                  className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden"
+                >
                   {/* Header */}
                   <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-4">
                     <div>
-                      <p className="font-medium text-slate-100">{profile.arquivo_dzt ?? profile.id}</p>
+                      <p className="font-medium text-slate-100">
+                        {profile.arquivo_dzt ?? profile.id}
+                      </p>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {profile.n_tracos != null ? `${profile.n_tracos} traços` : "—"}
                         {profile.distancia_max_m != null
@@ -117,25 +207,28 @@ export function ProjectDetailClient({
                           : ""}
                       </p>
                     </div>
-                    {pTargets.length > 0 && (
-                      <div className="flex gap-1.5 shrink-0 text-xs">
-                        {pAlta > 0 && (
-                          <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
-                            {pAlta} alta
-                          </span>
-                        )}
-                        {pMedia > 0 && (
-                          <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
-                            {pMedia} média
-                          </span>
-                        )}
-                        {pBaixa > 0 && (
-                          <span className="bg-slate-700 text-slate-400 border border-slate-600 px-2 py-0.5 rounded-full font-medium">
-                            {pBaixa} baixa
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex gap-1.5 shrink-0 text-xs items-center flex-wrap justify-end">
+                      {customized && (
+                        <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
+                          Customizado
+                        </span>
+                      )}
+                      {pAlta > 0 && (
+                        <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
+                          {pAlta} alta
+                        </span>
+                      )}
+                      {pMedia > 0 && (
+                        <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
+                          {pMedia} média
+                        </span>
+                      )}
+                      {pBaixa > 0 && (
+                        <span className="bg-slate-700 text-slate-400 border border-slate-600 px-2 py-0.5 rounded-full font-medium">
+                          {pBaixa} baixa
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Thumbnails + download */}
@@ -162,13 +255,15 @@ export function ProjectDetailClient({
                           </button>
                         ))}
                       </div>
-                      {/* Botões de download por imagem */}
+                      {/* Download buttons */}
                       <div className="flex gap-2 flex-wrap">
                         {imgs.map((img) => (
                           <a
                             key={img.label}
                             href={img.url}
-                            download={`${profile.arquivo_dzt ?? profile.id}_${img.label.toLowerCase().replace(/\s/g, "_")}.png`}
+                            download={`${profile.arquivo_dzt ?? profile.id}_${img.label
+                              .toLowerCase()
+                              .replace(/\s/g, "_")}.png`}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-[11px] font-medium text-slate-300 hover:bg-slate-700 transition"
                           >
                             ⬇ {img.label}
@@ -178,10 +273,31 @@ export function ProjectDetailClient({
                     </div>
                   )}
 
-                  {/* No images, no targets */}
+                  {/* No images / no targets */}
                   {imgs.length === 0 && pTargets.length === 0 && (
                     <p className="text-xs text-slate-500 p-4">Aguardando resultados…</p>
                   )}
+
+                  {/* Filter panel */}
+                  <div className="px-4 py-3 border-t border-slate-800/60">
+                    <button
+                      onClick={() => toggleFilterPanel(profile.id)}
+                      className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <span className="text-[10px]">{expanded ? "▾" : "▸"}</span>
+                      <span>Ajustar filtros</span>
+                    </button>
+
+                    {expanded && (
+                      <FilterPanel
+                        filters={getFilters(profile.id)}
+                        onChange={(patch) => updateFilter(profile.id, patch)}
+                        onReprocess={() => handleReprocess(profile.id)}
+                        onReset={() => resetFilters(profile.id)}
+                        status={rpStatus}
+                      />
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -195,9 +311,10 @@ export function ProjectDetailClient({
           className="fixed inset-0 z-50 bg-black/92 flex items-center justify-center"
           onClick={closeLightbox}
         >
+          {/* Close button — 3a */}
           <button
             onClick={closeLightbox}
-            className="absolute top-4 right-5 text-white text-3xl leading-none hover:text-slate-300 z-10"
+            className="absolute top-4 right-4 z-10 flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300 hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-colors"
             aria-label="Fechar"
           >
             ✕
@@ -206,14 +323,20 @@ export function ProjectDetailClient({
           {lightbox.images.length > 1 && (
             <>
               <button
-                onClick={(e) => { e.stopPropagation(); prevImage(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevImage();
+                }}
                 className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-slate-300 px-3 py-4 z-10"
                 aria-label="Anterior"
               >
                 ←
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); nextImage(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextImage();
+                }}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-slate-300 px-3 py-4 z-10"
                 aria-label="Próxima"
               >
@@ -230,8 +353,30 @@ export function ProjectDetailClient({
             <img
               src={lightbox.images[lightbox.index].url}
               alt={lightbox.images[lightbox.index].label}
-              className="max-w-full max-h-[82vh] object-contain rounded"
+              className="max-w-full max-h-[75vh] object-contain rounded"
             />
+
+            {/* Tabs — 3b */}
+            {lightbox.images.length > 1 && (
+              <div className="flex gap-2">
+                {lightbox.images.map((img, idx) => (
+                  <button
+                    key={img.label}
+                    onClick={() =>
+                      setLightbox((lb) => (lb ? { ...lb, index: idx } : null))
+                    }
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      lightbox.index === idx
+                        ? "bg-cyan-500 text-slate-950"
+                        : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    {img.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-4">
               <span className="text-white text-sm font-medium">
                 {lightbox.images[lightbox.index].label}
@@ -292,18 +437,42 @@ export function ProjectDetailClient({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-800/50 border-b border-slate-700 text-left">
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Arquivo</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">#</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">X (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Prof (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Diâm (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Material</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Score</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Confiança</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Tipo</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Conf.</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">Planta</th>
-                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">Relatório</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Arquivo
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      #
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      X (m)
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Prof (m)
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Diâm (m)
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Material
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Score
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      Confiança
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      IA — Tipo
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">
+                      IA — Conf.
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">
+                      Planta
+                    </th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">
+                      Relatório
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -311,7 +480,9 @@ export function ProjectDetailClient({
                     const ai = aiByTargetId[t.id] ?? null;
                     const prof = profileMap[t.profile_id ?? ""];
                     const score =
-                      (t as unknown as Record<string, unknown>)["confidence_score_0_100"] ??
+                      (t as unknown as Record<string, unknown>)[
+                        "confidence_score_0_100"
+                      ] ??
                       (t as unknown as Record<string, unknown>)["confidence_score"];
                     return (
                       <tr
@@ -323,11 +494,21 @@ export function ProjectDetailClient({
                           {prof?.arquivo_dzt ?? "—"}
                         </td>
                         <td className="px-3 py-2 text-slate-400">{t.rank}</td>
-                        <td className="px-3 py-2 text-slate-300">{t.x_m?.toFixed(2) ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-300">{t.depth_m?.toFixed(2) ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-300">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-400">{t.tipo_material ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-300">{score != null ? String(score) : "—"}</td>
+                        <td className="px-3 py-2 text-slate-300">
+                          {t.x_m?.toFixed(2) ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-300">
+                          {t.depth_m?.toFixed(2) ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-300">
+                          {t.diam_est_m?.toFixed(3) ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-400">
+                          {t.tipo_material ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-300">
+                          {score != null ? String(score) : "—"}
+                        </td>
                         <td className="px-3 py-2">
                           <ConfBadge label={t.confidence_label_relatorio} />
                         </td>
@@ -356,7 +537,10 @@ export function ProjectDetailClient({
                   })}
                   {filteredTargets.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-3 py-6 text-center text-slate-500 text-xs">
+                      <td
+                        colSpan={12}
+                        className="px-3 py-6 text-center text-slate-500 text-xs"
+                      >
                         Nenhum alvo com confiança &quot;{filterTab}&quot;
                       </td>
                     </tr>
@@ -397,6 +581,195 @@ export function ProjectDetailClient({
   );
 }
 
+// ── Filter panel sub-components ───────────────────────────────────────────────
+
+function FilterPanel({
+  filters,
+  onChange,
+  onReprocess,
+  onReset,
+  status,
+}: {
+  filters: FilterState;
+  onChange: (patch: Partial<FilterState>) => void;
+  onReprocess: () => void;
+  onReset: () => void;
+  status: "idle" | "loading" | "ok" | "error";
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3 space-y-3">
+      {/* Toggles */}
+      <div className="grid grid-cols-2 gap-2">
+        <Toggle
+          label="Dewow"
+          checked={filters.dewow}
+          onChange={(v) => onChange({ dewow: v })}
+        />
+        <Toggle
+          label="Background removal"
+          checked={filters.background_removal}
+          onChange={(v) => onChange({ background_removal: v })}
+        />
+        <Toggle
+          label="Bandpass"
+          checked={filters.bandpass}
+          onChange={(v) => onChange({ bandpass: v })}
+        />
+        <Toggle
+          label="Gain"
+          checked={filters.gain}
+          onChange={(v) => onChange({ gain: v })}
+        />
+      </div>
+
+      {/* Bandpass sliders — visible when bandpass = on */}
+      {filters.bandpass && (
+        <div className="space-y-2">
+          <SliderRow
+            label={`Bandpass low — ${filters.bandpass_low} MHz`}
+            value={filters.bandpass_low}
+            min={10}
+            max={200}
+            step={10}
+            onChange={(v) => onChange({ bandpass_low: v })}
+          />
+          <SliderRow
+            label={`Bandpass high — ${filters.bandpass_high} MHz`}
+            value={filters.bandpass_high}
+            min={100}
+            max={600}
+            step={10}
+            onChange={(v) => onChange({ bandpass_high: v })}
+          />
+        </div>
+      )}
+
+      {/* Gain type — visible when gain = on */}
+      {filters.gain && (
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 w-20 shrink-0">Tipo de gain</label>
+          <select
+            value={filters.gain_type}
+            onChange={(e) =>
+              onChange({ gain_type: e.target.value as FilterState["gain_type"] })
+            }
+            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+          >
+            <option value="linear">Linear</option>
+            <option value="exponential">Exponencial</option>
+            <option value="agc">AGC</option>
+          </select>
+        </div>
+      )}
+
+      {/* Contrast slider */}
+      <SliderRow
+        label={`Contraste — ${filters.contrast.toFixed(1)}×`}
+        value={filters.contrast}
+        min={0.5}
+        max={2.0}
+        step={0.1}
+        onChange={(v) => onChange({ contrast: parseFloat(v.toFixed(1)) })}
+      />
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={onReprocess}
+          disabled={status === "loading"}
+          className="flex-1 rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {status === "loading"
+            ? "Solicitando…"
+            : status === "ok"
+            ? "✓ Solicitado"
+            : "Reaplicar filtros"}
+        </button>
+        <button
+          onClick={onReset}
+          className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+        >
+          Restaurar preset
+        </button>
+      </div>
+
+      {status === "error" && (
+        <p className="text-xs text-red-400">
+          Erro ao solicitar reprocessamento. Tente novamente.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer select-none">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex w-8 h-4 rounded-full transition-colors shrink-0 focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+          checked ? "bg-cyan-500" : "bg-slate-700"
+        }`}
+      >
+        <span
+          className={`inline-block w-3 h-3 bg-white rounded-full shadow transition-transform mt-0.5 ${
+            checked ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+      <span className="text-xs text-slate-300">{label}</span>
+    </label>
+  );
+}
+
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <span className="text-xs text-slate-400">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-1.5 bg-slate-700 rounded-full accent-cyan-500 cursor-pointer"
+      />
+      <div className="flex justify-between text-[10px] text-slate-600">
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
 function ConfBadge({ label }: { label: string | null | undefined }) {
   if (!label) return <span className="text-slate-600">—</span>;
   const cls =
@@ -406,7 +779,9 @@ function ConfBadge({ label }: { label: string | null | undefined }) {
       ? "bg-amber-500/15 text-amber-400"
       : "bg-slate-700 text-slate-400";
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${cls}`}>{label}</span>
+    <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${cls}`}>
+      {label}
+    </span>
   );
 }
 
@@ -418,3 +793,6 @@ function fileIcon(ext: string): string {
   if (ext === "csv") return "📊";
   return "📁";
 }
+
+// Suppress unused import warning — Fragment kept for future use
+void Fragment;
