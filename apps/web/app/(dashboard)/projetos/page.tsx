@@ -29,24 +29,24 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  criado: "bg-gray-100 text-gray-600",
-  aguardando_arquivos: "bg-yellow-50 text-yellow-700",
-  aguardando_processamento: "bg-blue-50 text-blue-700",
-  processando_gpr: "bg-blue-100 text-blue-800",
-  gpr_concluido: "bg-green-50 text-green-700",
-  processando_ia: "bg-purple-50 text-purple-700",
-  ia_concluida: "bg-green-100 text-green-800",
-  revisao_em_andamento: "bg-orange-100 text-orange-700",
-  revisao_concluida: "bg-teal-100 text-teal-700",
-  aguardando_cartografia: "bg-indigo-100 text-indigo-700",
-  cartografia_concluida: "bg-indigo-200 text-indigo-800",
-  cartografia_pendente_dados: "bg-yellow-100 text-yellow-700",
-  aguardando_relatorio: "bg-violet-100 text-violet-700",
-  relatorio_em_andamento: "bg-violet-100 text-violet-700",
-  relatorio_gerado: "bg-violet-200 text-violet-800",
-  aguardando_aprovacao: "bg-violet-200 text-violet-800",
-  finalizado: "bg-green-300 text-green-900",
-  erro: "bg-red-50 text-red-700",
+  criado: "bg-slate-700 text-slate-400 border border-slate-600",
+  aguardando_arquivos: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+  aguardando_processamento: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+  processando_gpr: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+  gpr_concluido: "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30",
+  processando_ia: "bg-violet-500/15 text-violet-400 border border-violet-500/30",
+  ia_concluida: "bg-violet-500/15 text-violet-400 border border-violet-500/30",
+  revisao_em_andamento: "bg-orange-500/15 text-orange-400 border border-orange-500/30",
+  revisao_concluida: "bg-orange-500/15 text-orange-400 border border-orange-500/30",
+  aguardando_cartografia: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30",
+  cartografia_concluida: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30",
+  cartografia_pendente_dados: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+  aguardando_relatorio: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  relatorio_em_andamento: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  relatorio_gerado: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  aguardando_aprovacao: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  finalizado: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+  erro: "bg-red-500/15 text-red-400 border border-red-500/30",
 };
 
 export default async function ProjetosPage() {
@@ -64,37 +64,37 @@ export default async function ProjetosPage() {
   const projects = (data ?? []) as ProjectRow[];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Projetos</h1>
+        <h1 className="text-2xl font-bold text-slate-100">Projetos</h1>
         <Link
           href="/nova-entrada"
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+          className="rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors"
         >
           Nova entrada
         </Link>
       </div>
 
       {projects.length === 0 ? (
-        <p className="text-sm text-gray-500">Nenhum projeto ainda.</p>
+        <p className="text-sm text-slate-500">Nenhum projeto ainda.</p>
       ) : (
         <div className="space-y-2">
           {projects.map((p) => (
             <Link
               key={p.id}
               href={`/projetos/${p.id}`}
-              className="block rounded-lg border border-gray-200 bg-white p-4 hover:border-gray-300 transition-colors"
+              className="block rounded-xl border border-slate-800 bg-slate-900 p-4 hover:bg-slate-800/60 hover:border-slate-700 transition-colors"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-gray-900">{p.nome}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-slate-100">{p.nome}</p>
+                  <p className="text-sm text-slate-400">
                     {p.cliente} — {p.local ?? p.estado}
                   </p>
                 </div>
                 <span
-                  className={`text-xs font-medium px-2 py-1 rounded-full ${
-                    STATUS_COLOR[p.status] ?? "bg-gray-100 text-gray-600"
+                  className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    STATUS_COLOR[p.status] ?? "bg-slate-700 text-slate-400 border border-slate-600"
                   }`}
                 >
                   {STATUS_LABEL[p.status] ?? p.status}

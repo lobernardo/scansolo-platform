@@ -40,10 +40,10 @@ const TIPOS = [
 ];
 
 const STATUS_STYLE: Record<ReviewStatus, string> = {
-  pendente: "bg-gray-100 text-gray-500",
-  aprovado: "bg-green-100 text-green-700",
-  ajustado: "bg-blue-100 text-blue-700",
-  descartado: "bg-red-50 text-red-500",
+  pendente: "bg-slate-700 text-slate-400",
+  aprovado: "bg-emerald-500/15 text-emerald-400",
+  ajustado: "bg-blue-500/15 text-blue-400",
+  descartado: "bg-red-500/15 text-red-400",
 };
 
 const STATUS_LABEL: Record<ReviewStatus, string> = {
@@ -226,17 +226,17 @@ export function ReviewClient({
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold">Revisão Técnica</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{project.nome}</p>
+          <h1 className="text-xl font-bold text-slate-100">Revisão Técnica</h1>
+          <p className="text-sm text-slate-400 mt-0.5">{project.nome}</p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-slate-400">
             {reviewed} / {total} revisados
           </span>
           <button
             onClick={handleFinalize}
             disabled={finalizing}
-            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className="rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
           >
             {finalizing ? "Finalizando…" : "Finalizar revisão"}
           </button>
@@ -244,9 +244,9 @@ export function ReviewClient({
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-gray-100 rounded-full h-1.5">
+      <div className="w-full bg-slate-800 rounded-full h-1.5">
         <div
-          className="bg-green-500 h-1.5 rounded-full transition-all duration-300"
+          className="bg-cyan-500 h-1.5 rounded-full transition-all duration-300"
           style={{ width: `${total > 0 ? (reviewed / total) * 100 : 0}%` }}
         />
       </div>
@@ -262,8 +262,8 @@ export function ReviewClient({
             ].filter((i): i is { url: string; label: string } => !!i.url);
             if (imgs.length === 0) return null;
             return (
-              <div key={prof.id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-                <p className="text-xs font-medium text-gray-500 px-3 py-1.5 border-b border-gray-100">
+              <div key={prof.id} className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
+                <p className="text-xs font-medium text-slate-500 px-3 py-1.5 border-b border-slate-800">
                   {prof.arquivo_dzt ?? prof.id}
                 </p>
                 <div className="flex gap-2 p-2">
@@ -271,7 +271,7 @@ export function ReviewClient({
                     <button
                       key={img.label}
                       onClick={() => openLightbox(prof, idx)}
-                      className="relative group rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors"
+                      className="relative group rounded overflow-hidden border border-slate-700 hover:border-cyan-500/50 transition-colors"
                       title={`Abrir ${img.label}`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -296,7 +296,7 @@ export function ReviewClient({
         >
           <button
             onClick={closeLightbox}
-            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-gray-300"
+            className="absolute top-4 right-4 text-white text-2xl leading-none hover:text-slate-300"
             aria-label="Fechar"
           >
             ✕
@@ -306,14 +306,14 @@ export function ReviewClient({
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); prevImage(); }}
-                className="absolute left-4 text-white text-3xl leading-none hover:text-gray-300 px-2"
+                className="absolute left-4 text-white text-3xl leading-none hover:text-slate-300 px-2"
                 aria-label="Anterior"
               >
                 ←
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); nextImage(); }}
-                className="absolute right-12 text-white text-3xl leading-none hover:text-gray-300 px-2"
+                className="absolute right-12 text-white text-3xl leading-none hover:text-slate-300 px-2"
                 aria-label="Próxima"
               >
                 →
@@ -330,7 +330,7 @@ export function ReviewClient({
             />
             <div className="flex gap-3 items-center">
               <span className="text-white text-sm">{lightbox.images[lightbox.index].label}</span>
-              <span className="text-gray-400 text-xs">{lightbox.index + 1} / {lightbox.images.length}</span>
+              <span className="text-slate-400 text-xs">{lightbox.index + 1} / {lightbox.images.length}</span>
             </div>
           </div>
         </div>
@@ -338,11 +338,11 @@ export function ReviewClient({
 
       {/* Error banner */}
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex justify-between items-center">
+        <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400 flex justify-between items-center">
           {error}
           <button
             onClick={() => setError(null)}
-            className="text-red-400 hover:text-red-600 ml-4"
+            className="text-red-500 hover:text-red-300 ml-4"
           >
             ✕
           </button>
@@ -350,21 +350,21 @@ export function ReviewClient({
       )}
 
       {/* Table */}
-      <div className="rounded-lg border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-slate-800 overflow-hidden">
         <table className="w-full text-xs">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100 text-left">
-              <th className="px-3 py-2.5 font-medium text-gray-500">#</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">X (m)</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">Prof (m)</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">Diâm (m)</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">IA — Tipo</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">IA — Conf.</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">Status</th>
-              <th className="px-3 py-2.5 font-medium text-gray-500">Ações</th>
+            <tr className="bg-slate-800/50 border-b border-slate-700 text-left">
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">#</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">X (m)</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Prof (m)</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Diâm (m)</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Tipo</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Conf.</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Status</th>
+              <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-slate-800">
             {targets.map((t) => {
               const ai = aiByTargetId[t.id];
               const status = statuses[t.id] ?? "pendente";
@@ -374,12 +374,12 @@ export function ReviewClient({
 
               return (
                 <Fragment key={t.id}>
-                  <tr className={status === "descartado" ? "opacity-40" : "hover:bg-gray-50"}>
-                    <td className="px-3 py-2 text-gray-500">{t.rank}</td>
-                    <td className="px-3 py-2">{t.x_m?.toFixed(2) ?? "—"}</td>
-                    <td className="px-3 py-2">{t.depth_m?.toFixed(2) ?? "—"}</td>
-                    <td className="px-3 py-2">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
-                    <td className="px-3 py-2 text-gray-700">{ai?.ia_tipo_sugerido ?? "—"}</td>
+                  <tr className={status === "descartado" ? "opacity-40" : "hover:bg-slate-800/60"}>
+                    <td className="px-3 py-2 text-slate-400">{t.rank}</td>
+                    <td className="px-3 py-2 text-slate-300">{t.x_m?.toFixed(2) ?? "—"}</td>
+                    <td className="px-3 py-2 text-slate-300">{t.depth_m?.toFixed(2) ?? "—"}</td>
+                    <td className="px-3 py-2 text-slate-300">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
+                    <td className="px-3 py-2 text-slate-400">{ai?.ia_tipo_sugerido ?? "—"}</td>
                     <td className="px-3 py-2">
                       <ConfBadge label={ai?.ia_confianca ?? null} />
                     </td>
@@ -392,22 +392,22 @@ export function ReviewClient({
                     </td>
                     <td className="px-3 py-2">
                       {isSaving ? (
-                        <span className="text-gray-400 italic">salvando…</span>
+                        <span className="text-slate-500 italic">salvando…</span>
                       ) : (
                         <div className="flex gap-1.5">
                           <button
                             disabled={status === "aprovado"}
                             onClick={() => handleAccept(t.id)}
-                            className="px-2 py-0.5 rounded text-xs bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-30 disabled:cursor-default"
+                            className="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-30 disabled:cursor-default transition-colors"
                           >
                             Aceitar
                           </button>
                           <button
                             onClick={() => setExpandedId(isExpanded ? null : t.id)}
-                            className={`px-2 py-0.5 rounded text-xs ${
+                            className={`px-2 py-0.5 rounded text-xs transition-colors ${
                               isExpanded
-                                ? "bg-blue-600 text-white"
-                                : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                ? "bg-cyan-500 text-slate-950"
+                                : "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
                             }`}
                           >
                             Ajustar
@@ -415,7 +415,7 @@ export function ReviewClient({
                           <button
                             disabled={status === "descartado"}
                             onClick={() => handleDiscard(t.id)}
-                            className="px-2 py-0.5 rounded text-xs bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-30 disabled:cursor-default"
+                            className="px-2 py-0.5 rounded text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 disabled:opacity-30 disabled:cursor-default transition-colors"
                           >
                             Descartar
                           </button>
@@ -425,17 +425,17 @@ export function ReviewClient({
                   </tr>
 
                   {isExpanded && (
-                    <tr className="bg-blue-50 border-b border-blue-100">
+                    <tr className="bg-slate-800/50 border-b border-slate-700">
                       <td colSpan={8} className="px-4 py-3">
                         <div className="flex flex-wrap gap-4 items-end">
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                            <label className="block text-xs font-medium text-slate-400 mb-1">
                               Tipo final
                             </label>
                             <select
                               value={form.tipoFinal}
                               onChange={(e) => updateForm(t.id, { tipoFinal: e.target.value })}
-                              className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-cyan-500"
                             >
                               {TIPOS.map((tp) => (
                                 <option key={tp.value} value={tp.value}>
@@ -446,32 +446,32 @@ export function ReviewClient({
                           </div>
 
                           <div className="flex gap-4">
-                            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                            <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={form.vaiParaPlanta}
                                 onChange={(e) =>
                                   updateForm(t.id, { vaiParaPlanta: e.target.checked })
                                 }
-                                className="rounded"
+                                className="rounded border-slate-600 bg-slate-800"
                               />
                               Vai para planta
                             </label>
-                            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                            <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={form.vaiParaRelatorio}
                                 onChange={(e) =>
                                   updateForm(t.id, { vaiParaRelatorio: e.target.checked })
                                 }
-                                className="rounded"
+                                className="rounded border-slate-600 bg-slate-800"
                               />
                               Vai para relatório
                             </label>
                           </div>
 
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                            <label className="block text-xs font-medium text-slate-400 mb-1">
                               Observação
                             </label>
                             <input
@@ -479,20 +479,20 @@ export function ReviewClient({
                               value={form.observacao}
                               onChange={(e) => updateForm(t.id, { observacao: e.target.value })}
                               placeholder="Opcional"
-                              className="text-xs border border-gray-300 rounded px-2 py-1.5 w-52 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 w-52 focus:outline-none focus:ring-1 focus:ring-cyan-500 placeholder:text-slate-500"
                             />
                           </div>
 
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleSaveAdjust(t.id)}
-                              className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 transition-colors"
+                              className="text-xs bg-cyan-500 text-slate-950 px-3 py-1.5 rounded hover:bg-cyan-400 transition-colors font-semibold"
                             >
                               Salvar ajuste
                             </button>
                             <button
                               onClick={() => setExpandedId(null)}
-                              className="text-xs text-gray-500 px-2 py-1.5 hover:text-gray-700"
+                              className="text-xs text-slate-500 px-2 py-1.5 hover:text-slate-300 transition-colors"
                             >
                               Cancelar
                             </button>
@@ -514,7 +514,7 @@ export function ReviewClient({
           <button
             onClick={handleFinalize}
             disabled={finalizing}
-            className="rounded-md bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className="rounded-md bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
           >
             {finalizing
               ? "Finalizando…"
@@ -527,13 +527,13 @@ export function ReviewClient({
 }
 
 function ConfBadge({ label }: { label: string | null }) {
-  if (!label) return <span className="text-gray-300">—</span>;
+  if (!label) return <span className="text-slate-600">—</span>;
   const colors =
     label === "alta"
-      ? "bg-green-100 text-green-700"
+      ? "bg-emerald-500/15 text-emerald-400"
       : label === "media"
-        ? "bg-yellow-100 text-yellow-700"
-        : "bg-red-50 text-red-600";
+        ? "bg-amber-500/15 text-amber-400"
+        : "bg-red-500/15 text-red-400";
   return (
     <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${colors}`}>
       {label}

@@ -15,34 +15,39 @@ export default async function DashboardLayout({
   if (!user) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="border-b border-gray-200 bg-white">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <span className="font-bold text-gray-900">ScanSOLO</span>
-            <Link
-              href="/dashboard"
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Dashboard
+    <div className="min-h-screen bg-slate-950">
+      <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <Link href="/dashboard" className="font-bold tracking-tight text-base">
+              <span className="text-cyan-400">SCAN</span>
+              <span className="text-slate-100">SOLO</span>
             </Link>
-            <Link
-              href="/projetos"
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Projetos
-            </Link>
-            <Link
-              href="/nova-entrada"
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Nova entrada
-            </Link>
+            <div className="flex items-center gap-1">
+              <Link
+                href="/dashboard"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+              >
+                Dashboard
+              </Link>
+              <Link
+                href="/projetos"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+              >
+                Projetos
+              </Link>
+              <Link
+                href="/nova-entrada"
+                className="px-3 py-1.5 text-sm bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 rounded-md transition-colors font-medium"
+              >
+                + Nova entrada
+              </Link>
+            </div>
           </div>
-          <span className="text-xs text-gray-400">{user.email}</span>
+          <span className="text-xs text-slate-500 font-mono">{user.email}</span>
         </div>
       </nav>
-      <main>{children}</main>
+      <main className="bg-slate-950 min-h-[calc(100vh-3.5rem)]">{children}</main>
     </div>
   );
 }

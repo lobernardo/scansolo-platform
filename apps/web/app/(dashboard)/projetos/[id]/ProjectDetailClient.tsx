@@ -79,12 +79,12 @@ export function ProjectDetailClient({
 
   return (
     <div className="space-y-8">
-      {/* ── Profile cards (Tarefa 1) ── */}
+      {/* ── Profile cards ── */}
       {profiles.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-4">
+          <h2 className="text-lg font-semibold text-slate-100 mb-4">
             Perfis GPR{" "}
-            <span className="text-sm font-normal text-gray-400">
+            <span className="text-sm font-normal text-slate-500">
               ({profiles.length} perfil{profiles.length !== 1 ? "s" : ""} ·{" "}
               {targets.length} alvo{targets.length !== 1 ? "s" : ""} total)
             </span>
@@ -102,12 +102,12 @@ export function ProjectDetailClient({
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
               return (
-                <div key={profile.id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                <div key={profile.id} className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
                   {/* Header */}
-                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-4">
+                  <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-4">
                     <div>
-                      <p className="font-medium text-gray-900">{profile.arquivo_dzt ?? profile.id}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="font-medium text-slate-100">{profile.arquivo_dzt ?? profile.id}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
                         {profile.n_tracos != null ? `${profile.n_tracos} traços` : "—"}
                         {profile.distancia_max_m != null
                           ? ` · ${profile.distancia_max_m.toFixed(2)} m dist.`
@@ -120,17 +120,17 @@ export function ProjectDetailClient({
                     {pTargets.length > 0 && (
                       <div className="flex gap-1.5 shrink-0 text-xs">
                         {pAlta > 0 && (
-                          <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                          <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
                             {pAlta} alta
                           </span>
                         )}
                         {pMedia > 0 && (
-                          <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">
+                          <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium">
                             {pMedia} média
                           </span>
                         )}
                         {pBaixa > 0 && (
-                          <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                          <span className="bg-slate-700 text-slate-400 border border-slate-600 px-2 py-0.5 rounded-full font-medium">
                             {pBaixa} baixa
                           </span>
                         )}
@@ -140,13 +140,13 @@ export function ProjectDetailClient({
 
                   {/* Thumbnails + download */}
                   {imgs.length > 0 && (
-                    <div className="p-3 bg-gray-50 border-b border-gray-100 space-y-2">
+                    <div className="p-3 bg-slate-800/50 border-b border-slate-800 space-y-2">
                       <div className="flex gap-2">
                         {imgs.map((img, idx) => (
                           <button
                             key={img.label}
                             onClick={() => openLightbox(profile, idx)}
-                            className="relative group rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors flex-1"
+                            className="relative group rounded overflow-hidden border border-slate-700 hover:border-cyan-500/50 transition-colors flex-1"
                             title={`Abrir ${img.label} em tamanho real`}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -169,7 +169,7 @@ export function ProjectDetailClient({
                             key={img.label}
                             href={img.url}
                             download={`${profile.arquivo_dzt ?? profile.id}_${img.label.toLowerCase().replace(/\s/g, "_")}.png`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-[11px] font-medium text-gray-600 hover:bg-gray-100 transition"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-[11px] font-medium text-slate-300 hover:bg-slate-700 transition"
                           >
                             ⬇ {img.label}
                           </a>
@@ -180,7 +180,7 @@ export function ProjectDetailClient({
 
                   {/* No images, no targets */}
                   {imgs.length === 0 && pTargets.length === 0 && (
-                    <p className="text-xs text-gray-400 p-4">Aguardando resultados…</p>
+                    <p className="text-xs text-slate-500 p-4">Aguardando resultados…</p>
                   )}
                 </div>
               );
@@ -197,7 +197,7 @@ export function ProjectDetailClient({
         >
           <button
             onClick={closeLightbox}
-            className="absolute top-4 right-5 text-white text-3xl leading-none hover:text-gray-300 z-10"
+            className="absolute top-4 right-5 text-white text-3xl leading-none hover:text-slate-300 z-10"
             aria-label="Fechar"
           >
             ✕
@@ -207,14 +207,14 @@ export function ProjectDetailClient({
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); prevImage(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-gray-300 px-3 py-4 z-10"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-slate-300 px-3 py-4 z-10"
                 aria-label="Anterior"
               >
                 ←
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); nextImage(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-gray-300 px-3 py-4 z-10"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl leading-none hover:text-slate-300 px-3 py-4 z-10"
                 aria-label="Próxima"
               >
                 →
@@ -236,24 +236,24 @@ export function ProjectDetailClient({
               <span className="text-white text-sm font-medium">
                 {lightbox.images[lightbox.index].label}
               </span>
-              <span className="text-gray-400 text-xs">
+              <span className="text-slate-400 text-xs">
                 {lightbox.index + 1} / {lightbox.images.length}
               </span>
               {lightbox.images.length > 1 && (
-                <span className="text-gray-500 text-xs">← → ou setas do teclado</span>
+                <span className="text-slate-500 text-xs">← → ou setas do teclado</span>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Targets table (Tarefa 2) ── */}
+      {/* ── Targets table ── */}
       {targets.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-3 gap-4">
-            <h2 className="text-lg font-semibold shrink-0">
+            <h2 className="text-lg font-semibold text-slate-100 shrink-0">
               Alvos detectados{" "}
-              <span className="text-sm font-normal text-gray-400">
+              <span className="text-sm font-normal text-slate-500">
                 ({targets.length} total)
               </span>
             </h2>
@@ -272,13 +272,13 @@ export function ProjectDetailClient({
                   className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
                     filterTab === tab.id
                       ? tab.id === "all"
-                        ? "bg-gray-900 text-white"
+                        ? "bg-cyan-500 text-slate-950"
                         : tab.id === "alta"
-                        ? "bg-green-600 text-white"
+                        ? "bg-emerald-500 text-white"
                         : tab.id === "media"
-                        ? "bg-yellow-500 text-white"
-                        : "bg-gray-500 text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        ? "bg-amber-500 text-slate-950"
+                        : "bg-slate-600 text-white"
+                      : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
                 >
                   {tab.label}
@@ -287,26 +287,26 @@ export function ProjectDetailClient({
             </div>
           </div>
 
-          <div className="rounded-lg border border-gray-200 overflow-hidden">
+          <div className="rounded-xl border border-slate-800 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100 text-left">
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Arquivo</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">#</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">X (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Prof (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Diâm (m)</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Material</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Score</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">Confiança</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">IA — Tipo</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500">IA — Conf.</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500 text-center">Planta</th>
-                    <th className="px-3 py-2.5 font-medium text-gray-500 text-center">Relatório</th>
+                  <tr className="bg-slate-800/50 border-b border-slate-700 text-left">
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Arquivo</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">#</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">X (m)</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Prof (m)</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Diâm (m)</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Material</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Score</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">Confiança</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Tipo</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px]">IA — Conf.</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">Planta</th>
+                    <th className="px-3 py-2.5 font-medium text-slate-400 uppercase tracking-wide text-[10px] text-center">Relatório</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-800">
                   {filteredTargets.map((t) => {
                     const ai = aiByTargetId[t.id] ?? null;
                     const prof = profileMap[t.profile_id ?? ""];
@@ -316,22 +316,22 @@ export function ProjectDetailClient({
                     return (
                       <tr
                         key={t.id}
-                        className="hover:bg-gray-50"
+                        className="hover:bg-slate-800/60"
                         title={ai?.ia_descricao ?? undefined}
                       >
-                        <td className="px-3 py-2 text-gray-500 max-w-[110px] truncate">
+                        <td className="px-3 py-2 text-slate-500 max-w-[110px] truncate">
                           {prof?.arquivo_dzt ?? "—"}
                         </td>
-                        <td className="px-3 py-2 text-gray-500">{t.rank}</td>
-                        <td className="px-3 py-2">{t.x_m?.toFixed(2) ?? "—"}</td>
-                        <td className="px-3 py-2">{t.depth_m?.toFixed(2) ?? "—"}</td>
-                        <td className="px-3 py-2">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
-                        <td className="px-3 py-2 text-gray-600">{t.tipo_material ?? "—"}</td>
-                        <td className="px-3 py-2">{score != null ? String(score) : "—"}</td>
+                        <td className="px-3 py-2 text-slate-400">{t.rank}</td>
+                        <td className="px-3 py-2 text-slate-300">{t.x_m?.toFixed(2) ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-300">{t.depth_m?.toFixed(2) ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-300">{t.diam_est_m?.toFixed(3) ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-400">{t.tipo_material ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-300">{score != null ? String(score) : "—"}</td>
                         <td className="px-3 py-2">
                           <ConfBadge label={t.confidence_label_relatorio} />
                         </td>
-                        <td className="px-3 py-2 text-gray-700">
+                        <td className="px-3 py-2 text-slate-400">
                           {ai?.ia_tipo_sugerido ?? "—"}
                         </td>
                         <td className="px-3 py-2">
@@ -339,16 +339,16 @@ export function ProjectDetailClient({
                         </td>
                         <td className="px-3 py-2 text-center">
                           {ai?.vai_para_planta_sugerido ? (
-                            <span className="text-green-600 font-bold">✓</span>
+                            <span className="text-emerald-400 font-bold">✓</span>
                           ) : (
-                            <span className="text-gray-300">✗</span>
+                            <span className="text-slate-700">✗</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-center">
                           {ai?.vai_para_relatorio_sugerido ? (
-                            <span className="text-green-600 font-bold">✓</span>
+                            <span className="text-emerald-400 font-bold">✓</span>
                           ) : (
-                            <span className="text-gray-300">✗</span>
+                            <span className="text-slate-700">✗</span>
                           )}
                         </td>
                       </tr>
@@ -356,7 +356,7 @@ export function ProjectDetailClient({
                   })}
                   {filteredTargets.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-3 py-6 text-center text-gray-400 text-xs">
+                      <td colSpan={12} className="px-3 py-6 text-center text-slate-500 text-xs">
                         Nenhum alvo com confiança &quot;{filterTab}&quot;
                       </td>
                     </tr>
@@ -368,24 +368,24 @@ export function ProjectDetailClient({
         </section>
       )}
 
-      {/* ── Files section (Tarefa 3) ── */}
+      {/* ── Files section ── */}
       {visibleFiles.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3">Arquivos gerados</h2>
-          <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <h2 className="text-lg font-semibold text-slate-100 mb-3">Arquivos gerados</h2>
+          <div className="rounded-xl border border-slate-800 bg-slate-900 divide-y divide-slate-800">
             {visibleFiles.map((f) => (
               <a
                 key={f.label}
                 href={f.url!}
                 download
-                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-slate-800/60 transition-colors group"
               >
                 <span className="text-xl shrink-0">{fileIcon(f.ext)}</span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{f.label}</p>
-                  <p className="text-xs text-gray-400 uppercase">{f.ext}</p>
+                  <p className="text-sm font-medium text-slate-100 truncate">{f.label}</p>
+                  <p className="text-xs text-slate-500 uppercase">{f.ext}</p>
                 </div>
-                <span className="ml-auto text-xs text-blue-600 font-medium shrink-0 group-hover:underline">
+                <span className="ml-auto text-xs text-cyan-400 font-medium shrink-0 group-hover:underline">
                   ↓ Baixar
                 </span>
               </a>
@@ -398,13 +398,13 @@ export function ProjectDetailClient({
 }
 
 function ConfBadge({ label }: { label: string | null | undefined }) {
-  if (!label) return <span className="text-gray-300">—</span>;
+  if (!label) return <span className="text-slate-600">—</span>;
   const cls =
     label === "alta"
-      ? "bg-green-100 text-green-700"
+      ? "bg-emerald-500/15 text-emerald-400"
       : label === "media"
-      ? "bg-yellow-100 text-yellow-700"
-      : "bg-gray-100 text-gray-500";
+      ? "bg-amber-500/15 text-amber-400"
+      : "bg-slate-700 text-slate-400";
   return (
     <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${cls}`}>{label}</span>
   );

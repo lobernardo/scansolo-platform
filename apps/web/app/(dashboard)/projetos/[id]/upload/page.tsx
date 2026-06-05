@@ -100,8 +100,8 @@ export default function UploadPage() {
     return (
       <div className="max-w-xl mx-auto px-4 py-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Configuração de Processamento</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-slate-100">Configuração de Processamento</h1>
+          <p className="text-sm text-slate-400 mt-1">
             {files.length} arquivo{files.length !== 1 ? "s" : ""} enviado{files.length !== 1 ? "s" : ""} com sucesso.
             Escolha os filtros e inicie o processamento.
           </p>
@@ -109,13 +109,13 @@ export default function UploadPage() {
 
         {/* Presets rápidos */}
         <div>
-          <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Preset rápido</p>
+          <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">Preset rápido</p>
           <div className="flex flex-wrap gap-2">
             {Object.keys(CONFIG_PRESETS).map((name) => (
               <button
                 key={name}
                 onClick={() => applyPreset(name)}
-                className="text-xs px-3 py-1.5 rounded-md border border-gray-300 hover:bg-gray-50 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-colors"
               >
                 {name}
               </button>
@@ -124,14 +124,14 @@ export default function UploadPage() {
         </div>
 
         {/* Filtros — toggles */}
-        <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+        <div className="rounded-xl border border-slate-800 bg-slate-900 divide-y divide-slate-800">
           {(Object.keys(FILTER_LABELS) as (keyof FilterConfig["filtros_ativos"])[]).map((key) => (
             <div key={key} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-gray-700">{FILTER_LABELS[key]}</span>
+              <span className="text-sm text-slate-300">{FILTER_LABELS[key]}</span>
               <button
                 onClick={() => toggleFiltro(key)}
                 className={`relative w-10 h-5 rounded-full transition-colors ${
-                  config.filtros_ativos[key] ? "bg-gray-900" : "bg-gray-200"
+                  config.filtros_ativos[key] ? "bg-cyan-500" : "bg-slate-700"
                 }`}
               >
                 <span
@@ -179,13 +179,13 @@ export default function UploadPage() {
         </div>
 
         {errorMsg && (
-          <p className="text-sm text-red-600 rounded-md bg-red-50 px-3 py-2">{errorMsg}</p>
+          <p className="text-sm text-red-400 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">{errorMsg}</p>
         )}
 
         <button
           onClick={handleStart}
           disabled={starting}
-          className="w-full rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+          className="w-full rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
         >
           {starting ? "Iniciando…" : "Iniciar processamento com estas configurações"}
         </button>
@@ -196,12 +196,12 @@ export default function UploadPage() {
   // Step: upload
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-2">Upload de arquivos .DZT</h1>
-      <p className="text-sm text-gray-500 mb-6">Projeto: {id}</p>
+      <h1 className="text-2xl font-bold text-slate-100 mb-2">Upload de arquivos .DZT</h1>
+      <p className="text-sm text-slate-400 mb-6">Projeto: {id}</p>
 
       <form onSubmit={handleUpload} className="space-y-4">
         <div
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
+          className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center cursor-pointer hover:border-cyan-500/50 hover:bg-slate-800/30 transition-colors"
           onClick={() => inputRef.current?.click()}
         >
           <input
@@ -213,13 +213,13 @@ export default function UploadPage() {
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
           {files.length === 0 ? (
-            <p className="text-sm text-gray-500">Clique ou arraste os arquivos .DZT aqui</p>
+            <p className="text-sm text-slate-500">Clique ou arraste os arquivos .DZT aqui</p>
           ) : (
             <ul className="text-sm text-left space-y-1">
               {files.map((f) => (
-                <li key={f.name} className="text-gray-700">
+                <li key={f.name} className="text-slate-300">
                   {f.name}{" "}
-                  <span className="text-gray-400">({(f.size / 1024 / 1024).toFixed(1)} MB)</span>
+                  <span className="text-slate-500">({(f.size / 1024 / 1024).toFixed(1)} MB)</span>
                 </li>
               ))}
             </ul>
@@ -227,13 +227,13 @@ export default function UploadPage() {
         </div>
 
         {errorMsg && (
-          <p className="text-sm text-red-600 rounded-md bg-red-50 px-3 py-2">{errorMsg}</p>
+          <p className="text-sm text-red-400 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">{errorMsg}</p>
         )}
 
         <button
           type="submit"
           disabled={!files.length || uploading}
-          className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {uploading ? "Enviando…" : "Enviar arquivos"}
         </button>
@@ -250,18 +250,18 @@ function Slider({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-xs text-gray-600">
+      <div className="flex justify-between text-xs text-slate-400">
         <span>{label}</span>
-        <span className="font-medium tabular-nums">{value}</span>
+        <span className="font-medium tabular-nums text-slate-300">{value}</span>
       </div>
       <input
         type="range"
         min={min} max={max} step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-gray-900"
+        className="w-full accent-cyan-500"
       />
-      <div className="flex justify-between text-[10px] text-gray-400">
+      <div className="flex justify-between text-[10px] text-slate-600">
         <span>{min}</span><span>{max}</span>
       </div>
     </div>

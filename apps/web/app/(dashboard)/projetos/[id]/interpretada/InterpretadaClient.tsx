@@ -41,7 +41,7 @@ export function InterpretadaClient({
   const [feedback, setFeedback] = useState<{ tipo: "ok" | "erro"; msg: string } | null>(null);
 
   const profile = profiles[activeProfileIdx];
-  if (!profile) return <p className="p-6 text-gray-500">Nenhum perfil encontrado.</p>;
+  if (!profile) return <p className="p-6 text-slate-500">Nenhum perfil encontrado.</p>;
 
   const status = profile.imagem_interpretada_status ?? "pendente";
   const interpretadaUrl = profile.imagem_interpretada_url;
@@ -70,8 +70,8 @@ export function InterpretadaClient({
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Imagem Interpretada</h1>
-        <p className="text-sm text-gray-500 mt-1">{project.nome}</p>
+        <h1 className="text-2xl font-bold text-slate-100">Imagem Interpretada</h1>
+        <p className="text-sm text-slate-500 mt-1">{project.nome}</p>
       </div>
 
       {/* Seletor de perfil */}
@@ -83,8 +83,8 @@ export function InterpretadaClient({
               onClick={() => { setActiveProfileIdx(i); setMode("view"); setFeedback(null); }}
               className={`px-3 py-1.5 rounded text-sm font-medium border transition ${
                 i === activeProfileIdx
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-300 hover:border-gray-500"
+                  ? "bg-cyan-500 text-slate-950 border-cyan-500"
+                  : "bg-slate-800 text-slate-300 border-slate-600 hover:border-slate-400"
               }`}
             >
               {p.arquivo_dzt ?? `Perfil ${i + 1}`}
@@ -99,7 +99,7 @@ export function InterpretadaClient({
       {/* Feedback */}
       {feedback && (
         <div className={`rounded-lg px-4 py-3 text-sm font-medium ${
-          feedback.tipo === "ok" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
+          feedback.tipo === "ok" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
         }`}>
           {feedback.msg}
         </div>
@@ -108,7 +108,7 @@ export function InterpretadaClient({
       {mode === "view" ? (
         <>
           {/* Imagem interpretada */}
-          <div className="rounded-xl overflow-hidden border border-gray-200 bg-black">
+          <div className="rounded-xl overflow-hidden border border-slate-700 bg-black">
             {interpretadaUrl ? (
               <img
                 src={interpretadaUrl}
@@ -116,7 +116,7 @@ export function InterpretadaClient({
                 className="w-full"
               />
             ) : (
-              <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+              <div className="flex items-center justify-center h-48 text-slate-500 text-sm">
                 {status === "regenerando"
                   ? "Aguardando processamento da IA..."
                   : "Imagem ainda não gerada. Aguarde o processamento."}
@@ -130,7 +130,7 @@ export function InterpretadaClient({
               <a
                 href={interpretadaUrl}
                 download={`${profile.arquivo_dzt ?? "interpretada"}_interpretada.png`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-sm font-medium text-slate-300 hover:bg-slate-700 transition"
               >
                 ⬇ Baixar interpretada
               </a>
@@ -138,7 +138,7 @@ export function InterpretadaClient({
                 <a
                   href={processadaUrl}
                   download={`${profile.arquivo_dzt ?? "processada"}_processada.png`}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-sm font-medium text-slate-300 hover:bg-slate-700 transition"
                 >
                   ⬇ Baixar processada
                 </a>
@@ -152,7 +152,7 @@ export function InterpretadaClient({
               <button
                 onClick={handleAprovar}
                 disabled={busy || status === "aprovado"}
-                className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 disabled:opacity-50 transition"
+                className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 disabled:opacity-50 transition"
               >
                 {status === "aprovado" ? "✅ Aprovada" : "✅ Aprovar"}
               </button>
@@ -160,7 +160,7 @@ export function InterpretadaClient({
               <button
                 onClick={handleRegerar}
                 disabled={busy || status === "regenerando"}
-                className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 transition"
+                className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-700 disabled:opacity-50 transition"
               >
                 🔄 Regenerar
               </button>
@@ -176,10 +176,10 @@ export function InterpretadaClient({
           )}
 
           {/* Explicação */}
-          <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 text-sm text-gray-600 space-y-1">
-            <p><strong>✅ Aprovar</strong> — confirma que a interpretação está correta. A IA aprende com este exemplo para melhorar nas próximas.</p>
-            <p><strong>🔄 Regenerar</strong> — solicita uma nova rodada da IA, usando os exemplos aprovados até agora como referência.</p>
-            <p><strong>✏️ Interpretar manualmente</strong> — você marca os alvos diretamente na imagem. A IA aprende com suas marcações.</p>
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700 p-4 text-sm text-slate-400 space-y-1">
+            <p><strong className="text-slate-300">✅ Aprovar</strong> — confirma que a interpretação está correta. A IA aprende com este exemplo para melhorar nas próximas.</p>
+            <p><strong className="text-slate-300">🔄 Regenerar</strong> — solicita uma nova rodada da IA, usando os exemplos aprovados até agora como referência.</p>
+            <p><strong className="text-slate-300">✏️ Interpretar manualmente</strong> — você marca os alvos diretamente na imagem. A IA aprende com suas marcações.</p>
           </div>
         </>
       ) : (
@@ -200,10 +200,10 @@ export function InterpretadaClient({
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    pendente:     { label: "Aguardando aprovação",   cls: "bg-gray-100 text-gray-600" },
-    aprovado:     { label: "Aprovada ✅",             cls: "bg-green-100 text-green-700" },
-    regenerando:  { label: "Regenerando 🔄",          cls: "bg-blue-100 text-blue-700" },
-    manual:       { label: "Anotada manualmente ✏️",  cls: "bg-amber-100 text-amber-700" },
+    pendente:     { label: "Aguardando aprovação",   cls: "bg-slate-800 text-slate-400" },
+    aprovado:     { label: "Aprovada ✅",             cls: "bg-emerald-500/15 text-emerald-400" },
+    regenerando:  { label: "Regenerando 🔄",          cls: "bg-cyan-500/15 text-cyan-400" },
+    manual:       { label: "Anotada manualmente ✏️",  cls: "bg-amber-500/15 text-amber-400" },
   };
   const s = map[status] ?? map["pendente"];
   return (
@@ -338,8 +338,8 @@ function CanvasAnotacao({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Anotação manual</h2>
-        <button onClick={onCancelar} className="text-sm text-gray-500 hover:text-gray-700">← Voltar</button>
+        <h2 className="text-lg font-semibold text-slate-100">Anotação manual</h2>
+        <button onClick={onCancelar} className="text-sm text-slate-500 hover:text-slate-300">← Voltar</button>
       </div>
 
       {/* Seletor de tipo ativo */}
@@ -350,7 +350,7 @@ function CanvasAnotacao({
             onClick={() => setTipoAtivo(t.value)}
             style={{ borderColor: tipoAtivo === t.value ? t.cor : undefined, color: tipoAtivo === t.value ? t.cor : undefined }}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
-              tipoAtivo === t.value ? "border-2 font-bold" : "border-gray-300 text-gray-600"
+              tipoAtivo === t.value ? "border-2 font-bold" : "border-slate-600 text-slate-400"
             }`}
           >
             {t.label}
@@ -358,14 +358,14 @@ function CanvasAnotacao({
         ))}
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-slate-500">
         Clique na imagem para marcar um alvo com o tipo selecionado acima.
         Ajuste profundidade e diâmetro no painel lateral.
       </p>
 
       <div className="flex gap-4 flex-col lg:flex-row">
         {/* Canvas */}
-        <div className="flex-1 rounded-xl overflow-hidden border border-gray-200 bg-black">
+        <div className="flex-1 rounded-xl overflow-hidden border border-slate-700 bg-black">
           {imagemUrl ? (
             <canvas
               ref={canvasRef}
@@ -374,7 +374,7 @@ function CanvasAnotacao({
               style={{ imageRendering: "pixelated" }}
             />
           ) : (
-            <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
               Sem imagem processada disponível.
             </div>
           )}
@@ -382,12 +382,12 @@ function CanvasAnotacao({
 
         {/* Painel de marcadores */}
         <div className="w-full lg:w-72 space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
             {markers.length} alvo(s) marcado(s)
           </p>
 
           {markers.length === 0 && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-slate-600">
               Clique na imagem para adicionar o primeiro alvo.
             </p>
           )}
@@ -399,7 +399,7 @@ function CanvasAnotacao({
                 key={m.id}
                 onClick={() => setSelectedId(m.id)}
                 className={`rounded-xl border p-3 cursor-pointer transition text-sm space-y-2 ${
-                  selectedId === m.id ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:border-gray-400"
+                  selectedId === m.id ? "border-cyan-500 bg-slate-800/50" : "border-slate-700 hover:border-slate-500"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -417,43 +417,43 @@ function CanvasAnotacao({
                 {selectedId === m.id && (
                   <div className="space-y-2" onClick={e => e.stopPropagation()}>
                     <label className="block">
-                      <span className="text-xs text-gray-500">Tipo</span>
+                      <span className="text-xs text-slate-500">Tipo</span>
                       <select
                         value={m.tipo}
                         onChange={e => updateMarker(m.id, "tipo", e.target.value)}
-                        className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                        className="mt-0.5 w-full rounded border border-slate-600 bg-slate-800 text-slate-100 px-2 py-1 text-xs"
                       >
                         {TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
                     </label>
                     <div className="flex gap-2">
                       <label className="flex-1 block">
-                        <span className="text-xs text-gray-500">Prof. (m)</span>
+                        <span className="text-xs text-slate-500">Prof. (m)</span>
                         <input
                           type="number" step="0.01" min="0" max="10"
                           value={m.profundidade_m}
                           onChange={e => updateMarker(m.id, "profundidade_m", parseFloat(e.target.value) || 0)}
-                          className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                          className="mt-0.5 w-full rounded border border-slate-600 bg-slate-800 text-slate-100 px-2 py-1 text-xs"
                         />
                       </label>
                       <label className="flex-1 block">
-                        <span className="text-xs text-gray-500">Diâm. (m)</span>
+                        <span className="text-xs text-slate-500">Diâm. (m)</span>
                         <input
                           type="number" step="0.01" min="0" max="2"
                           value={m.diametro_m}
                           onChange={e => updateMarker(m.id, "diametro_m", parseFloat(e.target.value) || 0)}
-                          className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                          className="mt-0.5 w-full rounded border border-slate-600 bg-slate-800 text-slate-100 px-2 py-1 text-xs"
                         />
                       </label>
                     </div>
                     <label className="block">
-                      <span className="text-xs text-gray-500">Observação</span>
+                      <span className="text-xs text-slate-500">Observação</span>
                       <input
                         type="text"
                         value={m.observacao ?? ""}
                         onChange={e => updateMarker(m.id, "observacao", e.target.value)}
                         placeholder="opcional"
-                        className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                        className="mt-0.5 w-full rounded border border-slate-600 bg-slate-800 text-slate-100 placeholder-slate-600 px-2 py-1 text-xs"
                       />
                     </label>
                   </div>
@@ -466,7 +466,7 @@ function CanvasAnotacao({
             <button
               onClick={handleConfirmar}
               disabled={busy}
-              className="w-full mt-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 disabled:opacity-50 transition"
+              className="w-full mt-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50 transition"
             >
               {busy ? "Salvando..." : "✓ Confirmar interpretação"}
             </button>

@@ -49,24 +49,24 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  criado: "bg-gray-100 text-gray-600",
-  aguardando_arquivos: "bg-yellow-50 text-yellow-700",
-  aguardando_processamento: "bg-blue-50 text-blue-700",
-  processando_gpr: "bg-blue-100 text-blue-800",
-  gpr_concluido: "bg-green-100 text-green-700",
-  processando_ia: "bg-purple-50 text-purple-700",
-  ia_concluida: "bg-green-200 text-green-800",
-  revisao_em_andamento: "bg-orange-100 text-orange-700",
-  revisao_concluida: "bg-teal-100 text-teal-700",
-  aguardando_cartografia: "bg-indigo-100 text-indigo-700",
-  cartografia_concluida: "bg-indigo-200 text-indigo-800",
-  cartografia_pendente_dados: "bg-yellow-100 text-yellow-700",
-  aguardando_relatorio: "bg-violet-100 text-violet-700",
-  relatorio_em_andamento: "bg-violet-100 text-violet-700",
-  relatorio_gerado: "bg-violet-200 text-violet-800",
-  aguardando_aprovacao: "bg-violet-200 text-violet-800",
-  finalizado: "bg-green-300 text-green-900",
-  erro: "bg-red-50 text-red-700",
+  criado: "bg-slate-700 text-slate-400 border border-slate-600",
+  aguardando_arquivos: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+  aguardando_processamento: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+  processando_gpr: "bg-blue-500/15 text-blue-400 border border-blue-500/30",
+  gpr_concluido: "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30",
+  processando_ia: "bg-violet-500/15 text-violet-400 border border-violet-500/30",
+  ia_concluida: "bg-violet-500/15 text-violet-400 border border-violet-500/30",
+  revisao_em_andamento: "bg-orange-500/15 text-orange-400 border border-orange-500/30",
+  revisao_concluida: "bg-orange-500/15 text-orange-400 border border-orange-500/30",
+  aguardando_cartografia: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30",
+  cartografia_concluida: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30",
+  cartografia_pendente_dados: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+  aguardando_relatorio: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  relatorio_em_andamento: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  relatorio_gerado: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  aguardando_aprovacao: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  finalizado: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+  erro: "bg-red-500/15 text-red-400 border border-red-500/30",
 };
 
 async function trySignedUrl(
@@ -207,19 +207,19 @@ export default async function ProjetoDetailPage({
   const hasAiResults = aiInterpretations.length > 0;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href="/projetos" className="text-sm text-gray-500 hover:text-gray-700">
+            <Link href="/projetos" className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
               Projetos
             </Link>
-            <span className="text-gray-300">/</span>
-            <span className="text-sm text-gray-700">{project.nome}</span>
+            <span className="text-slate-700">/</span>
+            <span className="text-sm text-slate-300">{project.nome}</span>
           </div>
-          <h1 className="text-2xl font-bold">{project.nome}</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-slate-100">{project.nome}</h1>
+          <p className="text-sm text-slate-400 mt-1">
             {project.cliente}
             {project.local ? ` — ${project.local}` : ""} · {project.estado}
             {(project as unknown as Record<string, unknown>).codigo_projeto
@@ -230,7 +230,7 @@ export default async function ProjetoDetailPage({
         <StatusBadge status={project.status} />
       </div>
 
-      {/* Pipeline progress (Tarefa 4) */}
+      {/* Pipeline progress */}
       <PipelineProgress status={project.status} />
 
       {/* Auto-refresh while processing */}
@@ -238,13 +238,13 @@ export default async function ProjetoDetailPage({
 
       {/* Upload prompt */}
       {project.status === "aguardando_arquivos" && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-          <p className="text-sm text-yellow-800 mb-3">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm text-amber-400 mb-3">
             Projeto criado. Faça o upload dos arquivos .DZT para iniciar o processamento.
           </p>
           <Link
             href={`/projetos/${id}/upload`}
-            className="inline-block rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+            className="inline-block rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors"
           >
             Upload de arquivos
           </Link>
@@ -253,9 +253,9 @@ export default async function ProjetoDetailPage({
 
       {/* Processing state */}
       {isProcessing && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
+        <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 flex items-center gap-3">
           <div className="w-3 h-3 rounded-full bg-blue-400 animate-pulse shrink-0" />
-          <p className="text-sm text-blue-800">
+          <p className="text-sm text-blue-400">
             Processamento em andamento… Esta página atualiza automaticamente.
           </p>
         </div>
@@ -263,18 +263,18 @@ export default async function ProjetoDetailPage({
 
       {/* GPR error */}
       {project.status === "erro" && gprJob?.job_type === "gpr" && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-700 mb-1">Erro no processamento GPR</p>
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-sm font-medium text-red-400 mb-1">Erro no processamento GPR</p>
           {gprJob?.error_message && (
-            <p className="text-xs text-red-600 font-mono break-all">{gprJob.error_message}</p>
+            <p className="text-xs text-red-400 font-mono break-all">{gprJob.error_message}</p>
           )}
         </div>
       )}
 
       {/* IA done — decision banner */}
       {iaDone && hasAiResults && project.status === "ia_concluida" && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
-          <p className="text-sm text-green-800">
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
+          <p className="text-sm text-emerald-400">
             <span className="font-medium">Interpretação IA concluída.</span>{" "}
             {aiInterpretations.length} alvo
             {aiInterpretations.length !== 1 ? "s" : ""} interpretado
@@ -284,14 +284,14 @@ export default async function ProjetoDetailPage({
             <form action={acceptAllIaSuggestions.bind(null, project.id)}>
               <button
                 type="submit"
-                className="rounded-md bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 transition-colors"
+                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition-colors"
               >
                 Aceitar todas as sugestões da IA
               </button>
             </form>
             <Link
               href={`/projetos/${id}/revisao`}
-              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              className="rounded-md bg-slate-800 border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 transition-colors"
             >
               Revisar alvos manualmente
             </Link>
@@ -301,13 +301,13 @@ export default async function ProjetoDetailPage({
 
       {/* Revisão em andamento */}
       {project.status === "revisao_em_andamento" && (
-        <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 flex items-center justify-between">
-          <p className="text-sm text-orange-800">
+        <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-orange-400">
             <span className="font-medium">Revisão técnica em andamento.</span>
           </p>
           <Link
             href={`/projetos/${id}/revisao`}
-            className="text-sm font-medium text-orange-700 underline underline-offset-2 hover:text-orange-900"
+            className="text-sm font-medium text-orange-400 underline underline-offset-2 hover:text-orange-300"
           >
             Continuar revisão →
           </Link>
@@ -316,15 +316,15 @@ export default async function ProjetoDetailPage({
 
       {/* Revisão concluída — iniciar cartografia */}
       {project.status === "revisao_concluida" && (
-        <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 space-y-3">
-          <p className="text-sm text-teal-800">
+        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 space-y-3">
+          <p className="text-sm text-indigo-400">
             <span className="font-medium">Revisão técnica concluída.</span>{" "}
             Pronto para gerar os arquivos cartográficos.
           </p>
           <form action={startCartografia.bind(null, project.id)}>
             <button
               type="submit"
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+              className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-400 transition-colors"
             >
               Gerar arquivos cartográficos
             </button>
@@ -334,14 +334,14 @@ export default async function ProjetoDetailPage({
 
       {/* Cartografia em andamento */}
       {project.status === "aguardando_cartografia" && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 flex items-center justify-between">
+        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-indigo-400 animate-pulse shrink-0" />
-            <p className="text-sm text-indigo-800">Gerando arquivos cartográficos…</p>
+            <p className="text-sm text-indigo-400">Gerando arquivos cartográficos…</p>
           </div>
           <Link
             href={`/projetos/${id}/cartografia`}
-            className="text-sm font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+            className="text-sm font-medium text-indigo-400 underline underline-offset-2 hover:text-indigo-300"
           >
             Ver resultado →
           </Link>
@@ -350,14 +350,14 @@ export default async function ProjetoDetailPage({
 
       {/* Cartografia pendente dados */}
       {project.status === "cartografia_pendente_dados" && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 flex items-center justify-between">
-          <p className="text-sm text-yellow-800">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-amber-400">
             <span className="font-medium">Cartografia — dados pendentes.</span>{" "}
             Arquivos de referência necessários.
           </p>
           <Link
             href={`/projetos/${id}/cartografia`}
-            className="text-sm font-medium text-yellow-700 underline underline-offset-2 hover:text-yellow-900"
+            className="text-sm font-medium text-amber-400 underline underline-offset-2 hover:text-amber-300"
           >
             Ver detalhes →
           </Link>
@@ -366,14 +366,14 @@ export default async function ProjetoDetailPage({
 
       {/* Cartografia concluída — iniciar relatório */}
       {project.status === "cartografia_concluida" && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-3">
+        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-indigo-800">
+            <p className="text-sm text-indigo-400">
               <span className="font-medium">Cartografia concluída.</span>
             </p>
             <Link
               href={`/projetos/${id}/cartografia`}
-              className="text-xs font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-800"
+              className="text-xs font-medium text-indigo-400 underline underline-offset-2 hover:text-indigo-300"
             >
               Ver arquivos
             </Link>
@@ -381,7 +381,7 @@ export default async function ProjetoDetailPage({
           <form action={startRelatorio.bind(null, project.id)}>
             <button
               type="submit"
-              className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 transition-colors"
+              className="rounded-md bg-purple-500 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-400 transition-colors"
             >
               Gerar relatório
             </button>
@@ -392,14 +392,14 @@ export default async function ProjetoDetailPage({
       {/* Relatório em andamento */}
       {(project.status === "aguardando_relatorio" ||
         project.status === "relatorio_em_andamento") && (
-        <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 flex items-center justify-between">
+        <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-violet-400 animate-pulse shrink-0" />
-            <p className="text-sm text-violet-800">Gerando relatório…</p>
+            <div className="w-3 h-3 rounded-full bg-purple-400 animate-pulse shrink-0" />
+            <p className="text-sm text-purple-400">Gerando relatório…</p>
           </div>
           <Link
             href={`/projetos/${id}/relatorio`}
-            className="text-sm font-medium text-violet-700 underline underline-offset-2 hover:text-violet-900"
+            className="text-sm font-medium text-purple-400 underline underline-offset-2 hover:text-purple-300"
           >
             Ver status →
           </Link>
@@ -408,14 +408,14 @@ export default async function ProjetoDetailPage({
 
       {/* Relatório gerado */}
       {project.status === "relatorio_gerado" && (
-        <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 flex items-center justify-between">
-          <p className="text-sm text-violet-800">
+        <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-purple-400">
             <span className="font-medium">Relatório gerado.</span>{" "}
             Pronto para revisão e aprovação.
           </p>
           <Link
             href={`/projetos/${id}/relatorio`}
-            className="text-sm font-medium text-violet-700 underline underline-offset-2 hover:text-violet-900"
+            className="text-sm font-medium text-purple-400 underline underline-offset-2 hover:text-purple-300"
           >
             Abrir relatório →
           </Link>
@@ -424,13 +424,13 @@ export default async function ProjetoDetailPage({
 
       {/* Finalizado */}
       {project.status === "finalizado" && (
-        <div className="rounded-lg border border-green-300 bg-green-50 p-4 flex items-center justify-between">
-          <p className="text-sm text-green-800">
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-emerald-400">
             <span className="font-medium">Projeto finalizado.</span> Relatório aprovado.
           </p>
           <Link
             href={`/projetos/${id}/relatorio`}
-            className="text-sm font-medium text-green-700 underline underline-offset-2 hover:text-green-900"
+            className="text-sm font-medium text-emerald-400 underline underline-offset-2 hover:text-emerald-300"
           >
             Ver relatório →
           </Link>
@@ -439,9 +439,9 @@ export default async function ProjetoDetailPage({
 
       {/* IA error */}
       {iaJob?.status === "erro" && iaJob.error_message && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-700 mb-1">Erro na interpretação IA</p>
-          <p className="text-xs text-red-600 font-mono break-all">{iaJob.error_message}</p>
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-sm font-medium text-red-400 mb-1">Erro na interpretação IA</p>
+          <p className="text-xs text-red-400 font-mono break-all">{iaJob.error_message}</p>
         </div>
       )}
 
@@ -456,10 +456,10 @@ export default async function ProjetoDetailPage({
 
       {/* Relatório de inferências (sob demanda) */}
       {gprDone && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4 flex items-center justify-between gap-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-gray-900">Relatório de inferências</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-sm font-medium text-slate-100">Relatório de inferências</p>
+            <p className="text-xs text-slate-500 mt-0.5">
               Tabela alta + média confiança para revisão técnica (.txt)
             </p>
           </div>
@@ -467,17 +467,17 @@ export default async function ProjetoDetailPage({
             <a
               href={inferenciasUrl}
               download="inferencias.txt"
-              className="shrink-0 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+              className="shrink-0 rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors"
             >
               ↓ Baixar inferências
             </a>
           ) : inferenciasProcessando ? (
-            <span className="shrink-0 text-sm text-gray-400">Gerando…</span>
+            <span className="shrink-0 text-sm text-slate-400">Gerando…</span>
           ) : (
             <form action={generateInferenceReport.bind(null, project.id)}>
               <button
                 type="submit"
-                className="shrink-0 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                className="shrink-0 rounded-md bg-slate-800 border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 transition-colors"
               >
                 Gerar relatório de inferências
               </button>
@@ -496,23 +496,23 @@ export default async function ProjetoDetailPage({
         />
       ) : (
         !isProcessing && project.status !== "aguardando_arquivos" && (
-          <p className="text-sm text-gray-400">Nenhum perfil GPR disponível.</p>
+          <p className="text-sm text-slate-500">Nenhum perfil GPR disponível.</p>
         )
       )}
     </div>
   );
 }
 
-// ── Pipeline progress bar (Tarefa 4) ─────────────────────────────────────────
+// ── Pipeline progress bar ─────────────────────────────────────────────────────
 
 type StageState = "done" | "active" | "pending";
 
 const PIPELINE_STAGES = [
-  { id: "gpr", label: "GPR", icon: "📡" },
-  { id: "ia", label: "IA", icon: "🤖" },
-  { id: "revisao", label: "Revisão", icon: "🔍" },
-  { id: "cartografia", label: "Cartografia", icon: "🗺️" },
-  { id: "relatorio", label: "Relatório", icon: "📄" },
+  { id: "gpr", label: "GPR" },
+  { id: "ia", label: "IA" },
+  { id: "revisao", label: "Revisão" },
+  { id: "cartografia", label: "Cartografia" },
+  { id: "relatorio", label: "Relatório" },
 ] as const;
 
 type StageId = (typeof PIPELINE_STAGES)[number]["id"];
@@ -548,7 +548,7 @@ function PipelineProgress({ status }: { status: string }) {
   if (["criado", "aguardando_arquivos"].includes(status)) return null;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-6 py-4">
+    <div className="rounded-xl border border-slate-800 bg-slate-900 px-6 py-4">
       <div className="flex items-start">
         {PIPELINE_STAGES.map((stage, idx) => {
           const state = getStageState(stage.id, status);
@@ -556,23 +556,23 @@ function PipelineProgress({ status }: { status: string }) {
             <Fragment key={stage.id}>
               <div className="flex flex-col items-center gap-1.5 shrink-0 w-16">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-base font-semibold transition-colors ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
                     state === "done"
-                      ? "bg-green-500 text-white"
+                      ? "bg-emerald-500 text-white"
                       : state === "active"
-                      ? "bg-blue-500 text-white animate-pulse"
-                      : "bg-gray-100 text-gray-400"
+                      ? "bg-cyan-500 text-slate-950 animate-pulse"
+                      : "bg-slate-800 text-slate-600 border border-slate-700"
                   }`}
                 >
-                  {state === "done" ? "✓" : stage.icon}
+                  {state === "done" ? "✓" : <span className="w-1.5 h-1.5 rounded-full bg-current" />}
                 </div>
                 <span
                   className={`text-[10px] font-medium text-center leading-tight ${
                     state === "done"
-                      ? "text-green-600"
+                      ? "text-emerald-400"
                       : state === "active"
-                      ? "text-blue-600"
-                      : "text-gray-400"
+                      ? "text-cyan-400"
+                      : "text-slate-600"
                   }`}
                 >
                   {stage.label}
@@ -580,8 +580,8 @@ function PipelineProgress({ status }: { status: string }) {
               </div>
               {idx < PIPELINE_STAGES.length - 1 && (
                 <div
-                  className={`flex-1 h-0.5 mt-5 mx-0.5 transition-colors ${
-                    state === "done" ? "bg-green-300" : "bg-gray-200"
+                  className={`flex-1 h-0.5 mt-4 mx-0.5 transition-colors ${
+                    state === "done" ? "bg-emerald-500/50" : "bg-slate-800"
                   }`}
                 />
               )}
@@ -600,12 +600,12 @@ function JobChip({ job }: { job: JobRow }) {
     gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório", inferencias: "Inferências",
   };
   const statusColor: Record<string, string> = {
-    aguardando: "bg-gray-100 text-gray-500",
-    processando_gpr: "bg-blue-100 text-blue-700",
-    processando_ia: "bg-purple-100 text-purple-700",
-    processando: "bg-blue-100 text-blue-700",
-    concluido: "bg-green-100 text-green-700",
-    erro: "bg-red-50 text-red-600",
+    aguardando: "bg-slate-700 text-slate-400",
+    processando_gpr: "bg-blue-500/15 text-blue-400",
+    processando_ia: "bg-violet-500/15 text-violet-400",
+    processando: "bg-blue-500/15 text-blue-400",
+    concluido: "bg-emerald-500/15 text-emerald-400",
+    erro: "bg-red-500/15 text-red-400",
   };
   const statusLabel: Record<string, string> = {
     aguardando: "aguardando",
@@ -617,11 +617,11 @@ function JobChip({ job }: { job: JobRow }) {
   };
   return (
     <span
-      className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
-        statusColor[job.status] ?? "bg-gray-100 text-gray-500"
+      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+        statusColor[job.status] ?? "bg-slate-700 text-slate-400"
       }`}
     >
-      <span className="font-medium">{typeLabel[job.job_type] ?? job.job_type}</span>
+      <span className="font-semibold">{typeLabel[job.job_type] ?? job.job_type}</span>
       <span className="opacity-70">{statusLabel[job.status] ?? job.status}</span>
     </span>
   );
@@ -630,8 +630,8 @@ function JobChip({ job }: { job: JobRow }) {
 function StatusBadge({ status }: { status: string }) {
   return (
     <span
-      className={`text-xs font-medium px-3 py-1 rounded-full shrink-0 ${
-        STATUS_COLOR[status] ?? "bg-gray-100 text-gray-600"
+      className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
+        STATUS_COLOR[status] ?? "bg-slate-700 text-slate-400 border border-slate-600"
       }`}
     >
       {STATUS_LABEL[status] ?? status}

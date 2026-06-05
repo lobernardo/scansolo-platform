@@ -87,12 +87,12 @@ export default async function RevisaoPage({
   return (
     <div>
       {/* Breadcrumb */}
-      <div className="max-w-6xl mx-auto px-4 pt-6 flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/projetos" className="hover:text-gray-700">Projetos</Link>
-        <span className="text-gray-300">/</span>
-        <Link href={`/projetos/${id}`} className="hover:text-gray-700">{projectData.nome}</Link>
-        <span className="text-gray-300">/</span>
-        <span className="text-gray-700">Revisão técnica</span>
+      <div className="max-w-6xl mx-auto px-4 pt-6 flex items-center gap-2 text-sm text-slate-500">
+        <Link href="/projetos" className="hover:text-slate-300 transition-colors">Projetos</Link>
+        <span className="text-slate-700">/</span>
+        <Link href={`/projetos/${id}`} className="hover:text-slate-300 transition-colors">{projectData.nome}</Link>
+        <span className="text-slate-700">/</span>
+        <span className="text-slate-300">Revisão técnica</span>
       </div>
 
       <ReviewClient

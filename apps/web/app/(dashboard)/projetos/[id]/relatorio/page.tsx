@@ -72,19 +72,19 @@ export default async function RelatorioPage({
 
   return (
     <div>
-      <div className="max-w-2xl mx-auto px-4 pt-6 flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/projetos" className="hover:text-gray-700">Projetos</Link>
-        <span className="text-gray-300">/</span>
-        <Link href={`/projetos/${id}`} className="hover:text-gray-700">{project.nome}</Link>
-        <span className="text-gray-300">/</span>
-        <span className="text-gray-700">Relatório</span>
+      <div className="max-w-2xl mx-auto px-4 pt-6 flex items-center gap-2 text-sm text-slate-500">
+        <Link href="/projetos" className="hover:text-slate-300 transition-colors">Projetos</Link>
+        <span className="text-slate-700">/</span>
+        <Link href={`/projetos/${id}`} className="hover:text-slate-300 transition-colors">{project.nome}</Link>
+        <span className="text-slate-700">/</span>
+        <span className="text-slate-300">Relatório</span>
       </div>
 
       {isJobRunning && <ProjectStatusPoller />}
 
       <div className="max-w-2xl mx-auto px-4 pt-5 pb-2 flex items-center justify-between">
-        <h1 className="text-xl font-bold">Relatório Técnico</h1>
-        <span className="text-sm text-gray-500">{project.nome}</span>
+        <h1 className="text-xl font-bold text-slate-100">Relatório Técnico</h1>
+        <span className="text-sm text-slate-400">{project.nome}</span>
       </div>
 
       <RelatorioClient
