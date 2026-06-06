@@ -198,6 +198,8 @@ def configurar_log(pasta_log):
 
 def salvar_imagem(prof, caminho, preset, titulo=None):
     fig = plt.figure(figsize=(14, 6))
+    if hasattr(prof, "marks"):
+        prof.marks = []
     prof.prepProfileFig(color=preset["colormap"], contrast=preset["contrast"])
     if titulo:
         plt.suptitle(titulo, fontsize=9, color="#333333",

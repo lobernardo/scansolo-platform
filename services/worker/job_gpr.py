@@ -348,7 +348,16 @@ def _parse_targets(
     targets = []
     with open(csv_path, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
+        log.info("csv_fieldnames", path=str(csv_path), fields=list(reader.fieldnames or []))
         for row in reader:
+            raw_rel = (row.get("confidence_label_relatorio") or "").strip()
+            raw_tec = (row.get("confidence_label_tecnico") or "").strip()
+            log.debug(
+                "csv_row_labels",
+                rank=row.get("rank"),
+                label_tec=raw_tec,
+                label_rel=raw_rel,
+            )
             targets.append({
                 "project_id": project_id,
                 "profile_id": profile_id,
@@ -366,8 +375,8 @@ def _parse_targets(
                 "evidencia_sem_agc": row.get("evidencia_sem_agc") == "True",
                 "snr_local": _float(row.get("snr_local")),
                 "confidence_score": _int(row.get("confidence_score_0_100")),
-                "confidence_label_tecnico": _clamp_label_tecnico(row.get("confidence_label_tecnico")),
-                "confidence_label_relatorio": _clamp_label_relatorio(row.get("confidence_label_relatorio")),
+                "confidence_label_tecnico": _clamp_label_tecnico(raw_tec),
+                "confidence_label_relatorio": _clamp_label_relatorio(raw_rel),
                 "motivo_confianca": row.get("motivo_confianca"),
             })
     return targets
@@ -552,8 +561,8 @@ def _clamp_label_tecnico(v: str | None) -> str | None:
     return v if v in ("alta", "media", "baixa") else None
 
 
-def _clamp_label_relatorio(v: str | None) -> str | None:
-    return v if v in ("alta", "media", "baixa") else None
+def _clamp_label_relatorio(v: str | None) -> str:
+    return v if v in ("alta", "media", "baixa") else "baixa"
 
 
 def _int(v: str | None) -> int | None:
