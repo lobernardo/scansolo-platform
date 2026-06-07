@@ -100,7 +100,10 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         _run_pipeline(input_dir, output_dir, processing_config=processing_config)
 
         run_id = str(uuid.uuid4())
-        new_profiles = _persist_outputs(supa, project_id, run_id, output_dir)
+        new_profiles = _persist_outputs(
+            supa, project_id, run_id, output_dir,
+            existing_profile_id=profile_id_reprocess if is_reprocess else None,
+        )
 
         # Gravar filtros_customizados nos perfis criados (rastreabilidade)
         if is_reprocess and filtros_customizados and new_profiles:
@@ -263,11 +266,16 @@ def _run_pipeline(
 # ── Persistência ──────────────────────────────────────────────────────────────
 
 def _persist_outputs(
-    supa: "SupabaseClient", project_id: str, run_id: str, output_dir: Path
+    supa: "SupabaseClient", project_id: str, run_id: str, output_dir: Path,
+    existing_profile_id: str | None = None,
 ) -> list[dict]:
     """
-    Lê index_projeto.csv, sobe imagens/CSVs e insere gpr_profiles + detected_targets.
-    Retorna a lista de perfis criados (cada item tem ao menos {"id": ..., "arquivo_dzt": ...}).
+    Lê index_projeto.csv, sobe imagens/CSVs e insere/atualiza gpr_profiles + detected_targets.
+
+    existing_profile_id: quando fornecido (reprocessamento individual), atualiza o perfil
+    existente em vez de inserir um novo.
+
+    Retorna a lista de perfis processados (cada item tem ao menos {"id": ..., "arquivo_dzt": ...}).
     """
     index_path = output_dir / "index_projeto.csv"
     targets_dir = output_dir / "05_Tabela_Alvos"
@@ -287,20 +295,23 @@ def _persist_outputs(
         dzt_name: str = row["arquivo_dzt"]
         stem = Path(dzt_name).stem
 
-        profile_payload = {
-            "project_id": project_id,
-            "run_id": run_id,
-            "arquivo_dzt": dzt_name,
-            "n_tracos": _int(row.get("n_tracos")),
-            "n_amostras": _int(row.get("n_amostras")),
-            "profundidade_max_m": _float(row.get("profundidade_max_m")),
-            "distancia_max_m": _float(row.get("distancia_max_m")),
-            "velocity_mns": _float(row.get("velocity_mns")),
-            "velocity_calibrada": row.get("velocity_calibrada") == "True",
-            "config_hash": row.get("config_hash"),
-        }
-        profile = supa.insert_gpr_profile(profile_payload)
-        profile_id: str = profile["id"]
+        if existing_profile_id:
+            profile_id = existing_profile_id
+        else:
+            profile_payload = {
+                "project_id": project_id,
+                "run_id": run_id,
+                "arquivo_dzt": dzt_name,
+                "n_tracos": _int(row.get("n_tracos")),
+                "n_amostras": _int(row.get("n_amostras")),
+                "profundidade_max_m": _float(row.get("profundidade_max_m")),
+                "distancia_max_m": _float(row.get("distancia_max_m")),
+                "velocity_mns": _float(row.get("velocity_mns")),
+                "velocity_calibrada": row.get("velocity_calibrada") == "True",
+                "config_hash": row.get("config_hash"),
+            }
+            profile = supa.insert_gpr_profile(profile_payload)
+            profile_id = profile["id"]
         created_profiles.append({"id": profile_id, "arquivo_dzt": dzt_name})
 
         img_prefix = f"{project_id}/{run_id}/{profile_id[:8]}"

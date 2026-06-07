@@ -46,13 +46,14 @@ export async function reprocessProfile(
     );
   }
 
-  // Insert a GPR reprocessing job — worker will pick it up with the saved filters
+  // Insert a GPR reprocessing job with profile_id + filters in payload
   const { error: jobError } = await supabase
     .from("processing_jobs")
     .insert({
       project_id: profile.project_id,
       job_type: "gpr",
       status: "aguardando",
+      payload: { profile_id: profileId, filtros_customizados: filters },
     } as unknown as never);
 
   if (jobError) {
