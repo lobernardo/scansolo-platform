@@ -80,7 +80,7 @@ PRESETS = {
         "tpow_power":        0.5,
         "agc_window":        150,
         "velocity_mns":      0.1,
-        "contrast":          3.0,
+        "contrast":          1.5,
         "colormap":          "gray",
         "dpi":               150,
         # Detector de hiperboles
@@ -209,13 +209,13 @@ def salvar_imagem(prof, caminho, preset, titulo=None):
     plt.close("all")
 
 
-def salvar_imagem_padrao_amilson(arr, depth_m, dist_m, caminho, preset, nome_arquivo=""):
+def salvar_imagem_padrao_amilson(arr, depth_m, dist_m, caminho, preset, nome_arquivo="", prof=None):
     """
     Gera imagem no padrao visual Amilson:
       - Titulo simples: nome do arquivo + data
       - Labels em portugues: 'Profundidade (m)' / 'Distancia (m)'
       - SEM AGC: preserva decaimento fisico de amplitude com profundidade
-      - Contraste: clip por ±contrast*std (mesmo metodo GPRPy contrast=3.0)
+      - Contraste: clip por ±contrast*std
       - Colormap gray, figsize 14x4 pol, dpi configuravel
       - Este e o formato entregue ao Amilson e ao cliente.
 
@@ -223,7 +223,10 @@ def salvar_imagem_padrao_amilson(arr, depth_m, dist_m, caminho, preset, nome_arq
     depth_m       : profundidade maxima em metros (eixo Y)
     dist_m        : distancia total em metros (eixo X)
     nome_arquivo  : nome do .DZT para o titulo (ex: 'linha_001.DZT')
+    prof          : objeto GPRPy opcional — se fornecido, limpa prof.marks antes de plotar
     """
+    if prof is not None and hasattr(prof, "marks"):
+        prof.marks = []
     contrast = preset.get("contrast", 3.0)
     std = float(np.std(arr))
     vmin, vmax = -contrast * std, contrast * std
@@ -563,7 +566,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     try:
         salvar_imagem_padrao_amilson(
             arr_sem_agc, depth_m_oficial, dist_max, path_proc, preset,
-            nome_arquivo=arquivo_dzt.name
+            nome_arquivo=arquivo_dzt.name, prof=prof
         )
         logger.info(f"  Processada (padrao Amilson, sem AGC): {path_proc.name} (max={depth_m_oficial}m)")
     except Exception as e:
