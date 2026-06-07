@@ -31,6 +31,7 @@ Flags opcionais:
   --sem-fisica     Pula analises fisicas (material/espectro) mas mantem deteccao geometrica
 """
 
+import gc
 import os, sys, json, hashlib, shutil, argparse, logging, warnings
 from datetime import datetime
 from pathlib import Path
@@ -519,6 +520,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.info(f"  Bruta: {path_bruta.name}")
     except Exception as e:
         logger.error(f"  Falha bruta: {e}")
+        plt.close("all")
+        gc.collect()
         return None
 
     # 2. Cadeia de filtros (sem AGC ainda)
@@ -571,6 +574,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.info(f"  Processada (padrao Amilson, sem AGC): {path_proc.name} (max={depth_m_oficial}m)")
     except Exception as e:
         logger.error(f"  Falha imagem padrao Amilson: {e}")
+        plt.close("all")
+        gc.collect()
         return None
 
     # 3. AGC + setVelocity (para deteccao geometrica interna de hiperboles)
@@ -609,6 +614,15 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     t_fim = datetime.now()
     tempo_s = round((t_fim - t_inicio).total_seconds(), 1)
     logger.debug(f"  Tempo total: {tempo_s}s")
+
+    # Libera arrays grandes e figuras matplotlib antes do próximo DZT.
+    # Sem isso, acumulação de memória entre iterações causa MemoryError
+    # já na 2ª ou 3ª alocação numpy/matplotlib em projetos com múltiplos DZTs.
+    plt.close("all")
+    del arr_raw, arr_sem_agc, arr_proc_save, prof
+    if usar_detector:
+        del arr_proc
+    gc.collect()
 
     return {
         # Identificacao

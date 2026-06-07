@@ -258,8 +258,8 @@ def _run_pipeline(
     log.info("pipeline_start", cmd=" ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        log.error("pipeline_stderr", stderr=result.stderr[-2000:])
-        raise RuntimeError(f"pipeline_v1.py exited {result.returncode}: {result.stderr[-500:]}")
+        log.error("pipeline_stderr", stderr=result.stderr)
+        raise RuntimeError(f"pipeline_v1.py exited {result.returncode}: {result.stderr[-1000:]}")
     log.info("pipeline_done", stdout_tail=result.stdout[-500:])
 
 
