@@ -741,7 +741,14 @@ def main():
     except Exception as e:
         logger.warning(f"config_used.json nao salvo: {e}")
 
-    dzts = sorted(pasta_entrada.glob("*.DZT")) + sorted(pasta_entrada.glob("*.dzt"))
+    # Deduplicação por nome resolvido — no Windows glob("*.DZT") e glob("*.dzt")
+    # batem nos mesmos arquivos (filesystem case-insensitive), duplicando o index.
+    _seen: set[str] = set()
+    dzts: list[Path] = []
+    for _p in sorted(pasta_entrada.glob("*.DZT")) + sorted(pasta_entrada.glob("*.dzt")):
+        if _p.resolve().name not in _seen:
+            _seen.add(_p.resolve().name)
+            dzts.append(_p)
     if not dzts:
         logger.error(f"Nenhum .DZT em: {pasta_entrada}")
         sys.exit(1)

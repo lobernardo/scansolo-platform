@@ -156,7 +156,7 @@ def _get_approved_targets(supa: "SupabaseClient", profile_id: str) -> list[dict]
     result = (
         supa._client.table("detected_targets")
         .select(
-            "id, x_m, depth_m, diameter_m, confidence_score, "
+            "id, x_m, depth_m, diam_est_m, confidence_score, "
             "technical_reviews(status_review, tipo_final, profundidade_ajustada, "
             "diametro_ajustado, vai_para_relatorio, observacao)"
         )
@@ -177,7 +177,7 @@ def _get_approved_targets(supa: "SupabaseClient", profile_id: str) -> list[dict]
         targets.append({
             "x_m":         t.get("x_m") or 0,
             "depth_m":     review.get("profundidade_ajustada") or t.get("depth_m") or 0,
-            "diameter_m":  review.get("diametro_ajustado") or t.get("diameter_m") or 0,
+            "diameter_m":  review.get("diametro_ajustado") or t.get("diam_est_m") or 0,
             "tipo":        review.get("tipo_final") or "desconhecido",
             "score":       t.get("confidence_score") or 0,
             "observacao":  review.get("observacao") or "",
