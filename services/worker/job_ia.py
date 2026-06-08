@@ -202,6 +202,8 @@ def _auto_aprovar_targets(
         baixa=n_baixa,
     )
     supa.update_project_status(project_id, "revisao_concluida")
+    supa.create_job(project_id, "interpretada")
+    log.info("interpretada_job_enqueued", project_id=project_id)
 
 
 # ── Geração de imagem interpretada ───────────────────────────────────────────

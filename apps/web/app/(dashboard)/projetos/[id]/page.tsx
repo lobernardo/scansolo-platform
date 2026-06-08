@@ -22,6 +22,7 @@ const PROCESSING_STATUSES = new Set([
   "aguardando_processamento",
   "processando_gpr",
   "processando_ia",
+  "processando_interpretada",
   "aguardando_cartografia",
   "aguardando_relatorio",
   "relatorio_em_andamento",
@@ -43,6 +44,8 @@ const STATUS_LABEL: Record<string, string> = {
   aguardando_relatorio: "Gerando relatório",
   relatorio_em_andamento: "Relatório em andamento",
   relatorio_gerado: "Relatório gerado",
+  processando_interpretada: "Gerando imagem interpretada",
+  interpretada_gerada: "Imagem interpretada gerada",
   aguardando_aprovacao: "Aguardando aprovação",
   finalizado: "Finalizado",
   erro: "Erro",
@@ -64,6 +67,8 @@ const STATUS_COLOR: Record<string, string> = {
   aguardando_relatorio: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
   relatorio_em_andamento: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
   relatorio_gerado: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+  processando_interpretada: "bg-teal-500/15 text-teal-400 border border-teal-500/30",
+  interpretada_gerada: "bg-teal-500/15 text-teal-400 border border-teal-500/30",
   aguardando_aprovacao: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
   finalizado: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
   erro: "bg-red-500/15 text-red-400 border border-red-500/30",
@@ -332,6 +337,42 @@ export default async function ProjetoDetailPage({
         </div>
       )}
 
+      {/* Interpretada em processamento */}
+      {project.status === "processando_interpretada" && (
+        <div className="rounded-xl border border-teal-500/30 bg-teal-500/10 p-4 flex items-center gap-3">
+          <div className="w-3 h-3 rounded-full bg-teal-400 animate-pulse shrink-0" />
+          <p className="text-sm text-teal-400">
+            Gerando imagem interpretada… Esta página atualiza automaticamente.
+          </p>
+        </div>
+      )}
+
+      {/* Interpretada gerada — Amilson revisa */}
+      {project.status === "interpretada_gerada" && (
+        <div className="rounded-xl border border-teal-500/30 bg-teal-500/10 p-4 space-y-3">
+          <p className="text-sm text-teal-400">
+            <span className="font-medium">Imagem interpretada gerada.</span>{" "}
+            Revise e aprove a interpretação antes de gerar a cartografia.
+          </p>
+          <div className="flex gap-3 flex-wrap">
+            <Link
+              href={`/projetos/${id}/interpretada`}
+              className="rounded-md bg-teal-500 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-400 transition-colors"
+            >
+              Revisar imagem interpretada →
+            </Link>
+            <form action={startCartografia.bind(null, project.id)}>
+              <button
+                type="submit"
+                className="rounded-md bg-slate-800 border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+              >
+                Pular e gerar cartografia
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Cartografia em andamento */}
       {project.status === "aguardando_cartografia" && (
         <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 flex items-center justify-between">
@@ -518,9 +559,9 @@ const PIPELINE_STAGES = [
 type StageId = (typeof PIPELINE_STAGES)[number]["id"];
 
 function getStageState(stageId: StageId, status: string): StageState {
-  const GPR_DONE = new Set(["gpr_concluido","processando_ia","ia_concluida","revisao_em_andamento","revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
-  const IA_DONE  = new Set(["ia_concluida","revisao_em_andamento","revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
-  const REV_DONE = new Set(["revisao_concluida","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const GPR_DONE = new Set(["gpr_concluido","processando_ia","ia_concluida","revisao_em_andamento","revisao_concluida","processando_interpretada","interpretada_gerada","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const IA_DONE  = new Set(["ia_concluida","revisao_em_andamento","revisao_concluida","processando_interpretada","interpretada_gerada","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
+  const REV_DONE = new Set(["revisao_concluida","processando_interpretada","interpretada_gerada","aguardando_cartografia","cartografia_concluida","cartografia_pendente_dados","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
   const CAR_DONE = new Set(["cartografia_concluida","aguardando_relatorio","relatorio_em_andamento","relatorio_gerado","finalizado"]);
   const REL_DONE = new Set(["relatorio_gerado","finalizado"]);
 
@@ -597,7 +638,7 @@ function PipelineProgress({ status }: { status: string }) {
 
 function JobChip({ job }: { job: JobRow }) {
   const typeLabel: Record<string, string> = {
-    gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório", inferencias: "Inferências",
+    gpr: "GPR", ia: "IA", cartografia: "Cartografia", relatorio: "Relatório", inferencias: "Inferências", interpretada: "Interpretada",
   };
   const statusColor: Record<string, string> = {
     aguardando: "bg-slate-700 text-slate-400",
