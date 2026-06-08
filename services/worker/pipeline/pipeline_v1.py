@@ -74,12 +74,13 @@ SCRIPT_VERSION = "1.2.0"
 # ---------------------------------------------------------------------------
 SNR_LIMIARES = {
     # (limiar_minimo, limiar_padrao) — calibrado para Hilbert per-trace (escala ~40-50% menor que RMS)
-    # PATIO_001=9.25, 002=5.44, 003=6.45, 004=4.56 — calibracao com dados reais de campo
-    "standard":  ( 8.0, 3.0),   # PATIO_001 (9.25) -> MINIMO; 002-004 -> PADRAO
-    "arenoso":   ( 8.0, 3.0),
-    "argiloso":  ( 6.0, 2.0),   # SNR naturalmente menor
-    "umido":     ( 5.0, 1.5),
-    "pedregoso": (10.0, 3.5),   # reverberacoes — exige dado mais limpo
+    # PATIO_001=9.25, 002=5.44, 003=6.45, 004=4.56 — todos abaixo de 30 -> modo PADRAO
+    # limiar_padrao=4.0: PATIO_004 (4.56) fica em PADRAO com margem
+    "standard":  (30.0, 4.0),
+    "arenoso":   (30.0, 4.0),
+    "argiloso":  (20.0, 3.5),
+    "umido":     (15.0, 3.0),
+    "pedregoso": (35.0, 6.0),
 }
 
 
