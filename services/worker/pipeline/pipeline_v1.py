@@ -81,7 +81,7 @@ PRESETS = {
         "tpow_power":        0.5,
         "agc_window":        150,
         "velocity_mns":      0.1,
-        "contrast":          1.5,
+        "contrast":          2.5,
         "colormap":          "gray",
         "dpi":               150,
         # Detector de hiperboles

@@ -199,6 +199,11 @@ def _gerar_interpretada(img_bytes: bytes, targets: list[dict], profile: dict) ->
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
+    # Área de dados dentro da figura matplotlib (igual a job_ia.py — compensa margens de eixo)
+    DL, DR, DT, DB = int(0.09 * W), int(0.96 * W), int(0.10 * H), int(0.87 * H)
+    dW = DR - DL
+    dH = DB - DT
+
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
         font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
@@ -207,11 +212,11 @@ def _gerar_interpretada(img_bytes: bytes, targets: list[dict], profile: dict) ->
         font_sm = font
 
     for t in targets:
-        # Posição em pixels
+        # Posição em pixels com offsets da área de dados matplotlib
         x_pct = t["x_m"] / max(dist_max, 0.01)
         y_pct = t["depth_m"] / max(depth_max, 0.01)
-        px = int(x_pct * W)
-        py = int(y_pct * H)
+        px = DL + int(x_pct * dW)
+        py = DT + int(y_pct * dH)
         px = max(10, min(W - 10, px))
         py = max(10, min(H - 10, py))
 

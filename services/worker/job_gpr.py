@@ -338,6 +338,9 @@ def _persist_outputs(
             supa._client.table("gpr_profiles").update(img_updates).eq("id", profile_id).execute()
 
         if csv_path.exists():
+            if existing_profile_id:
+                supa._client.table("detected_targets").delete().eq("profile_id", profile_id).execute()
+                log.info("targets_deleted_for_reprocess", profile_id=profile_id)
             targets = _parse_targets(csv_path, project_id, profile_id, run_id)
             supa.insert_detected_targets(targets)
             log.info("targets_inserted", profile_id=profile_id, count=len(targets))
