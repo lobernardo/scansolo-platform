@@ -73,11 +73,13 @@ SCRIPT_VERSION = "1.2.0"
 # Referencia Amilson: S/sigma=100 (40dB)=limpo, =10 (20dB)=bom, =3 (10dB)=ruidoso
 # ---------------------------------------------------------------------------
 SNR_LIMIARES = {
-    "standard":  (10.0, 3.0),   # (limiar_minimo, limiar_padrao)
-    "arenoso":   (10.0, 3.0),
-    "argiloso":  ( 7.0, 2.5),   # SNR naturalmente menor — aceita mais ruido
-    "umido":     ( 6.0, 2.0),
-    "pedregoso": (12.0, 3.5),   # Solo duro gera reverberacoes — exige dado mais limpo
+    # (limiar_minimo, limiar_padrao) — calibrado para Hilbert per-trace (escala ~40-50% menor que RMS)
+    # PATIO_001=9.25, 002=5.44, 003=6.45, 004=4.56 — calibracao com dados reais de campo
+    "standard":  ( 8.0, 3.0),   # PATIO_001 (9.25) -> MINIMO; 002-004 -> PADRAO
+    "arenoso":   ( 8.0, 3.0),
+    "argiloso":  ( 6.0, 2.0),   # SNR naturalmente menor
+    "umido":     ( 5.0, 1.5),
+    "pedregoso": (10.0, 3.5),   # reverberacoes — exige dado mais limpo
 }
 
 
@@ -99,12 +101,12 @@ PRESETS = {
         "colormap":          "gray",
         "dpi":               150,
         # Detector de hiperboles
-        "det_amp_threshold": 0.60,
+        "det_amp_threshold": 0.50,
         "det_h_min_m":       0.10,
         "det_h_max_m":       3.00,
         "det_h_step_m":      0.04,
         "det_nms_radius_m":  0.50,
-        "det_top_n":         20,
+        "det_top_n":         25,
         "det_min_score_csv":  30,
         "det_min_score_plot": 40,
         "det_cf_wing_half_m":2.0,
@@ -131,12 +133,12 @@ PRESETS = {
         "contrast":          2.5,
         "colormap":          "gray",
         "dpi":               150,
-        "det_amp_threshold": 0.60,
+        "det_amp_threshold": 0.50,
         "det_h_min_m":       0.10,
         "det_h_max_m":       3.00,
         "det_h_step_m":      0.04,
         "det_nms_radius_m":  0.50,
-        "det_top_n":         20,
+        "det_top_n":         25,
         "det_min_score_csv":  30,
         "det_min_score_plot": 40,
         "det_cf_wing_half_m":2.0,
@@ -204,7 +206,15 @@ def configurar_log(pasta_log):
     logger.setLevel(logging.DEBUG)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
-    ch = logging.StreamHandler(sys.stdout)
+    # StreamHandler com UTF-8 para evitar UnicodeEncodeError em terminais Windows (cp1252)
+    try:
+        import io as _io
+        _stream = _io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
+        )
+    except AttributeError:
+        _stream = sys.stdout
+    ch = logging.StreamHandler(_stream)
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
     logger.addHandler(ch)
@@ -607,7 +617,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     # ── Gate SNR: decide intensidade do processamento (v1.2.0) ────────────────
     snr_db, snr_ratio, modo = calcular_snr_imagem_db(arr_raw, tipo_solo)
     logger.info(
-        f"  SNR imagem: {snr_db:.1f} dB (S/σ={snr_ratio:.1f}) | "
+        f"  SNR imagem: {snr_db:.1f} dB (S/sig={snr_ratio:.1f}) | "
         f"solo={tipo_solo} | modo={modo.upper()}"
     )
 
