@@ -41,6 +41,7 @@ os.environ["MPLBACKEND"] = "Agg"
 import numpy as np
 import pandas as pd
 from scipy import signal as sp_signal
+from scipy.signal import hilbert
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -64,7 +65,20 @@ except ImportError as _e:
 # ---------------------------------------------------------------------------
 # VERSAO DO SCRIPT
 # ---------------------------------------------------------------------------
-SCRIPT_VERSION = "1.1.0"
+SCRIPT_VERSION = "1.2.0"
+
+
+# ---------------------------------------------------------------------------
+# LIMIARES SNR POR TIPO DE SOLO (S/sigma ratio, nao dB)
+# Referencia Amilson: S/sigma=100 (40dB)=limpo, =10 (20dB)=bom, =3 (10dB)=ruidoso
+# ---------------------------------------------------------------------------
+SNR_LIMIARES = {
+    "standard":  (10.0, 3.0),   # (limiar_minimo, limiar_padrao)
+    "arenoso":   (10.0, 3.0),
+    "argiloso":  ( 7.0, 2.5),   # SNR naturalmente menor — aceita mais ruido
+    "umido":     ( 6.0, 2.0),
+    "pedregoso": (12.0, 3.5),   # Solo duro gera reverberacoes — exige dado mais limpo
+}
 
 
 # ---------------------------------------------------------------------------
@@ -85,12 +99,14 @@ PRESETS = {
         "colormap":          "gray",
         "dpi":               150,
         # Detector de hiperboles
-        "det_amp_threshold": 0.45,
+        "det_amp_threshold": 0.60,
         "det_h_min_m":       0.10,
         "det_h_max_m":       3.00,
         "det_h_step_m":      0.04,
         "det_nms_radius_m":  0.50,
-        "det_top_n":         30,
+        "det_top_n":         20,
+        "det_min_score_csv":  30,
+        "det_min_score_plot": 40,
         "det_cf_wing_half_m":2.0,
         "det_cf_amp_frac":   0.30,
         "det_dt_min_diam_m": 0.05,
@@ -115,12 +131,14 @@ PRESETS = {
         "contrast":          2.5,
         "colormap":          "gray",
         "dpi":               150,
-        "det_amp_threshold": 0.45,
+        "det_amp_threshold": 0.60,
         "det_h_min_m":       0.10,
         "det_h_max_m":       3.00,
         "det_h_step_m":      0.04,
         "det_nms_radius_m":  0.50,
-        "det_top_n":         30,
+        "det_top_n":         20,
+        "det_min_score_csv":  30,
+        "det_min_score_plot": 40,
         "det_cf_wing_half_m":2.0,
         "det_cf_amp_frac":   0.30,
         "det_dt_min_diam_m": 0.05,
@@ -324,6 +342,54 @@ def _salvar_npy_seguro(arr, caminho):
 
 
 # ---------------------------------------------------------------------------
+# SNR GATE (v1.2.0)
+# ---------------------------------------------------------------------------
+def calcular_snr_imagem_db(
+    arr_raw: np.ndarray,
+    tipo_solo: str = "standard",
+) -> tuple:
+    """
+    SNR por traco com envelope analitico de Hilbert.
+
+    Formula: SNR = max|H[x(t)]| / std[x_ruido(t)]
+    Referencia: padrao classico de GPR — pico de envelope / desvio do ruido,
+    mediana sobre todos os tracos (robusto a outliers).
+
+    Janela de sinal: 10%-75% das amostras (exclui onda direta do inicio)
+    Janela de ruido: 85%-100% das amostras (fundo do trace, sem alvos)
+
+    Retorna: (snr_db, snr_ratio, modo)
+      modo: "minimo" | "padrao" | "agressivo"
+    """
+    n_samples = arr_raw.shape[0]
+    s0 = max(1, int(0.10 * n_samples))
+    s1 = int(0.75 * n_samples)
+    r0 = int(0.85 * n_samples)
+
+    snr_por_traco = []
+    for i in range(arr_raw.shape[1]):
+        trace = arr_raw[:, i].astype(float)
+        envelope = np.abs(hilbert(trace[s0:s1]))
+        pico_sinal = float(np.max(envelope))
+        ruido_std = float(np.std(trace[r0:])) + 1e-10
+        snr_por_traco.append(pico_sinal / ruido_std)
+
+    snr_ratio = float(np.median(snr_por_traco))
+    snr_db = round(20.0 * np.log10(snr_ratio) if snr_ratio > 0 else 0.0, 1)
+
+    thr_minimo, thr_padrao = SNR_LIMIARES.get(tipo_solo, SNR_LIMIARES["standard"])
+
+    if snr_ratio >= thr_minimo:
+        modo = "minimo"
+    elif snr_ratio >= thr_padrao:
+        modo = "padrao"
+    else:
+        modo = "agressivo"
+
+    return snr_db, round(snr_ratio, 2), modo
+
+
+# ---------------------------------------------------------------------------
 # DETECCAO DE ALVOS V1.1
 # ---------------------------------------------------------------------------
 def _params_detector(prof, preset):
@@ -418,6 +484,18 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     except Exception as e:
         logger.warning(f"  Analise fisica falhou (continuando sem ela): {e}")
 
+    # ── v1.2.0: filtro por score mínimo (remove ruído puro do Hough) ──────────
+    min_score_csv  = preset.get("det_min_score_csv",  30)
+    min_score_plot = preset.get("det_min_score_plot", 40)
+    if "confidence_score_0_100" in deteccoes.columns:
+        n_antes = len(deteccoes)
+        deteccoes = deteccoes[
+            deteccoes["confidence_score_0_100"] >= min_score_csv
+        ].reset_index(drop=True)
+        n_removidos = n_antes - len(deteccoes)
+        if n_removidos > 0:
+            logger.info(f"  Alvos removidos por min_score_csv={min_score_csv}: {n_removidos}")
+
     n_alvos = len(deteccoes)
 
     # --- Metricas de qualidade V1.1 — usa confidence_label_relatorio (criterio rigoroso) ---
@@ -447,7 +525,8 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     try:
         plotar_deteccoes(arr_proc, deteccoes, params,
                          output_path=str(path_completa),
-                         apenas_alta_confianca=False)
+                         apenas_alta_confianca=False,
+                         min_score=min_score_plot)
         nome_completa = path_completa.name
         # Backward compat: _anotada.png aponta para o mesmo conteudo
         path_bcompat = caminhos["processadas"] / f"{nome}_anotada.png"
@@ -486,7 +565,8 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
 # PROCESSAMENTO DE UM DZT V1.1
 # ---------------------------------------------------------------------------
 def processar_dzt(arquivo_dzt, caminhos, preset, logger,
-                  usar_detector=True, usar_fisica=True, config_hash=None):
+                  usar_detector=True, usar_fisica=True, config_hash=None,
+                  tipo_solo="standard"):
     nome = arquivo_dzt.stem
     t_inicio = datetime.now()
     logger.info(f"Iniciando: {arquivo_dzt.name}")
@@ -524,6 +604,13 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         gc.collect()
         return None
 
+    # ── Gate SNR: decide intensidade do processamento (v1.2.0) ────────────────
+    snr_db, snr_ratio, modo = calcular_snr_imagem_db(arr_raw, tipo_solo)
+    logger.info(
+        f"  SNR imagem: {snr_db:.1f} dB (S/σ={snr_ratio:.1f}) | "
+        f"solo={tipo_solo} | modo={modo.upper()}"
+    )
+
     # 2. Cadeia de filtros (sem AGC ainda)
     # Valor 0 em qualquer parametro = filtro desativado (para reprocessamento customizado)
     if preset.get("dewow_window", 5) > 0:
@@ -532,7 +619,12 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     else:
         logger.debug("  dewow desativado (dewow_window=0)")
 
-    if preset.get("bandpass_low_mhz", 0) > 0:
+    bandpass_aplicado = f"{preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']} MHz"
+    if modo == "minimo" and preset.get("bandpass_low_mhz", 0) > 0:
+        # Dado ja limpo — pular bandpass evita inserir artefatos
+        bandpass_aplicado = "pulado"
+        logger.info("  Bandpass: pulado (modo mínimo — dado já limpo, evitar artefatos)")
+    elif preset.get("bandpass_low_mhz", 0) > 0:
         try:
             aplicar_bandpass(prof, preset["bandpass_low_mhz"],
                              preset["bandpass_high_mhz"], preset["bandpass_order"])
@@ -540,6 +632,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         except Exception as e:
             logger.warning(f"  Bandpass falhou (continuando): {e}")
     else:
+        bandpass_aplicado = "desativado"
         logger.debug("  bandpass desativado (bandpass_low_mhz=0)")
 
     if preset.get("bgremoval_traces", 0) > 0:
@@ -548,10 +641,18 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     else:
         logger.debug("  background removal desativado (bgremoval_traces=0)")
 
-    if preset.get("tpow_power", 0) > 0:
-        prof.tpowGain(power=preset["tpow_power"])
-        logger.debug(f"  tpowGain(power={preset['tpow_power']})")
+    tpow_base = preset.get("tpow_power", 0.5)
+    if tpow_base > 0:
+        if modo == "minimo":
+            tpow_usado = 0.3
+        elif modo == "agressivo":
+            tpow_usado = min(tpow_base * 1.5, 1.2)
+        else:
+            tpow_usado = tpow_base
+        prof.tpowGain(power=tpow_usado)
+        logger.debug(f"  tpowGain(power={tpow_usado}) [base={tpow_base}, modo={modo}]")
     else:
+        tpow_usado = 0.0
         logger.debug("  tpow gain desativado (tpow_power=0)")
 
     # V1.2 — Captura arr_sem_agc ANTES do AGC
@@ -579,8 +680,15 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         return None
 
     # 3. AGC + setVelocity (para deteccao geometrica interna de hiperboles)
-    prof.agcGain(preset["agc_window"])
-    logger.debug(f"  agcGain({preset['agc_window']}) — uso interno: detector")
+    agc_base = preset.get("agc_window", 150)
+    if modo == "minimo":
+        agc_janela = min(agc_base * 2, 300)   # janela maior = suavizacao mais leve
+    elif modo == "agressivo":
+        agc_janela = max(agc_base // 2, 50)   # janela menor = normalizacao mais intensa
+    else:
+        agc_janela = agc_base
+    prof.agcGain(agc_janela)
+    logger.debug(f"  agcGain({agc_janela}) [base={agc_base}, modo={modo}] — uso interno: detector")
 
     prof.setVelocity(preset["velocity_mns"])
     depth_max = round(float(prof.depth[-1]), 2)
@@ -661,10 +769,15 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         # Configuracao de processamento
         "preset_usado":            preset["descricao"],
         "dewow_window":            preset["dewow_window"],
-        "bandpass_mhz":            f"{preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}",
+        "bandpass_mhz":            bandpass_aplicado,
         "bgremoval_traces":        preset["bgremoval_traces"],
-        "tpow_power":              preset["tpow_power"],
-        "agc_window":              preset["agc_window"],
+        "tpow_power":              tpow_usado,
+        "agc_window":              agc_janela,
+        # SNR e modo de processamento (v1.2.0)
+        "snr_imagem_db":           snr_db,
+        "snr_imagem_ratio":        snr_ratio,
+        "modo_processamento":      modo,
+        "tipo_solo":               tipo_solo,
         # Velocidade e calibracao
         "velocity_mns":            preset["velocity_mns"],
         "velocity_calibrada":      False,
@@ -696,6 +809,12 @@ def main():
                         help="Pula migracao F-K Kirchhoff")
     parser.add_argument("--filter-config", default=None, metavar="JSON_PATH",
                         help="JSON com chaves que sobrescrevem o preset selecionado")
+    parser.add_argument(
+        "--solo",
+        default="standard",
+        choices=list(SNR_LIMIARES.keys()),
+        help="Tipo de solo: standard | arenoso | argiloso | umido | pedregoso",
+    )
     args = parser.parse_args()
 
     script_dir    = Path(__file__).resolve().parent
@@ -704,6 +823,7 @@ def main():
     preset        = dict(PRESETS[args.preset])  # copia mutavel
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
+    tipo_solo     = args.solo
 
     # Sobrescrever preset com config customizada (reprocessamento por perfil)
     if args.filter_config:
@@ -729,9 +849,10 @@ def main():
     logger.info(f"Saida        : {pasta_saida}")
     logger.info(f"Preset       : {preset['descricao']}")
     logger.info(f"Config hash  : {config_hash}")
+    logger.info(f"Solo         : {tipo_solo}")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
-    logger.info(f"Matrizes V1.1: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
+    logger.info(f"Matrizes V1.2: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
     logger.info("=" * 65)
 
     # Salva config_used.json
@@ -757,7 +878,7 @@ def main():
     registros, erros = [], 0
     for dzt in dzts:
         resultado = processar_dzt(dzt, caminhos, preset, logger, usar_detector, usar_fisica,
-                                  config_hash=config_hash)
+                                  config_hash=config_hash, tipo_solo=tipo_solo)
         if resultado:
             registros.append(resultado)
         else:
@@ -778,9 +899,10 @@ def main():
     logger.info("=" * 65)
     logger.info(f"Concluido    : {len(registros)-erros} ok  |  {erros} erro(s)  |  {total_alvos} alvo(s)")
     logger.info(f"Saida        : {pasta_saida}")
-    logger.info(f"V1.1 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
+    logger.info(f"V1.2 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
     logger.info(f"               *_anotada_completa.png | *_anotada_alta_confianca.png")
     logger.info(f"               config_used.json | confidence_score_0_100 no CSV")
+    logger.info(f"               snr_imagem_db | modo_processamento no index_projeto.csv")
     logger.info("=" * 65)
     if erros:
         sys.exit(1)

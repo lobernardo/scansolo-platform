@@ -91,13 +91,16 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
             (input_dir / f["file_name"]).write_bytes(data)
 
         # Determinar config de processamento
+        raw_config = _get_processing_config(supa, project_id)
+        tipo_solo = (raw_config or {}).get("tipo_solo", "standard")
+
         if filtros_customizados:
             processing_config = _filtros_to_pipeline_config(filtros_customizados)
             log.info("reprocess_custom_filters", filters=filtros_customizados, config=processing_config)
         else:
-            processing_config = _get_processing_config(supa, project_id)
+            processing_config = raw_config
 
-        _run_pipeline(input_dir, output_dir, processing_config=processing_config)
+        _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
 
         run_id = str(uuid.uuid4())
         new_profiles = _persist_outputs(
@@ -238,6 +241,7 @@ def _run_pipeline(
     input_dir: Path,
     output_dir: Path,
     processing_config: dict | None = None,
+    tipo_solo: str = "standard",
 ) -> None:
     cmd = [
         sys.executable,
@@ -245,6 +249,7 @@ def _run_pipeline(
         "--input", str(input_dir),
         "--output", str(output_dir),
         "--preset", DEFAULT_PRESET,
+        "--solo", tipo_solo,
     ]
 
     if processing_config:
@@ -309,6 +314,11 @@ def _persist_outputs(
                 "velocity_mns": _float(row.get("velocity_mns")),
                 "velocity_calibrada": row.get("velocity_calibrada") == "True",
                 "config_hash": row.get("config_hash"),
+                # v1.2.0: campos SNR
+                "snr_imagem_db":      _float(row.get("snr_imagem_db")),
+                "snr_imagem_ratio":   _float(row.get("snr_imagem_ratio")),
+                "modo_processamento": row.get("modo_processamento") or "padrao",
+                "tipo_solo":          row.get("tipo_solo") or "standard",
             }
             profile = supa.insert_gpr_profile(profile_payload)
             profile_id = profile["id"]
@@ -333,6 +343,15 @@ def _persist_outputs(
             csv_storage_path = f"{project_id}/{run_id}/{profile_id[:8]}/{stem}_alvos.csv"
             supa.upload_file("gpr-tabelas", csv_storage_path, csv_path.read_bytes(), "text/csv")
             img_updates["csv_alvos_url"] = csv_storage_path
+
+        # v1.2.0: SNR fields — inclui reprocessamento individual (sem profile_payload insert)
+        if existing_profile_id:
+            if row.get("snr_imagem_db") is not None:
+                img_updates["snr_imagem_db"] = _float(row.get("snr_imagem_db"))
+            if row.get("snr_imagem_ratio") is not None:
+                img_updates["snr_imagem_ratio"] = _float(row.get("snr_imagem_ratio"))
+            img_updates["modo_processamento"] = row.get("modo_processamento") or "padrao"
+            img_updates["tipo_solo"] = row.get("tipo_solo") or "standard"
 
         if img_updates:
             supa._client.table("gpr_profiles").update(img_updates).eq("id", profile_id).execute()

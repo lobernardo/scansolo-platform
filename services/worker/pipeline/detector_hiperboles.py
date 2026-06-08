@@ -842,10 +842,11 @@ _LEGENDA_MATERIAL = {
 
 
 def plotar_deteccoes(arr_processado, deteccoes, params, output_path=None,
-                     apenas_alta_confianca=False):
+                     apenas_alta_confianca=False, min_score=0):
     """
     Radargrama anotado com hiperboles detectadas.
     V1.1: suporte a filtro de alta confianca (apenas_alta_confianca=True).
+    V1.2: min_score filtra a visualizacao por score minimo (independente do threshold de alta).
 
     Cor do marcador: tipo de material (vermelho=metalico, azul=nao-metalico, laranja=galeria)
     Arco: fit convergido (verde) ou Hough (laranja)
@@ -879,6 +880,9 @@ def plotar_deteccoes(arr_processado, deteccoes, params, output_path=None,
             else:
                 plt.show()
             return
+
+    elif min_score > 0 and "confidence_score_0_100" in df_plot.columns:
+        df_plot = df_plot[df_plot["confidence_score_0_100"] >= min_score]
 
     clip    = np.percentile(np.abs(arr_processado), 98)
     arr_viz = np.clip(arr_processado, -clip, clip)
