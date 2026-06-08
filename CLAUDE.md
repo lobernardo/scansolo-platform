@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-04 (fase 9 — imagem interpretada)
+> Última atualização: 2026-06-08 (pipeline v1.2.0 — SNR gate + adaptive filters)
 
 ## Stack
 
@@ -29,7 +29,7 @@
 
 ---
 
-## Estado atual do pipeline (2026-06-04)
+## Estado atual do pipeline (2026-06-08)
 
 ### Fases implementadas
 
@@ -48,23 +48,36 @@
 
 ### Pipeline GPR — `services/worker/pipeline/pipeline_v1.py`
 
-Versão: **1.1.0**
+Versão: **1.2.0**
 
 Sequência por DZT:
 1. Leitura via GPRPy → `_bruta.png` + `raw.npy`
-2. Filtros configuráveis (dewow / bandpass / bgremoval / tpow / AGC)
-3. `_processada.png` + `processado_sem_agc.npy` + `processado_visual.npy`
-4. **Migração F-K Kirchhoff** (numpy) → `_migrada.png` + `arr_migrado`
-5. **IA de imagem** gpt-image-1 (off por padrão) → `_melhorada_ia.png`
-6. Detector: Hough → CurveFit → DeltaT + física (usa arr_migrado > arr_ia > arr_proc)
-7. **Estimativa de velocity** por semblance (0.06–0.16 m/ns)
-8. **Análise espectral por alvo** (freq_dominante, freq_centroide, razao_alta_baixa)
-9. `_anotada_completa.png` + `_anotada_alta_confianca.png`
-10. `_alvos.csv` + `index_projeto.csv` + `tabela_campo.csv` (alta+média)
+2. **SNR gate** (Hilbert per-trace) → decide modo: `minimo` / `padrao` / `agressivo`
+3. Filtros adaptativos (dewow / bandpass / bgremoval / tpow / AGC) — intensidade varia por modo
+4. `_processada.png` + `processado_sem_agc.npy` + `processado_visual.npy`
+5. **Migração F-K Kirchhoff** (numpy) → `_migrada.png` + `arr_migrado`
+6. **IA de imagem** gpt-image-1 (off por padrão) → `_melhorada_ia.png`
+7. Detector: Hough → CurveFit → DeltaT + física (usa arr_migrado > arr_ia > arr_proc)
+8. **Score filter** — remove alvos abaixo de `det_min_score_csv=30` (falsos positivos Hough-only)
+9. **Estimativa de velocity** por semblance (0.06–0.16 m/ns)
+10. **Análise espectral por alvo** (freq_dominante, freq_centroide, razao_alta_baixa)
+11. `_anotada_completa.png` (score≥40) + `_anotada_alta_confianca.png`
+12. `_alvos.csv` + `index_projeto.csv` + `tabela_campo.csv` (alta+média)
 
-**Preset padrão `270mhz`:** bgremoval=30, tpow=0.5, contrast=2.5, migracao_ativa=True
+**Preset padrão `270mhz`:** bgremoval=30, tpow=0.5, contrast=2.5, migracao_ativa=True, det_amp_threshold=0.50, det_top_n=25, det_min_score_csv=30, det_min_score_plot=40
 
-**Flags CLI:** `--sem-detector`, `--sem-fisica`, `--sem-ia-imagem`, `--sem-migracao`, `--filter-config <json>`
+**SNR gate — limiares por tipo de solo** (`SNR_LIMIARES`, S/sigma ratio Hilbert per-trace):
+
+| Solo | limiar_minimo (→MINIMO) | limiar_padrao (→PADRAO) |
+|---|---|---|
+| standard / arenoso | 30.0 | 4.0 |
+| argiloso | 20.0 | 3.5 |
+| umido | 15.0 | 3.0 |
+| pedregoso | 35.0 | 6.0 |
+
+Comportamento por modo: `minimo` — bandpass pulado, tpow×0.6, AGC janela×2; `padrao` — preset base; `agressivo` — tpow×1.5, AGC janela÷2
+
+**Flags CLI:** `--sem-detector`, `--sem-fisica`, `--sem-ia-imagem`, `--sem-migracao`, `--filter-config <json>`, `--solo {standard,arenoso,argiloso,umido,pedregoso}`
 
 ### Colunas CSV de alvos (por alvo)
 
