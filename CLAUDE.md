@@ -190,6 +190,8 @@ Disparado por `finalizeReview` (inserção de job `interpretada` em `processing_
 | 20260602000001 | processing_config JSONB em projects |
 | 20260602000002 | auto_accept_ia BOOLEAN + imagem_interpretada_url em gpr_profiles |
 | 20260603000001 | imagem_interpretada_status + imagem_interpretada_manual_data em gpr_profiles; tabela ia_training_examples; enum extensions (job_type + project_status + job_status) |
+| 20260606000001 | fix constraint `confidence_label_relatorio` em `detected_targets` — adiciona 'media' aos valores aceitos |
+| 20260608000001 | SNR gate: campos `snr_imagem_db`, `snr_imagem_ratio`, `modo_processamento`, `tipo_solo` em `gpr_profiles` |
 
 ---
 
@@ -213,4 +215,4 @@ Disparado por `finalizeReview` (inserção de job `interpretada` em `processing_
 | P2 | `velocity_usada_mns` sempre = `velocity_estimada_mns` nos DZTs de teste (solo homogêneo) | Calibrar com Amilson |
 | P3 | `fkMigration` do GPRPy requer `irlib` não instalado — usa Kirchhoff numpy próprio | Qualidade da migração |
 | P4 | IA de imagem (`gpt-image-1`) off por padrão — avaliar custo/benefício com Amilson | — |
-| P5 | `confidence_label_relatorio = "media"` não é persistido no DB (bug pré-existente em `_clamp_label_relatorio`) | Alvos de média confiança não aparecem no banco |
+| P5 | `confidence_label_relatorio = "media"` não persiste no DB — constraint do schema inicial só aceita 'alta'/'baixa'. Fix: aplicar migration 20260606000001. Insert agora resiliente (fallback row-by-row com warning). | Alvos de média confiança não aparecem no banco até migration aplicada |

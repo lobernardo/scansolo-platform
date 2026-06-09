@@ -367,7 +367,7 @@ def calcular_snr_imagem_db(
     mediana sobre todos os tracos (robusto a outliers).
 
     Janela de sinal: 10%-75% das amostras (exclui onda direta do inicio)
-    Janela de ruido: 85%-100% das amostras (fundo do trace, sem alvos)
+    Janela de ruido: 95%-100% das amostras (ultimos 5% — ruido termico genuino, sem reflexoes tardias)
 
     Retorna: (snr_db, snr_ratio, modo)
       modo: "minimo" | "padrao" | "agressivo"
@@ -375,7 +375,7 @@ def calcular_snr_imagem_db(
     n_samples = arr_raw.shape[0]
     s0 = max(1, int(0.10 * n_samples))
     s1 = int(0.75 * n_samples)
-    r0 = int(0.85 * n_samples)
+    r0 = int(0.95 * n_samples)
 
     snr_por_traco = []
     for i in range(arr_raw.shape[1]):

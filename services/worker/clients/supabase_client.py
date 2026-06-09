@@ -98,8 +98,35 @@ class SupabaseClient:
     # ── Detected targets ──────────────────────────────────────────────────────
 
     def insert_detected_targets(self, targets: list[dict[str, Any]]) -> None:
-        if targets:
+        if not targets:
+            return
+        try:
             self._client.table("detected_targets").insert(targets).execute()
+        except Exception as batch_err:
+            # Batch failed — likely DB constraint violation on confidence_label_relatorio
+            # (old schema accepts only 'alta'/'baixa'; 'media' triggers check violation).
+            # Retry row-by-row so alta/baixa rows are not lost.
+            # Fix: apply migration 20260606000001_fix_confidence_label_relatorio_constraint.sql
+            log = structlog.get_logger()
+            log.warning(
+                "detected_targets_batch_insert_failed",
+                error=str(batch_err),
+                n=len(targets),
+                hint="apply migration 20260606000001 to allow confidence_label_relatorio='media'",
+            )
+            inserted = 0
+            for t in targets:
+                try:
+                    self._client.table("detected_targets").insert(t).execute()
+                    inserted += 1
+                except Exception as row_err:
+                    log.warning(
+                        "detected_targets_row_insert_failed",
+                        rank=t.get("rank"),
+                        confidence_label_relatorio=t.get("confidence_label_relatorio"),
+                        error=str(row_err),
+                    )
+            log.info("detected_targets_inserted_fallback", count=inserted, total=len(targets))
 
     # ── Storage ───────────────────────────────────────────────────────────────
 
