@@ -1,10 +1,18 @@
-import { createProject } from "./actions";
+"use client";
+
+import { useActionState } from "react";
+import { createProject, type CreateProjectState } from "./actions";
 
 export default function NovaEntradaPage() {
+  const [state, formAction, pending] = useActionState<CreateProjectState, FormData>(
+    createProject,
+    null
+  );
+
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-slate-100 mb-6">Nova entrada</h1>
-      <form action={createProject} className="space-y-4">
+      <form action={formAction} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Nome do projeto *" name="nome" required placeholder="PATIO_001" />
           <Field label="Código interno" name="codigo_projeto" placeholder="PT-GPR-SOL-036" />
@@ -78,12 +86,19 @@ export default function NovaEntradaPage() {
           </p>
         </div>
 
+        {state?.error && (
+          <p className="text-sm text-red-400 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">
+            {state.error}
+          </p>
+        )}
+
         <div className="pt-2">
           <button
             type="submit"
-            className="w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors"
+            disabled={pending}
+            className="w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
           >
-            Criar projeto e fazer upload
+            {pending ? "Criando projeto…" : "Criar projeto e fazer upload"}
           </button>
         </div>
       </form>

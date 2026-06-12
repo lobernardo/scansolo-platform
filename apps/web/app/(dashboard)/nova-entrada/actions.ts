@@ -6,7 +6,12 @@ import type { Database } from "@/lib/types/database";
 
 type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];
 
-export async function createProject(formData: FormData) {
+export type CreateProjectState = { error: string } | null;
+
+export async function createProject(
+  _prev: CreateProjectState,
+  formData: FormData
+): Promise<CreateProjectState> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -27,7 +32,7 @@ export async function createProject(formData: FormData) {
   const auto_accept_ia = formData.get("auto_accept_ia") === "true";
 
   if (!nome || !cliente || !estado || !data_levantamento) {
-    throw new Error("Campos obrigatórios ausentes");
+    return { error: "Preencha todos os campos obrigatórios (nome, cliente, estado, data)." };
   }
 
   const payload: ProjectInsert = {
@@ -52,7 +57,7 @@ export async function createProject(formData: FormData) {
     .select("id")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: `Erro ao criar projeto: ${error.message}` };
 
   const row = data as { id: string };
   redirect(`/projetos/${row.id}/upload`);

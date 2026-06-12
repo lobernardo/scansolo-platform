@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { uploadDztFiles, startProcessingWithConfig } from "./actions";
-import type { FilterConfig } from "./actions";
+import { createClient } from "@/lib/supabase/client";
+import { registerUploadedFiles, startProcessingWithConfig } from "./actions";
+import type { FilterConfig, UploadedFileMeta } from "./actions";
 
 // ── Presets de configuração ───────────────────────────────────────────────────
 
@@ -36,38 +37,87 @@ const FILTER_LABELS: Record<keyof FilterConfig["filtros_ativos"], string> = {
   ia_imagem:          "Melhoria IA (gpt-image-1) — consome créditos OpenAI",
 };
 
+const UPLOAD_BATCH_SIZE = 5;
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 type Step = "upload" | "configure";
 
 export function UploadClient({ projectId }: { projectId: string }) {
-  const [step, setStep] = useState<Step>("upload");
-  const [files, setFiles] = useState<File[]>([]);
+  const [step, setStep]       = useState<Step>("upload");
+  const [files, setFiles]     = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [config, setConfig] = useState<FilterConfig>(DEFAULT_CONFIG);
+  const [progress, setProgress]   = useState(0);   // quantos já foram enviados
+  const [starting, setStarting]   = useState(false);
+  const [errorMsg, setErrorMsg]   = useState("");
+  const [config, setConfig]   = useState<FilterConfig>(DEFAULT_CONFIG);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ── Step 1: upload ──────────────────────────────────────────────────────────
+  const dztFiles = files.filter((f) => f.name.toLowerCase().endsWith(".dzt"));
+
+  // ── Step 1: upload direto browser → Supabase Storage ─────────────────────
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
-    if (!files.length) return;
+    if (!dztFiles.length) return;
     setUploading(true);
+    setProgress(0);
     setErrorMsg("");
-    const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    const result = await uploadDztFiles(projectId, fd);
-    setUploading(false);
-    if (!result.ok) {
-      setErrorMsg(result.error);
-    } else {
+
+    try {
+      const supabase = createClient();
+      const uploaded: UploadedFileMeta[] = [];
+
+      // Envia em lotes paralelos de UPLOAD_BATCH_SIZE
+      for (let i = 0; i < dztFiles.length; i += UPLOAD_BATCH_SIZE) {
+        const batch = dztFiles.slice(i, i + UPLOAD_BATCH_SIZE);
+
+        const results = await Promise.all(
+          batch.map(async (file) => {
+            const storagePath = `${projectId}/${file.name}`;
+            const { error } = await supabase.storage
+              .from("gpr-uploads")
+              .upload(storagePath, file, {
+                contentType: "application/octet-stream",
+                upsert: true,
+              });
+            return { file, storagePath, error };
+          })
+        );
+
+        for (const r of results) {
+          if (r.error) {
+            setErrorMsg(`Erro ao enviar ${r.file.name}: ${r.error.message}`);
+            setUploading(false);
+            return;
+          }
+          uploaded.push({
+            fileName:    r.file.name,
+            storagePath: r.storagePath,
+            sizeBytes:   r.file.size,
+          });
+        }
+
+        setProgress(uploaded.length);
+      }
+
+      // Registra metadados no banco via Server Action (payload tiny: só JSON)
+      const result = await registerUploadedFiles(projectId, uploaded);
+      if (!result.ok) {
+        setErrorMsg(result.error);
+        setUploading(false);
+        return;
+      }
+
       setStep("configure");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Erro inesperado no upload");
+    } finally {
+      setUploading(false);
     }
   }
 
-  // ── Step 2: configure + start ───────────────────────────────────────────────
+  // ── Step 2: configure + start ─────────────────────────────────────────────
 
   async function handleStart() {
     setStarting(true);
@@ -92,7 +142,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
     }));
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render: step configure ────────────────────────────────────────────────
 
   if (step === "configure") {
     return (
@@ -100,7 +150,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
         <div>
           <h1 className="text-2xl font-bold text-slate-100">Configuração de Processamento</h1>
           <p className="text-sm text-slate-400 mt-1">
-            {files.length} arquivo{files.length !== 1 ? "s" : ""} enviado{files.length !== 1 ? "s" : ""} com sucesso.
+            {dztFiles.length} arquivo{dztFiles.length !== 1 ? "s" : ""} enviado{dztFiles.length !== 1 ? "s" : ""} com sucesso.
             Escolha os filtros e inicie o processamento.
           </p>
         </div>
@@ -142,7 +192,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
           ))}
         </div>
 
-        {/* Sliders — só mostra filtros ativos */}
+        {/* Sliders */}
         <div className="space-y-4">
           {config.filtros_ativos.background_removal && (
             <Slider
@@ -191,7 +241,8 @@ export function UploadClient({ projectId }: { projectId: string }) {
     );
   }
 
-  // Step: upload
+  // ── Render: step upload ───────────────────────────────────────────────────
+
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-slate-100 mb-2">Upload de arquivos .DZT</h1>
@@ -200,7 +251,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
       <form onSubmit={handleUpload} className="space-y-4">
         <div
           className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center cursor-pointer hover:border-cyan-500/50 hover:bg-slate-800/30 transition-colors"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => !uploading && inputRef.current?.click()}
         >
           <input
             ref={inputRef}
@@ -213,16 +264,37 @@ export function UploadClient({ projectId }: { projectId: string }) {
           {files.length === 0 ? (
             <p className="text-sm text-slate-500">Clique ou arraste os arquivos .DZT aqui</p>
           ) : (
-            <ul className="text-sm text-left space-y-1">
-              {files.map((f) => (
-                <li key={f.name} className="text-slate-300">
-                  {f.name}{" "}
-                  <span className="text-slate-500">({(f.size / 1024 / 1024).toFixed(1)} MB)</span>
-                </li>
-              ))}
-            </ul>
+            <div className="text-sm text-left space-y-1">
+              <p className="text-slate-400 mb-2 font-medium">{dztFiles.length} arquivo{dztFiles.length !== 1 ? "s" : ""} .DZT selecionado{dztFiles.length !== 1 ? "s" : ""}</p>
+              <ul className="max-h-48 overflow-y-auto space-y-0.5">
+                {dztFiles.map((f) => (
+                  <li key={f.name} className="text-slate-300">
+                    {f.name}{" "}
+                    <span className="text-slate-500">({(f.size / 1024 / 1024).toFixed(1)} MB)</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
+
+        {/* Progress bar — só aparece durante o envio */}
+        {uploading && dztFiles.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-slate-400">
+              <span>Enviando para o Supabase Storage…</span>
+              <span className="tabular-nums font-medium text-slate-300">
+                {progress}/{dztFiles.length}
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-cyan-500 transition-all duration-300"
+                style={{ width: `${(progress / dztFiles.length) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {errorMsg && (
           <p className="text-sm text-red-400 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">{errorMsg}</p>
@@ -230,10 +302,12 @@ export function UploadClient({ projectId }: { projectId: string }) {
 
         <button
           type="submit"
-          disabled={!files.length || uploading}
+          disabled={!dztFiles.length || uploading}
           className="w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {uploading ? "Enviando…" : "Enviar arquivos"}
+          {uploading
+            ? `Enviando ${progress}/${dztFiles.length}…`
+            : `Enviar ${dztFiles.length > 0 ? dztFiles.length + " arquivo" + (dztFiles.length !== 1 ? "s" : "") : "arquivos"}`}
         </button>
       </form>
     </div>

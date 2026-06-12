@@ -3,9 +3,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
-export async function uploadDztFiles(
+export type UploadedFileMeta = {
+  fileName: string;
+  storagePath: string;
+  sizeBytes: number;
+};
+
+export async function registerUploadedFiles(
   projectId: string,
-  formData: FormData
+  uploadedFiles: UploadedFileMeta[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -13,33 +19,20 @@ export async function uploadDztFiles(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Não autenticado" };
 
-  const files = formData.getAll("files") as File[];
-  if (!files.length || !files[0].size)
-    return { ok: false, error: "Nenhum arquivo selecionado" };
+  if (!uploadedFiles.length)
+    return { ok: false, error: "Nenhum arquivo para registrar" };
 
-  const dztFiles = files.filter((f) => f.name.toLowerCase().endsWith(".dzt"));
-  if (!dztFiles.length)
-    return { ok: false, error: "Apenas arquivos .DZT são aceitos" };
-
-  for (const file of dztFiles) {
-    const bytes = await file.arrayBuffer();
-    const storagePath = `${projectId}/${file.name}`;
-
-    const { error: storageError } = await supabase.storage
-      .from("gpr-uploads")
-      .upload(storagePath, bytes, { contentType: "application/octet-stream", upsert: true });
-    if (storageError) return { ok: false, error: storageError.message };
-
-    const { error: dbError } = await supabase.from("project_files").insert({
+  for (const f of uploadedFiles) {
+    const { error } = await supabase.from("project_files").insert({
       project_id: projectId,
-      file_name: file.name,
+      file_name: f.fileName,
       extension: "dzt",
-      supabase_storage_path: storagePath,
-      size_bytes: file.size,
+      supabase_storage_path: f.storagePath,
+      size_bytes: f.sizeBytes,
       uploaded_by: user.id,
       status: "confirmado",
     } as unknown as never);
-    if (dbError) return { ok: false, error: dbError.message };
+    if (error) return { ok: false, error: error.message };
   }
 
   return { ok: true };
