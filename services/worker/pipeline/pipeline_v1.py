@@ -1,34 +1,59 @@
 """
-Pipeline v1.1 - ScanSOLO
+Pipeline v2.0.0 - ScanSOLO GPR
 Processamento automatico de arquivos .DZT (Georadar GSSI)
 
-V1.1 — Matrizes separadas por finalidade:
-  raw.npy              : bruta pre-qualquer-filtro (auditoria, ML futuro)
-  processado_sem_agc.npy : filtrada ANTES do AGC (analise fisica de amplitude/fase)
-  processado_visual.npy  : filtrada COM AGC (visualizacao, Hough, CurveFit)
-  processado.npy         : alias de processado_visual.npy (backward compat)
+ARQUITETURA v2.0.0 — Tres fluxos separados:
 
-Etapas por arquivo:
-  1. Leitura .DZT via GPRPy
-  2. Imagem bruta (referencia) + raw.npy
-  3. Filtros: dewow -> bandpass (scipy SOS) -> background removal -> tpowGain
-  4. processado_sem_agc.npy  ← capturado AQUI, antes do AGC
-  5. AGC -> setVelocity
-  6. processado_visual.npy + processado.npy (alias) + imagem processada
-  7. Deteccao: Hough -> CurveFit -> DeltaT (usa arr_visual)
-  8. Fisica: amplitude/fase/SNR (usa arr_sem_agc + arr_raw)
-  9. Score composto 0-100 por candidato
-  10. _anotada_completa.png (todos) + _anotada_alta_confianca.png (score>=70)
-  11. _anotada.png (alias de completa — backward compat)
-  12. CSV de alvos + index_projeto.csv + config_used.json + pipeline.log + historico.py
+  FLUXO CIENTIFICO (para o geofísico Amilson):
+    raw -> dewow -> bandpass -> tpow          -> arr_cientifico
+    Sem: bgremoval, AGC. Preserva sinal fisico e refletores horizontais.
+    Saida: _radargrama_cientifico.png
+
+  FLUXO RELATORIO (para o cliente final):
+    raw -> dewow -> bandpass -> bgremoval -> tpow -> AGC -> arr_relatorio
+    Limpo, visual, adequado ao PDF. NAO alimenta o detector.
+    Saida: _radargrama_relatorio.png  (alias: _processada.png — compat)
+
+  FLUXO DETECTOR (para Hough + CurveFit + DeltaT):
+    Controlado por detector_input_mode:
+      raw              -> arr_raw (default — melhor CurveFit, 82% CF em PATIO)
+      raw_dewow_bandpass -> arr apos dewow+bp (75% CF — alternativa conservadora)
+      sem_agc          -> arr apos bgremoval+tpow (70% CF — atual)
+      proc_agc_atual   -> arr com AGC (24% CF — benchmark only)
+    + filtro depth_min=0.30m para eliminar candidatos de airwave superficial
+    Saida: _anotada.png desenhada sobre _radargrama_cientifico.png
+
+Matrizes numpy por finalidade:
+  raw.npy                 : bruta pre-qualquer-filtro (auditoria, ML futuro)
+  radargrama_cientifico.npy : dewow+bp+tpow — imagem principal do geofisico
+  processado_sem_agc.npy  : bgremoval+tpow — analise fisica de amplitude/fase
+  processado_visual.npy   : com AGC — alias compat
+  processado.npy          : alias de processado_visual.npy (backward compat)
+
+SNR medido em 3 pontos:
+  snr_raw            : dado bruto (governador do modo de processamento)
+  snr_cientifico     : apos dewow+bp+tpow (qualidade do fluxo cientifico)
+  snr_relatorio      : apos bgremoval+tpow (qualidade antes do AGC visual)
+
+Saidas por DZT:
+  01 _bruta.png                  — referencia, pre-filtro
+  02 _radargrama_cientifico.png  — imagem principal do geofisico
+  03 _radargrama_relatorio.png   — imagem visual para PDF/cliente
+     _processada.png             — alias backward compat
+  04 _anotada_completa.png       — candidatos sobre radargrama cientifico
+     _anotada.png                — alias backward compat
+     _anotada_alta_confianca.png
+  CSV, config_used.json, pipeline.log
 
 Uso:
   python pipeline_v1.py --input <pasta_dzts> --output <pasta_saida> [--preset 270mhz]
                         [--sem-detector] [--sem-fisica]
+                        [--detector-input raw|raw_dewow_bandpass|sem_agc|proc_agc_atual]
 
 Flags opcionais:
-  --sem-detector   Pula deteccao de hiperboles (so processamento de imagens + .npy)
-  --sem-fisica     Pula analises fisicas (material/espectro) mas mantem deteccao geometrica
+  --sem-detector        Pula deteccao de hiperboles
+  --sem-fisica          Pula analises fisicas (mantem deteccao geometrica)
+  --detector-input MODE Seleciona matriz de entrada do detector (default: raw)
 """
 
 import gc
@@ -65,7 +90,7 @@ except ImportError as _e:
 # ---------------------------------------------------------------------------
 # VERSAO DO SCRIPT
 # ---------------------------------------------------------------------------
-SCRIPT_VERSION = "1.2.0"
+SCRIPT_VERSION = "2.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +145,15 @@ PRESETS = {
         "fis_ativo":             True,
         "fis_amp_metal_thr":     0.75,
         "fis_amp_nao_metal_thr": 0.40,
+        # Entrada do detector — v2.0.0
+        # raw: melhor CurveFit (82% nos PATIO) — default recomendado
+        # raw_dewow_bandpass: alternativa conservadora (75% CF)
+        # sem_agc: fluxo anterior sem AGC (70% CF)
+        # proc_agc_atual: fluxo com AGC — apenas benchmark (24% CF, 46% falsos positivos)
+        "detector_input_mode":   "raw",
+        # Profundidade minima dos candidatos — elimina airwave superficial
+        # Candidatos com depth_m < det_depth_min_m sao descartados antes do CSV/plot
+        "det_depth_min_m":       0.30,
     },
     "default": {
         "descricao":         "Preset generico",
@@ -150,6 +184,8 @@ PRESETS = {
         "fis_ativo":             True,
         "fis_amp_metal_thr":     0.75,
         "fis_amp_nao_metal_thr": 0.40,
+        "detector_input_mode":   "raw",
+        "det_depth_min_m":       0.30,
     },
 }
 
@@ -188,6 +224,68 @@ def aplicar_bandpass(prof, low_mhz, high_mhz, order):
     prof.history.append(
         f"# bandpass scipy sos: {low_mhz}-{high_mhz} MHz order={order} fs={fs_mhz:.0f}MHz"
     )
+
+
+# ---------------------------------------------------------------------------
+# TPOW MANUAL — replica GPRPy tpowGain sem modificar prof.data
+# ---------------------------------------------------------------------------
+def _aplicar_tpow_manual(arr: np.ndarray, power: float) -> np.ndarray:
+    """
+    Aplica ganho de tempo (t^power) ao array sem modificar o objeto prof.
+    Replica o comportamento de GPRPy.tpowGain para uso em copia independente.
+    Usado para gerar arr_cientifico (dewow+bp+tpow sem bgremoval).
+    """
+    if power <= 0:
+        return arr.copy()
+    n = arr.shape[0]
+    if n <= 1:
+        return arr.copy()
+    gains = (np.arange(n, dtype=float) / max(n - 1, 1)) ** float(power)
+    return (arr.astype(float) * gains[:, np.newaxis]).astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# SALVAR IMAGEM CIENTIFICA — fluxo sem bgremoval/AGC para geofísico
+# ---------------------------------------------------------------------------
+def salvar_imagem_cientifica(arr, depth_m, dist_m, caminho, preset, nome_arquivo=""):
+    """
+    Radargrama cientifico — imagem principal para revisao tecnica do geofisico.
+
+    Pipeline que gerou arr: raw -> dewow -> bandpass -> tpow
+    SEM: bgremoval, AGC. Preserva decaimento de amplitude, refletores horizontais,
+    relacoes de fase e sinal profundo.
+
+    Diferenca visual vs. radargrama_relatorio: mais ruidoso, mais informacao real.
+    """
+    contrast = preset.get("contrast", 3.0)
+    std = float(np.std(arr))
+    if std < 1e-10:
+        std = 1.0
+    vmin, vmax = -contrast * std, contrast * std
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.imshow(
+        arr,
+        extent=[0, dist_m, depth_m, 0],
+        aspect="auto",
+        cmap=preset.get("colormap", "gray"),
+        vmin=vmin, vmax=vmax,
+        interpolation="nearest",
+    )
+    ax.set_xlabel("Distancia (m)", fontsize=10)
+    ax.set_ylabel("Profundidade (m)", fontsize=10)
+    ax.set_xlim(0, dist_m)
+    ax.set_ylim(depth_m, 0)
+    titulo = (f"{nome_arquivo}  |  Radargrama Cientifico  |  "
+              f"{datetime.now().strftime('%Y-%m-%d')}")
+    ax.set_title(titulo, fontsize=9, color="#333333", pad=4)
+    ax.text(0.01, 0.01,
+            "Fluxo: dewow+bandpass+tpow — sem AGC, sem bgremoval",
+            transform=ax.transAxes, fontsize=7, color="#888888",
+            verticalalignment="bottom")
+    plt.tight_layout()
+    plt.savefig(str(caminho), format="png", dpi=preset.get("dpi", 150), bbox_inches="tight")
+    plt.close("all")
 
 
 # ---------------------------------------------------------------------------
@@ -432,27 +530,30 @@ def _params_detector(prof, preset):
     }
 
 
-def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
+def detectar_e_salvar_alvos(arr_detector, arr_sem_agc, arr_raw, arr_cientifico,
                              prof, preset, nome, caminhos, logger,
-                             usar_fisica=True):
+                             usar_fisica=True, detector_input_mode="raw"):
     """
-    V1.1 — Roda detector Hough + CurveFit + DeltaT + analises fisicas.
+    v2.0.0 — Detector com entrada configuravel e anotacao sobre radargrama cientifico.
 
     Parametros:
-      arr_proc    : matriz com AGC (para Hough, CurveFit, DeltaT, imagens)
-      arr_sem_agc : matriz sem AGC (para amplitude/fase — classificacao fisica correta)
-      arr_raw     : matriz bruta   (para evidencia independente)
+      arr_detector        : matriz selecionada por detector_input_mode (Hough + CurveFit)
+      arr_sem_agc         : matriz sem AGC (amplitude/fase — analise fisica correta)
+      arr_raw             : matriz bruta (evidencia independente)
+      arr_cientifico      : matriz cientifico (dewow+bp+tpow) — base das imagens anotadas
+      detector_input_mode : raw | raw_dewow_bandpass | sem_agc | proc_agc_atual
 
-    Salva:
-      _alvos.csv                    — CSV com todos os candidatos e colunas V1.1
-      _anotada_completa.png         — todos os candidatos
-      _anotada_alta_confianca.png   — score >= 70
-      _anotada.png                  — alias de _completa (backward compat)
+    Filtros v2.0.0:
+      det_min_score_csv  — remove candidatos abaixo do score minimo
+      det_depth_min_m    — remove candidatos rasos (airwave superficial)
 
-    Retorna: (n_alvos, nome_csv, nome_png_completa, nome_png_alta, espectro_solo)
+    Saida visual:
+      _anotada_completa.png e _anotada.png desenhados sobre arr_cientifico
+      (preserva informacao geofisica na imagem de revisao)
     """
     _metricas_vazio = {"n_alvos_alta": 0, "n_alvos_media": 0, "n_alvos_baixa": 0,
-                       "n_fit_ok": 0, "n_evidencia_raw": 0, "n_evidencia_sem_agc": 0}
+                       "n_fit_ok": 0, "n_evidencia_raw": 0, "n_evidencia_sem_agc": 0,
+                       "n_removidos_depth_min": 0}
 
     if not DETECTOR_DISPONIVEL:
         logger.warning("  Detector indisponivel — verifique detector_hiperboles.py")
@@ -462,10 +563,12 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     if not usar_fisica:
         params["fis_ativo"] = False
 
-    # --- Deteccao geometrica (usa arr_proc com AGC) ---
+    logger.info(f"  Detector: entrada={detector_input_mode} | shape={arr_detector.shape}")
+
+    # --- Deteccao geometrica ---
     try:
         deteccoes, accum, depths = detectar_hiperboles(
-            arr_proc, params, top_n=preset["det_top_n"]
+            arr_detector.astype(float), params, top_n=preset["det_top_n"]
         )
     except Exception as e:
         logger.warning(f"  Deteccao falhou: {e}")
@@ -475,27 +578,27 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
         logger.info("  Deteccao: nenhum alvo encontrado")
         return 0, None, None, None, {}, _metricas_vazio
 
-    # --- Analises fisicas V1.1 (usa arr_sem_agc + arr_raw) ---
+    # --- Analises fisicas v2.0 (usa arr_sem_agc + arr_raw — nao distorcidos por AGC) ---
     espectro = {}
     try:
         deteccoes, espectro = enriquecer_deteccoes_fisica(
-            arr_proc, arr_sem_agc, arr_raw, deteccoes, params
+            arr_detector.astype(float), arr_sem_agc, arr_raw, deteccoes, params
         )
         if params.get("fis_ativo", True) and "tipo_material" in deteccoes.columns:
-            n_metal    = (deteccoes["tipo_material"] == "possivel_metalico").sum()
-            n_nao_met  = (deteccoes["tipo_material"] == "possivel_nao_metalico").sum()
-            n_galeria  = (deteccoes["tipo_material"] == "possivel_galeria_ou_vazio").sum()
-            n_inconcl  = (deteccoes["tipo_material"] == "inconclusivo").sum()
-            severo     = espectro.get("atenuacao_severa", False)
+            n_metal   = (deteccoes["tipo_material"] == "possivel_metalico").sum()
+            n_nao_met = (deteccoes["tipo_material"] == "possivel_nao_metalico").sum()
+            n_galeria = (deteccoes["tipo_material"] == "possivel_galeria_ou_vazio").sum()
+            n_inconcl = (deteccoes["tipo_material"] == "inconclusivo").sum()
+            severo    = espectro.get("atenuacao_severa", False)
             logger.info(
                 f"  Fisica: {n_metal} metalico | {n_nao_met} nao-metalico | "
                 f"{n_galeria} galeria | {n_inconcl} inconclusivo | "
                 f"atenuacao_solo={'severa' if severo else 'normal'}"
             )
     except Exception as e:
-        logger.warning(f"  Analise fisica falhou (continuando sem ela): {e}")
+        logger.warning(f"  Analise fisica falhou (continuando): {e}")
 
-    # ── v1.2.0: filtro por score mínimo (remove ruído puro do Hough) ──────────
+    # ── Filtro por score minimo (remove ruido puro do Hough) ──────────────────
     min_score_csv  = preset.get("det_min_score_csv",  30)
     min_score_plot = preset.get("det_min_score_plot", 40)
     if "confidence_score_0_100" in deteccoes.columns:
@@ -503,25 +606,42 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
         deteccoes = deteccoes[
             deteccoes["confidence_score_0_100"] >= min_score_csv
         ].reset_index(drop=True)
-        n_removidos = n_antes - len(deteccoes)
-        if n_removidos > 0:
-            logger.info(f"  Alvos removidos por min_score_csv={min_score_csv}: {n_removidos}")
+        n_removidos_score = n_antes - len(deteccoes)
+        if n_removidos_score > 0:
+            logger.info(f"  Alvos removidos por min_score={min_score_csv}: {n_removidos_score}")
+
+    # ── Filtro por profundidade minima — elimina airwave superficial (v2.0.0) ──
+    depth_min = float(preset.get("det_depth_min_m", 0.30))
+    n_removidos_depth = 0
+    if "depth_m" in deteccoes.columns and depth_min > 0:
+        n_antes_depth = len(deteccoes)
+        deteccoes = deteccoes[
+            deteccoes["depth_m"] >= depth_min
+        ].reset_index(drop=True)
+        n_removidos_depth = n_antes_depth - len(deteccoes)
+        if n_removidos_depth > 0:
+            logger.info(
+                f"  Alvos removidos por depth_min={depth_min}m (airwave): {n_removidos_depth}"
+            )
+
+    # Registra modo no CSV para rastreabilidade
+    deteccoes["detector_input_mode"] = detector_input_mode
 
     n_alvos = len(deteccoes)
 
-    # --- Metricas de qualidade V1.1 — usa confidence_label_relatorio (criterio rigoroso) ---
+    # --- Metricas de qualidade ---
     col_rel  = "confidence_label_relatorio"
     col_lab  = col_rel if col_rel in deteccoes.columns else "confidence_label"
     n_alta   = int((deteccoes[col_lab] == "alta").sum())  if col_lab in deteccoes.columns else 0
     n_media  = int((deteccoes[col_lab] == "media").sum()) if col_lab in deteccoes.columns else 0
     n_baixa  = int((deteccoes[col_lab] == "baixa").sum()) if col_lab in deteccoes.columns else 0
     n_fit_ok = int(deteccoes["fit_ok"].sum()) if "fit_ok" in deteccoes else 0
-    n_ev_raw = int(deteccoes["evidencia_raw"].sum())    if "evidencia_raw"    in deteccoes.columns else 0
-    n_ev_sem = int(deteccoes["evidencia_sem_agc"].sum())if "evidencia_sem_agc" in deteccoes.columns else 0
+    n_ev_raw = int(deteccoes["evidencia_raw"].sum())     if "evidencia_raw"    in deteccoes.columns else 0
+    n_ev_sem = int(deteccoes["evidencia_sem_agc"].sum()) if "evidencia_sem_agc" in deteccoes.columns else 0
 
     logger.info(
         f"  Alvos: {n_alvos} total | "
-        f"alta={n_alta} media={n_media} baixa={n_baixa} (modo relatorio) | "
+        f"alta={n_alta} media={n_media} baixa={n_baixa} | "
         f"fit_ok={n_fit_ok} | ev_raw={n_ev_raw} | ev_sem_agc={n_ev_sem}"
     )
 
@@ -530,26 +650,26 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
     path_csv = caminhos["alvos"] / f"{nome}_alvos.csv"
     deteccoes.to_csv(str(path_csv), index=False, encoding="utf-8")
 
-    # --- Imagem anotada completa (todos os candidatos) ---
+    # --- Imagem anotada sobre radargrama CIENTIFICO (v2.0.0) ---
+    # arr_cientifico preserva sinal geofisico — Amilson ve marcacoes sobre imagem honesta
     path_completa = caminhos["processadas"] / f"{nome}_anotada_completa.png"
     nome_completa = None
     try:
-        plotar_deteccoes(arr_proc, deteccoes, params,
+        plotar_deteccoes(arr_cientifico, deteccoes, params,
                          output_path=str(path_completa),
                          apenas_alta_confianca=False,
                          min_score=min_score_plot)
         nome_completa = path_completa.name
-        # Backward compat: _anotada.png aponta para o mesmo conteudo
         path_bcompat = caminhos["processadas"] / f"{nome}_anotada.png"
         shutil.copy2(str(path_completa), str(path_bcompat))
     except Exception as e:
         logger.warning(f"  Imagem anotada_completa falhou: {e}")
 
-    # --- Imagem anotada alta confianca (score >= 70) ---
+    # --- Imagem anotada alta confianca ---
     path_alta = caminhos["processadas"] / f"{nome}_anotada_alta_confianca.png"
     nome_alta = None
     try:
-        plotar_deteccoes(arr_proc, deteccoes, params,
+        plotar_deteccoes(arr_cientifico, deteccoes, params,
                          output_path=str(path_alta),
                          apenas_alta_confianca=True)
         nome_alta = path_alta.name
@@ -562,12 +682,13 @@ def detectar_e_salvar_alvos(arr_proc, arr_sem_agc, arr_raw,
         f"img_alta: {nome_alta or 'nenhum'}"
     )
     metricas = {
-        "n_alvos_alta":        n_alta,
-        "n_alvos_media":       n_media,
-        "n_alvos_baixa":       n_baixa,
-        "n_fit_ok":            n_fit_ok,
-        "n_evidencia_raw":     n_ev_raw,
-        "n_evidencia_sem_agc": n_ev_sem,
+        "n_alvos_alta":           n_alta,
+        "n_alvos_media":          n_media,
+        "n_alvos_baixa":          n_baixa,
+        "n_fit_ok":               n_fit_ok,
+        "n_evidencia_raw":        n_ev_raw,
+        "n_evidencia_sem_agc":    n_ev_sem,
+        "n_removidos_depth_min":  n_removidos_depth,
     }
     return n_alvos, path_csv.name, nome_completa, nome_alta, espectro, metricas
 
@@ -628,7 +749,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         f"dist={dist_max:.2f}m fs={fs_mhz:.0f}MHz"
     )
 
-    # 1. Imagem bruta + array bruto (.npy) — pre qualquer filtro
+    # ── 1. ARRAY RAW + IMAGEM BRUTA ─────────────────────────────────────────────
     arr_raw = np.asarray(prof.data).astype(np.float32)
     _salvar_npy_seguro(arr_raw, caminhos["dados"] / f"{nome}_raw.npy")
     logger.debug(f"  raw.npy salvo shape={arr_raw.shape}")
@@ -638,22 +759,21 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         titulo_bruta = (f"{arquivo_dzt.name}  |  Dado Bruto (sem filtros)  |  "
                         f"{datetime.now().strftime('%Y-%m-%d')}")
         salvar_imagem(prof, path_bruta, preset, titulo=titulo_bruta)
-        logger.info(f"  Bruta: {path_bruta.name}")
+        logger.info(f"  01 Bruta: {path_bruta.name}")
     except Exception as e:
         logger.error(f"  Falha bruta: {e}")
         plt.close("all")
         gc.collect()
         return None
 
-    # ── Gate SNR: decide intensidade do processamento (v1.2.0) ────────────────
+    # ── SNR do dado bruto — governador do processamento ──────────────────────
     snr_db, snr_ratio, modo = calcular_snr_imagem_db(arr_raw, tipo_solo)
     logger.info(
-        f"  SNR imagem: {snr_db:.1f} dB (S/sig={snr_ratio:.1f}) | "
+        f"  SNR raw: {snr_db:.1f} dB (S/sig={snr_ratio:.1f}) | "
         f"solo={tipo_solo} | modo={modo.upper()}"
     )
 
-    # 2. Cadeia de filtros (sem AGC ainda)
-    # Valor 0 em qualquer parametro = filtro desativado (para reprocessamento customizado)
+    # ── 2. DEWOW + BANDPASS (comum aos fluxos cientifico, relatorio, detector) ─
     if preset.get("dewow_window", 5) > 0:
         prof.dewow(preset["dewow_window"])
         logger.debug(f"  dewow({preset['dewow_window']})")
@@ -662,9 +782,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
 
     bandpass_aplicado = f"{preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']} MHz"
     if modo == "minimo" and preset.get("bandpass_low_mhz", 0) > 0:
-        # Dado ja limpo — pular bandpass evita inserir artefatos
         bandpass_aplicado = "pulado"
-        logger.info("  Bandpass: pulado (modo mínimo — dado já limpo, evitar artefatos)")
+        logger.info("  Bandpass: pulado (modo minimo — dado ja limpo, evitar artefatos)")
     elif preset.get("bandpass_low_mhz", 0) > 0:
         try:
             aplicar_bandpass(prof, preset["bandpass_low_mhz"],
@@ -674,14 +793,13 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             logger.warning(f"  Bandpass falhou (continuando): {e}")
     else:
         bandpass_aplicado = "desativado"
-        logger.debug("  bandpass desativado (bandpass_low_mhz=0)")
 
-    if preset.get("bgremoval_traces", 0) > 0:
-        prof.remMeanTrace(preset["bgremoval_traces"])
-        logger.debug(f"  remMeanTrace({preset['bgremoval_traces']})")
-    else:
-        logger.debug("  background removal desativado (bgremoval_traces=0)")
+    # Captura arr_dewow_bp — ponto de bifurcacao entre fluxos
+    # Este array vai para: detector (raw_dewow_bandpass), base do radargrama_cientifico
+    arr_dewow_bp = np.asarray(prof.data).astype(np.float32).copy()
+    logger.debug(f"  arr_dewow_bp capturado shape={arr_dewow_bp.shape}")
 
+    # ── 3. FLUXO CIENTIFICO — dewow + bp + tpow, SEM bgremoval, SEM AGC ────────
     tpow_base = preset.get("tpow_power", 0.5)
     if tpow_base > 0:
         if modo == "minimo":
@@ -690,67 +808,125 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             tpow_usado = min(tpow_base * 1.5, 1.2)
         else:
             tpow_usado = tpow_base
-        prof.tpowGain(power=tpow_usado)
-        logger.debug(f"  tpowGain(power={tpow_usado}) [base={tpow_base}, modo={modo}]")
     else:
         tpow_usado = 0.0
-        logger.debug("  tpow gain desativado (tpow_power=0)")
 
-    # V1.2 — Captura arr_sem_agc ANTES do AGC
-    # Esta e a matriz para:
-    #   (a) imagem oficial entregue ao Amilson/cliente — padrao visual Amilson
-    #   (b) analise de amplitude/fase/material — AGC destroi relacoes absolutas
+    # Tpow aplicado manualmente sobre copia — nao modifica prof.data
+    if tpow_usado > 0:
+        arr_cientifico = _aplicar_tpow_manual(arr_dewow_bp, tpow_usado)
+    else:
+        arr_cientifico = arr_dewow_bp.copy()
+
+    depth_m_oficial = round(float(prof.twtt[-1]) * preset["velocity_mns"] / 2.0, 2)
+
+    # SNR do fluxo cientifico (mede qualidade do sinal preservado)
+    snr_db_cient, snr_ratio_cient, _ = calcular_snr_imagem_db(arr_cientifico, tipo_solo)
+    delta_snr_cient = round(snr_db_cient - snr_db, 1)
+    logger.info(
+        f"  SNR cientifico: {snr_db_cient:.1f} dB (delta={delta_snr_cient:+.1f} vs raw)"
+    )
+
+    # Salva npy do fluxo cientifico
+    _salvar_npy_seguro(arr_cientifico, caminhos["dados"] / f"{nome}_radargrama_cientifico.npy")
+
+    path_cient = caminhos["processadas"] / f"{nome}_radargrama_cientifico.png"
+    try:
+        salvar_imagem_cientifica(
+            arr_cientifico, depth_m_oficial, dist_max, path_cient, preset,
+            nome_arquivo=arquivo_dzt.name
+        )
+        logger.info(f"  02 Radargrama cientifico: {path_cient.name} (max={depth_m_oficial}m)")
+    except Exception as e:
+        logger.error(f"  Falha radargrama_cientifico: {e}")
+        path_cient = None
+
+    # ── 4. FLUXO RELATORIO — adiciona bgremoval + tpow + AGC ao prof.data ────
+    if preset.get("bgremoval_traces", 0) > 0:
+        prof.remMeanTrace(preset["bgremoval_traces"])
+        logger.debug(f"  bgremoval: remMeanTrace({preset['bgremoval_traces']}) [fluxo relatorio]")
+    else:
+        logger.debug("  bgremoval desativado (bgremoval_traces=0)")
+
+    if tpow_usado > 0:
+        prof.tpowGain(power=tpow_usado)
+        logger.debug(f"  tpowGain(power={tpow_usado}) [base={tpow_base}, modo={modo}] [fluxo relatorio]")
+
+    # Captura arr_sem_agc — pos bgremoval+tpow, pre AGC
+    # Usado para: analise fisica de amplitude/fase (AGC destroi relacoes absolutas)
     arr_sem_agc = np.asarray(prof.data).astype(np.float32)
     _salvar_npy_seguro(arr_sem_agc, caminhos["dados"] / f"{nome}_processado_sem_agc.npy")
     logger.debug(f"  processado_sem_agc.npy salvo shape={arr_sem_agc.shape}")
 
-    # --- Imagem oficial (padrao Amilson) — SEM AGC ---
-    # Profundidade calculada com velocity antes de setVelocity (twtt em ns)
-    depth_m_oficial = round(float(prof.twtt[-1]) * preset["velocity_mns"] / 2.0, 2)
-    path_proc = caminhos["processadas"] / f"{nome}_processada.png"
+    # SNR pos bgremoval+tpow — antes AGC (mede impacto do bgremoval no sinal)
+    snr_db_rel, snr_ratio_rel, _ = calcular_snr_imagem_db(arr_sem_agc, tipo_solo)
+    delta_snr_rel = round(snr_db_rel - snr_db, 1)
+    logger.info(
+        f"  SNR relatorio (pre-AGC): {snr_db_rel:.1f} dB (delta={delta_snr_rel:+.1f} vs raw)"
+    )
+
+    # Imagem de relatorio (padrao visual Amilson) — SEM AGC mas COM bgremoval
+    path_proc = caminhos["processadas"] / f"{nome}_radargrama_relatorio.png"
+    path_proc_compat = caminhos["processadas"] / f"{nome}_processada.png"
     try:
         salvar_imagem_padrao_amilson(
             arr_sem_agc, depth_m_oficial, dist_max, path_proc, preset,
             nome_arquivo=arquivo_dzt.name, prof=prof
         )
-        logger.info(f"  Processada (padrao Amilson, sem AGC): {path_proc.name} (max={depth_m_oficial}m)")
+        # Alias backward compat
+        shutil.copy2(str(path_proc), str(path_proc_compat))
+        logger.info(f"  03 Radargrama relatorio: {path_proc.name} (max={depth_m_oficial}m)")
     except Exception as e:
-        logger.error(f"  Falha imagem padrao Amilson: {e}")
+        logger.error(f"  Falha radargrama_relatorio: {e}")
         plt.close("all")
         gc.collect()
         return None
 
-    # 3. AGC + setVelocity (para deteccao geometrica interna de hiperboles)
+    # AGC + setVelocity (fluxo relatorio visual + matrizes de compat)
     agc_base = preset.get("agc_window", 150)
     if modo == "minimo":
-        agc_janela = min(agc_base * 2, 300)   # janela maior = suavizacao mais leve
+        agc_janela = min(agc_base * 2, 300)
     elif modo == "agressivo":
-        agc_janela = max(agc_base // 2, 50)   # janela menor = normalizacao mais intensa
+        agc_janela = max(agc_base // 2, 50)
     else:
         agc_janela = agc_base
     prof.agcGain(agc_janela)
-    logger.debug(f"  agcGain({agc_janela}) [base={agc_base}, modo={modo}] — uso interno: detector")
+    logger.debug(f"  agcGain({agc_janela}) [apenas fluxo relatorio — NAO entra no detector]")
 
     prof.setVelocity(preset["velocity_mns"])
     depth_max = round(float(prof.depth[-1]), 2)
     logger.debug(f"  setVelocity({preset['velocity_mns']}) -> {depth_max}m")
 
-    # 4. Arrays visuais com AGC (.npy) — uso interno do detector
     arr_proc_save = np.asarray(prof.data).astype(np.float32)
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado.npy")
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado_visual.npy")
-    logger.debug(f"  processado.npy + processado_visual.npy (com AGC) salvos shape={arr_proc_save.shape}")
+    logger.debug(f"  processado.npy + processado_visual.npy (com AGC) salvos [compat]")
 
-    # 5. Deteccao de alvos V1.1 (passa 3 matrizes)
+    # ── 5. SELECAO DO ARRAY DO DETECTOR (v2.0.0) ─────────────────────────────
+    detector_input_mode = preset.get("detector_input_mode", "raw")
+    arr_detector_map = {
+        "raw":                arr_raw,
+        "raw_dewow_bandpass": arr_dewow_bp,
+        "sem_agc":            arr_sem_agc,
+        "proc_agc_atual":     arr_proc_save,
+    }
+    arr_detector = arr_detector_map.get(detector_input_mode, arr_raw)
+    logger.info(
+        f"  Detector: modo={detector_input_mode} | "
+        f"depth_min={preset.get('det_depth_min_m', 0.30)}m | "
+        f"arr_shape={arr_detector.shape}"
+    )
+
+    # ── 6. DETECCAO + IMAGEM ANOTADA SOBRE RADARGRAMA CIENTIFICO ─────────────
     _met0 = {"n_alvos_alta": 0, "n_alvos_media": 0, "n_alvos_baixa": 0,
-             "n_fit_ok": 0, "n_evidencia_raw": 0, "n_evidencia_sem_agc": 0}
+             "n_fit_ok": 0, "n_evidencia_raw": 0, "n_evidencia_sem_agc": 0,
+             "n_removidos_depth_min": 0}
     n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = 0, None, None, None, {}, _met0
     if usar_detector:
-        arr_proc = np.asarray(prof.data).astype(float)
         n_alvos, csv_alvos, png_completa, png_alta, espectro, metricas = detectar_e_salvar_alvos(
-            arr_proc, arr_sem_agc, arr_raw,
+            arr_detector, arr_sem_agc, arr_raw, arr_cientifico,
             prof, preset, nome, caminhos, logger,
-            usar_fisica=usar_fisica
+            usar_fisica=usar_fisica,
+            detector_input_mode=detector_input_mode
         )
 
     # 6. Historico reproduzivel
@@ -768,9 +944,9 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     # Sem isso, acumulação de memória entre iterações causa MemoryError
     # já na 2ª ou 3ª alocação numpy/matplotlib em projetos com múltiplos DZTs.
     plt.close("all")
-    del arr_raw, arr_sem_agc, arr_proc_save, prof
+    del arr_raw, arr_dewow_bp, arr_cientifico, arr_sem_agc, arr_proc_save, prof
     if usar_detector:
-        del arr_proc
+        del arr_detector
     gc.collect()
 
     return {
@@ -782,12 +958,14 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "profundidade_max_m":      depth_max,
         "distancia_max_m":         round(dist_max, 3),
         "fs_mhz":                  round(fs_mhz, 0),
-        # Imagens
+        # Imagens (v2.0.0 — tres fluxos)
         "imagem_bruta":                  path_bruta.name,
-        "imagem_processada":             path_proc.name,
-        "imagem_anotada":                png_completa or "",   # backward compat
+        "imagem_radargrama_cientifico":  path_cient.name if path_cient else "",
+        "imagem_radargrama_relatorio":   path_proc.name,
+        "imagem_processada":             path_proc_compat.name,  # backward compat = _processada.png
+        "imagem_anotada":                png_completa or "",      # backward compat
         "imagem_anotada_completa":       png_completa or "",
-        "imagem_anotada_alta":           png_alta or "",       # backward compat
+        "imagem_anotada_alta":           png_alta or "",          # backward compat
         "imagem_anotada_alta_confianca": png_alta or "",
         # Alvos — contagens
         "n_alvos_detectados":      n_alvos,
@@ -798,11 +976,12 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "n_fit_ok":                metricas["n_fit_ok"],
         "n_evidencia_raw":         metricas["n_evidencia_raw"],
         "n_evidencia_sem_agc":     metricas["n_evidencia_sem_agc"],
-        # Arrays numpy
-        "array_raw_npy":           f"{nome}_raw.npy",
-        "array_proc_npy":          f"{nome}_processado.npy",   # backward compat
-        "array_sem_agc_npy":       f"{nome}_processado_sem_agc.npy",
-        "array_visual_npy":        f"{nome}_processado_visual.npy",
+        # Arrays numpy (v2.0.0)
+        "array_raw_npy":             f"{nome}_raw.npy",
+        "array_cientifico_npy":      f"{nome}_radargrama_cientifico.npy",
+        "array_proc_npy":            f"{nome}_processado.npy",        # backward compat
+        "array_sem_agc_npy":         f"{nome}_processado_sem_agc.npy",
+        "array_visual_npy":          f"{nome}_processado_visual.npy",
         # Espectro do solo
         "solo_freq_camadas_mhz":   str(espectro.get("freq_camadas_mhz", [])),
         "solo_atenuacao_severa":   espectro.get("atenuacao_severa", ""),
@@ -814,11 +993,20 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "bgremoval_traces":        preset["bgremoval_traces"],
         "tpow_power":              tpow_usado,
         "agc_window":              agc_janela,
-        # SNR e modo de processamento (v1.2.0)
-        "snr_imagem_db":           snr_db,
-        "snr_imagem_ratio":        snr_ratio,
+        # SNR medido em 3 pontos do pipeline (v2.0.0)
+        "snr_imagem_db":           snr_db,          # SNR raw — backward compat (v1.2.0)
+        "snr_imagem_ratio":        snr_ratio,        # SNR raw ratio — backward compat
+        "snr_raw_db":              snr_db,           # SNR raw (alias explicito)
+        "snr_raw_ratio":           snr_ratio,
+        "snr_cientifico_db":       snr_db_cient,    # SNR apos dewow+bp+tpow
+        "snr_cientifico_ratio":    snr_ratio_cient,
+        "snr_relatorio_db":        snr_db_rel,       # SNR apos bgremoval+tpow (pre-AGC)
+        "snr_relatorio_ratio":     snr_ratio_rel,
         "modo_processamento":      modo,
         "tipo_solo":               tipo_solo,
+        # Detector v2.0.0
+        "detector_input_mode":     detector_input_mode,
+        "n_removidos_depth_min":   metricas.get("n_removidos_depth_min", 0),
         # Velocidade e calibracao
         "velocity_mns":            preset["velocity_mns"],
         "velocity_calibrada":      False,
@@ -856,6 +1044,13 @@ def main():
         choices=list(SNR_LIMIARES.keys()),
         help="Tipo de solo: standard | arenoso | argiloso | umido | pedregoso",
     )
+    parser.add_argument(
+        "--detector-input",
+        default=None,
+        choices=["raw", "raw_dewow_bandpass", "sem_agc", "proc_agc_atual"],
+        dest="detector_input",
+        help="Matriz de entrada do detector (default: raw, melhor CurveFit 82%%)",
+    )
     args = parser.parse_args()
 
     script_dir    = Path(__file__).resolve().parent
@@ -865,6 +1060,10 @@ def main():
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
     tipo_solo     = args.solo
+
+    # CLI override de detector_input_mode (tem precedencia sobre preset e filter-config)
+    if args.detector_input:
+        preset["detector_input_mode"] = args.detector_input
 
     # Sobrescrever preset com config customizada (reprocessamento por perfil)
     if args.filter_config:

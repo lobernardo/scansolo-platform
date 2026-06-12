@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-09 (migrations sincronizadas + teste imagens externas)
+> Última atualização: 2026-06-12 (pipeline v2.0.0 — tres fluxos separados + detector RAW)
 
 ---
 
@@ -54,33 +54,52 @@
 
 ## Pipeline GPR — `services/worker/pipeline/pipeline_v1.py`
 
-Versão: **1.2.0**
+Versão: **2.0.0** (atualizado 2026-06-12)
+
+### Arquitetura v2.0.0 — Três Fluxos Separados
+
+```
+DZT → raw → dewow+bp → [bifurcação]
+                         |
+              [tpow manual]   [bgremoval → tpow → AGC]
+                   |                   |
+           arr_cientifico        arr_relatorio
+        (para Amilson/detector)   (para cliente/PDF)
+```
+
+| Fluxo | Pipeline | Saída | Finalidade |
+|---|---|---|---|
+| Científico | raw→dewow→bp→tpow | `_radargrama_cientifico.png` | Revisão técnica (Amilson) |
+| Relatório | raw→dewow→bp→bgremoval→tpow→AGC | `_radargrama_relatorio.png` / `_processada.png` | Cliente/PDF |
+| Detector | controlado por `detector_input_mode` (default: `raw`) | `_anotada_completa.png` | Hough+CurveFit+DeltaT |
+
+**Mudança principal v2.0.0:** detector opera sobre `arr_raw` por padrão (82% CurveFit em PATIO)
+vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
 
 ### Sequência por DZT
 
 1. Leitura via GPRPy → `_bruta.png` + `raw.npy`
-2. **SNR gate** (Hilbert per-trace, janela de ruído = 95% das amostras) → decide modo: `minimo` / `padrao` / `agressivo`
-3. Filtros adaptativos: dewow → bandpass (scipy SOS Butterworth) → bgremoval → tpow → AGC — intensidade varia por modo
-4. `_processada.png` + `processado_sem_agc.npy` + `processado_visual.npy`
-5. **Migração F-K Kirchhoff** (numpy próprio — GPRPy `fkMigration` requer `irlib` não instalado) → `_migrada.png` + `arr_migrado`
-6. **IA de imagem** gpt-image-1 (off por padrão) → `_melhorada_ia.png`
-7. **Detector:** Hough → CurveFit → DeltaT + física — usa `arr_migrado` > `arr_ia` > `arr_proc` (nessa ordem de preferência)
-8. **Score filter** — descarta alvos abaixo de `det_min_score_csv=30` (falsos positivos Hough-only)
-9. **Estimativa de velocity** por semblance (0.06–0.16 m/ns)
-10. **Análise espectral por alvo** (freq_dominante, freq_centroide, razao_alta_baixa)
-11. `_anotada_completa.png` (score≥40) + `_anotada_alta_confianca.png`
-12. `_alvos.csv` + `index_projeto.csv` + `tabela_campo.csv` (alta+média) + `config_used.json` + `pipeline.log`
+2. **SNR gate raw** → decide modo: `minimo` / `padrao` / `agressivo`
+3. **Dewow + Bandpass** → `arr_dewow_bp` (bifurcação dos fluxos)
+4. **Fluxo Científico:** `arr_dewow_bp` → tpow manual → `arr_cientifico` → `_radargrama_cientifico.png` + SNR cientifico
+5. **Fluxo Relatório:** `arr_dewow_bp` → bgremoval → tpow → `arr_sem_agc` → SNR relatorio → AGC → `_radargrama_relatorio.png` + `_processada.png` (alias)
+6. **Seleção detector** via `detector_input_mode` → `arr_detector`
+7. **Migração F-K Kirchhoff** (numpy próprio) → `_migrada.png`
+8. **IA de imagem** gpt-image-1 (off por padrão)
+9. **Detector:** Hough → CurveFit → DeltaT + física — entrada = `arr_detector`; filtro `det_depth_min_m=0.30m`
+10. **Score filter** ≥30; anotações desenhadas sobre `arr_cientifico` (não sobre arr_proc)
+11. **Velocity** por semblance; **Espectro** por alvo
+12. `_anotada_completa.png` + `_anotada_alta_confianca.png` + `_alvos.csv` + `index_projeto.csv` + `config_used.json`
 
 ### Matrizes numpy — finalidades separadas
 
 | Arquivo | Conteúdo | Uso |
 |---|---|---|
 | `raw.npy` | Bruta pré-qualquer-filtro | Auditoria, ML futuro, evidência independente |
-| `processado_sem_agc.npy` | Filtrada antes do AGC | Análise física: amplitude/fase/classificação material |
-| `processado_visual.npy` | Filtrada com AGC | Detector (Hough, CurveFit), visualização |
+| `radargrama_cientifico.npy` | dewow+bp+tpow, sem AGC/bgremoval | Base das imagens anotadas; revisão Amilson |
+| `processado_sem_agc.npy` | bgremoval+tpow, sem AGC | Análise física: amplitude/fase/classificação material |
+| `processado_visual.npy` | Com AGC completo | Backward compat |
 | `processado.npy` | Alias de `processado_visual.npy` | Backward compat |
-
-**Crítico:** o detector recebe `arr_proc` como **float32 direto do GPRPy** (não um PNG). Diferente do script `testar_imagem_externa.py`, que recebe uint8 de JPEG. Os scores e diâmetros resultantes não são diretamente comparáveis.
 
 ### Preset padrão `270mhz`
 
@@ -104,8 +123,10 @@ Versão: **1.2.0**
     "det_min_score_csv":     30,
     "det_min_score_plot":    40,
     "fis_ativo":             True,
-    "fis_amp_metal_thr":     0.75,   # [CALIBRAR] com Amilson
-    "fis_amp_nao_metal_thr": 0.40,   # [CALIBRAR] com Amilson
+    "fis_amp_metal_thr":     0.75,        # [CALIBRAR] com Amilson
+    "fis_amp_nao_metal_thr": 0.40,        # [CALIBRAR] com Amilson
+    "detector_input_mode":   "raw",       # v2.0.0 — melhor CurveFit (82%)
+    "det_depth_min_m":       0.30,        # v2.0.0 — elimina airwave
 }
 ```
 
@@ -125,18 +146,27 @@ Comportamento por modo:
 - `padrao` — preset base (todos os 4 DZTs PATIO ficam aqui com os limiares atuais)
 - `agressivo` — tpow×1.5, AGC janela÷2
 
-Valores de referência calibrados: PATIO_001=9.25, PATIO_002=5.44, PATIO_003=6.45, PATIO_004=4.56
+Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5dB, PATIO_003=18.7dB, PATIO_004=17.5dB — todos em modo PADRAO.
+
+### SNR medido em 3 pontos (v2.0.0)
+
+| Campo index_projeto.csv | Estágio | Observação |
+|---|---|---|
+| `snr_raw_db` | Dado bruto | Governa modo (minimo/padrao/agressivo) |
+| `snr_cientifico_db` | Após dewow+bp+tpow | Sempre > snr_raw (+5-6 dB em PATIO) |
+| `snr_relatorio_db` | Após bgremoval+tpow (pré-AGC) | Sempre << snr_raw — bgremoval remove fundo+sinal |
 
 ### Flags CLI do pipeline
 
 ```
---sem-detector       pula detecção de hipérboles
---sem-fisica         pula análises físicas (material/espectro), mantém detecção geométrica
---sem-ia-imagem      pula gpt-image-1
---sem-migracao       pula migração Kirchhoff
+--sem-detector          pula detecção de hipérboles
+--sem-fisica            pula análises físicas (material/espectro), mantém detecção geométrica
+--sem-ia-imagem         pula gpt-image-1
+--sem-migracao          pula migração Kirchhoff
 --filter-config <json>  override de parâmetros do preset em JSON
 --solo {standard,arenoso,argiloso,umido,pedregoso}
 --preset {270mhz,default}
+--detector-input {raw,raw_dewow_bandpass,sem_agc,proc_agc_atual}  [v2.0.0]
 ```
 
 ### Colunas CSV de alvos (por alvo)
@@ -353,9 +383,9 @@ aguardando_arquivos
 | Campo | Tipo | Uso |
 |---|---|---|
 | `run_id` | uuid | Versão do processamento (nunca sobrescreve) |
-| `imagem_bruta_url` | text | URL pública `gpr-images` |
-| `imagem_processada_url` | text | URL pública `gpr-images` |
-| `imagem_anotada_url` | text | URL pública `gpr-images` |
+| `imagem_bruta_url` | text | URL pública `gpr-images` — `_bruta.png` |
+| `imagem_processada_url` | text | URL pública `gpr-images` — `_processada.png` (alias de `_radargrama_relatorio.png`) |
+| `imagem_anotada_url` | text | URL pública `gpr-images` — `_anotada_completa.png` (sobre radargrama científico) |
 | `imagem_migrada_url` | text | URL pública `gpr-images` |
 | `imagem_interpretada_url` | text | URL pública — `_interpretada_ia.png` (job_ia) |
 | `imagem_interpretada_status` | enum | pendente / aprovado / regenerando / manual |
@@ -446,17 +476,20 @@ supabase db push --password <DB_PASSWORD>
 | P2 | `velocity_usada_mns` sempre = `velocity_estimada_mns` nos DZTs de teste | Calibração de profundidade imprecisa em solos heterogêneos | Sessão de calibração com Amilson usando DZTs com alvos de profundidade conhecida |
 | P3 | `fkMigration` do GPRPy requer `irlib` não instalado — usa Kirchhoff numpy próprio | Qualidade da migração vs. GPRPy nativo | Avaliar com Amilson se qualidade atual é suficiente |
 | P4 | IA de imagem (`gpt-image-1`) off por padrão | Melhoria potencial das imagens processadas | Avaliar custo/benefício com Amilson em projeto real |
-| P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 aplicada no remoto em 2026-06-09 |
-| P6 | `fis_amp_metal_thr=0.75` e `fis_amp_nao_metal_thr=0.40` não calibrados com dados reais | Classificação metal/não-metal imprecisa | Calibrar com ~10 alvos de tipo conhecido (Amilson) |
-| P7 | GPT-4o tem viés para `galeria_concreto` sem contexto do projeto | Interpretações automáticas pouco diferenciadas | Adicionar contexto do projeto no prompt: tipo de obra, cliente, histórico de alvos |
-| P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar qualidade dos primeiros 13 |
+| P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 |
+| P6 | `fis_amp_metal_thr=0.75` e `fis_amp_nao_metal_thr=0.40` não calibrados | Classificação metal/não-metal imprecisa | Calibrar com ~10 alvos de tipo conhecido (Amilson) |
+| P7 | GPT-4o tem viés para `galeria_concreto` sem contexto do projeto | Interpretações automáticas pouco diferenciadas | Adicionar contexto do projeto no prompt |
+| P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
+| P9 | `job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão | v2.0.0 ativo automaticamente no worker sem alteração | ✅ Resolvido — preset contém default correto |
 
 ---
 
 ## Itens a calibrar com Amilson (antes de produção)
 
-1. **Parâmetros físicos do detector** (`fis_amp_metal_thr`, `fis_amp_nao_metal_thr`) — usar ~10 alvos de tipo conhecido
-2. **Velocity** — DZT com alvos de profundidade conhecida para validar `velocity_estimada_mns`
-3. **Qualidade visual da imagem processada** — comparar `_processada.png` do pipeline vs. output RADAN para o mesmo DZT lado a lado
-4. **Prompt GPT-4o** — adicionar contexto do projeto para reduzir viés `galeria_concreto`
-5. **Preset de filtros por tipo de solo** — os limiares SNR atuais foram calibrados só para PATIO (solo padrão). Validar com projetos em solo argiloso, úmido e pedregoso.
+1. **Radargrama científico vs. relatório** — validar visualmente se `_radargrama_cientifico.png` (sem AGC) é adequado para revisão técnica
+2. **Candidatos RAW** — confirmar que top-50 de cada PATIO são hipérboles reais (não artefatos) via `_classificador_candidatos.py`
+3. **Parâmetros físicos do detector** (`fis_amp_metal_thr`, `fis_amp_nao_metal_thr`) — usar ~10 alvos de tipo conhecido
+4. **Velocity** — DZT com alvos de profundidade conhecida para validar `velocity_estimada_mns`
+5. **Qualidade visual** — comparar `_radargrama_relatorio.png` do pipeline v2.0.0 vs. output RADAN para o mesmo DZT lado a lado
+6. **Prompt GPT-4o** — adicionar contexto do projeto para reduzir viés `galeria_concreto`
+7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso.
