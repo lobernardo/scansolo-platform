@@ -588,19 +588,39 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha ao ler: {e}")
         return None
 
-    # Normaliza profilePos para iniciar em 0.
-    # Alguns DZTs armazenam posições absolutas de GPS/odômetro (ex: -4.5 → -2.0 m).
-    # extent=[0, dist_m, ...] em salvar_imagem_padrao_amilson exige dist_m > 0;
-    # _params_detector divide por dist_max, que seria negativo sem essa correção.
+    # Normaliza profilePos para intervalo [0, span] com direção positiva.
+    # Casos tratados:
+    #   - Crescente com offset (ex: -4.5→-2.0m): subtrai offset → 0→2.5m
+    #   - Decrescente (ex: 4.5→2.0m ou -2.0→-4.5m): subtrai offset + inverte dados + nega posições
+    # Necessário porque:
+    #   - extent=[0, dist_m, ...] em salvar_imagem_padrao_amilson exige dist_m > 0
+    #   - _params_detector usa dist_max como divisor (dx_m, col_search_half)
+    #   - prepProfileFig() usa prof.profilePos para o eixo X da imagem bruta
     _pos = np.asarray(prof.profilePos, dtype=float)
-    if len(_pos) > 1 and abs(float(_pos[0])) > 1e-6:
+    if len(_pos) > 1:
         _offset = float(_pos[0])
-        prof.profilePos = _pos - _offset
-        logger.debug(f"  profilePos normalizado: offset {_offset:.3f}m removido")
+        _pos_rel = _pos - _offset          # desloca para iniciar em 0
+        _span    = float(_pos_rel[-1])     # positivo se crescente, negativo se decrescente
+        if abs(_span) > 1e-6:
+            if _span < 0:
+                # Perfil decrescente: inverte horizontalmente os dados para manter
+                # esquerda→direita = início→fim da linha de campo, e nega posições.
+                _pos_rel  = -_pos_rel
+                prof.data = np.matrix(np.asarray(prof.data, dtype=np.float64)[:, ::-1])
+                logger.debug(
+                    f"  profilePos decrescente: dados invertidos + "
+                    f"posições normalizadas 0→{abs(_span):.3f}m"
+                )
+            elif abs(_offset) > 1e-6:
+                logger.debug(
+                    f"  profilePos normalizado: offset {_offset:.3f}m removido, "
+                    f"span={_span:.3f}m"
+                )
+            prof.profilePos = _pos_rel
 
     n_amostras, n_tracos = prof.data.shape
     twtt_max = float(prof.twtt[-1])
-    dist_max = float(prof.profilePos[-1])
+    dist_max = abs(float(prof.profilePos[-1]) - float(prof.profilePos[0]))
     dt_ns    = twtt_max / (n_amostras - 1)
     fs_mhz   = 1000.0 / dt_ns
     logger.debug(
