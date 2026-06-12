@@ -39,3 +39,47 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# ─── Claude Code internos ────────────────────────────────────────────────────
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+
+# ─── Dados brutos GPR (NUNCA commitar — dados de cliente) ─────────────────────
+**/*.DZT
+**/*.dzt
+**/*.DZG
+**/*.dzg
+
+# ─── Arrays numpy (pesados, sempre regeneráveis) ──────────────────────────────
+**/*.npy
+**/*.npz
+
+# ─── benchmark_real/ — dados de campo e outputs de benchmark ─────────────────
+# Ignorar subpastas com dados pesados; manter apenas 06_docs/ e manifesto
+benchmark_real/PATIO/
+benchmark_real/HELPER/
+benchmark_real/EXEMPLOS_GERAIS_SAÍDAS_ATUAIS_CLIENTE/
+benchmark_real/05_validacao_amilson/
+
+# ─── Outputs gerados pelo pipeline (recriáveis) ───────────────────────────────
+# Pastas prefixadas com _ dentro de services/worker/
+services/worker/pipeline/_benchmark_output/
+services/worker/pipeline/_test_v2_output/
+services/worker/pipeline/_audit_output/
+services/worker/pipeline/benchmark_real/
+services/worker/pipeline/exemplo_saida/
+
+# ─── Arquivos temporários / de desenvolvimento (prefixo _) ───────────────────
+services/worker/_*.log
+services/worker/_*.docx
+services/worker/_*.txt
+services/worker/_*.py
+services/worker/pipeline/_*.py
+services/worker/pipeline/_*.json
+# Não ignorar scripts sem prefixo _ (são produção)
+
+# ─── Planning / prompts internos ────────────────────────────────────────────
+PROMPT_MELHORIAS_UI.md
+
+# ─── Arquivos de scripts externos não relacionados ao projeto ─────────────────
+services/worker/baixar_imagens.py
