@@ -588,6 +588,16 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.error(f"  Falha ao ler: {e}")
         return None
 
+    # Normaliza profilePos para iniciar em 0.
+    # Alguns DZTs armazenam posições absolutas de GPS/odômetro (ex: -4.5 → -2.0 m).
+    # extent=[0, dist_m, ...] em salvar_imagem_padrao_amilson exige dist_m > 0;
+    # _params_detector divide por dist_max, que seria negativo sem essa correção.
+    _pos = np.asarray(prof.profilePos, dtype=float)
+    if len(_pos) > 1 and abs(float(_pos[0])) > 1e-6:
+        _offset = float(_pos[0])
+        prof.profilePos = _pos - _offset
+        logger.debug(f"  profilePos normalizado: offset {_offset:.3f}m removido")
+
     n_amostras, n_tracos = prof.data.shape
     twtt_max = float(prof.twtt[-1])
     dist_max = float(prof.profilePos[-1])
