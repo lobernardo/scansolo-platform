@@ -11,6 +11,7 @@ import { startCartografia } from "./cartografia/actions";
 import { startRelatorio, generateInferenceReport } from "./relatorio/actions";
 import { ProjectDetailClient } from "./ProjectDetailClient";
 import type { DownloadFile } from "./ProjectDetailClient";
+import { DeleteProjectButton } from "./DeleteProjectButton";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -232,7 +233,10 @@ export default async function ProjetoDetailPage({
               : ""}
           </p>
         </div>
-        <StatusBadge status={project.status} />
+        <div className="flex items-center gap-3 shrink-0">
+          <StatusBadge status={project.status} />
+          <DeleteProjectButton projectId={project.id} />
+        </div>
       </div>
 
       {/* Pipeline progress */}
