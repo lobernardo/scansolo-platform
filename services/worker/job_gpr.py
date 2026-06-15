@@ -125,7 +125,11 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         else:
             supa.update_project_status(project_id, "gpr_concluido")
             log.info("gpr_job_done", job_id=job_id, run_id=run_id)
-            supa.create_job(project_id, "ia")
+            skip_ia = (raw_config or {}).get("skip_ia", False)
+            if skip_ia:
+                log.info("gpr_skip_ia", project_id=project_id)
+            else:
+                supa.create_job(project_id, "ia")
 
     except Exception as exc:
         log.error("gpr_job_failed", job_id=job_id, error=str(exc))
@@ -332,6 +336,7 @@ def _persist_outputs(
             (f"{stem}_processada.png", "imagem_processada_url"),
             (f"{stem}_anotada_completa.png", "imagem_anotada_url"),
             (f"{stem}_anotada_alta_confianca.png", "imagem_alta_conf_url"),
+            (f"{stem}_radargrama_preview_radan_5m.png", "imagem_preview_radan_5m_url"),
         ]:
             src_dir = images_bruta_dir if "bruta" in filename else images_proc_dir
             url = _upload_image(supa, img_prefix, src_dir / filename)

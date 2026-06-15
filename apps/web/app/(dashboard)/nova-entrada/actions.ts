@@ -30,6 +30,7 @@ export async function createProject(
   const antena_freq_mhz = 270;
   const tem_pipe_locator = formData.get("tem_pipe_locator") === "true";
   const auto_accept_ia = formData.get("auto_accept_ia") === "true";
+  const skip_ia = formData.get("skip_ia") === "true";
 
   if (!nome || !cliente || !estado || !data_levantamento) {
     return { error: "Preencha todos os campos obrigatórios (nome, cliente, estado, data)." };
@@ -47,6 +48,7 @@ export async function createProject(
     antena_freq_mhz,
     tem_pipe_locator,
     auto_accept_ia,
+    processing_config: skip_ia ? { skip_ia: true } : null,
     created_by: user.id,
     status: "aguardando_arquivos",
   };

@@ -314,13 +314,18 @@ export type Database = {
           imagem_interpretada_manual_data: Json | null
           imagem_interpretada_status: string
           imagem_interpretada_url: string | null
+          imagem_preview_radan_5m_url: string | null
           imagem_processada_url: string | null
+          modo_processamento: string | null
           n_amostras: number | null
           n_tracos: number | null
           profundidade_max_m: number | null
           project_id: string
           run_id: string
+          snr_imagem_db: number | null
+          snr_imagem_ratio: number | null
           status: string
+          tipo_solo: string | null
           velocity_calibrada: boolean | null
           velocity_mns: number | null
         }
@@ -339,13 +344,18 @@ export type Database = {
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
+          imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          modo_processamento?: string | null
           n_amostras?: number | null
           n_tracos?: number | null
           profundidade_max_m?: number | null
           project_id: string
           run_id: string
+          snr_imagem_db?: number | null
+          snr_imagem_ratio?: number | null
           status?: string
+          tipo_solo?: string | null
           velocity_calibrada?: boolean | null
           velocity_mns?: number | null
         }
@@ -364,13 +374,18 @@ export type Database = {
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
+          imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          modo_processamento?: string | null
           n_amostras?: number | null
           n_tracos?: number | null
           profundidade_max_m?: number | null
           project_id?: string
           run_id?: string
+          snr_imagem_db?: number | null
+          snr_imagem_ratio?: number | null
           status?: string
+          tipo_solo?: string | null
           velocity_calibrada?: boolean | null
           velocity_mns?: number | null
         }

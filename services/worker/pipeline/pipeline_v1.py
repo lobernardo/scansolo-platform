@@ -1266,9 +1266,9 @@ def main():
     logger.info("=" * 65)
     logger.info(f"Concluido    : {len(registros)-erros} ok  |  {erros} erro(s)  |  {total_alvos} alvo(s)")
     logger.info(f"Saida        : {pasta_saida}")
-    logger.info(f"V1.2 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
+    logger.info(f"v2.0 outputs : *_processado_sem_agc.npy | *_processado_visual.npy")
     logger.info(f"               *_anotada_completa.png | *_anotada_alta_confianca.png")
-    logger.info(f"               config_used.json | confidence_score_0_100 no CSV")
+    logger.info(f"               *_radargrama_preview_radan_5m.png | config_used.json")
     logger.info(f"               snr_imagem_db | modo_processamento no index_projeto.csv")
     logger.info("=" * 65)
     if erros:

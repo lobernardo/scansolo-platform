@@ -77,12 +77,31 @@ export default function NovaEntradaPage() {
               className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500"
             />
             <label htmlFor="auto_accept_ia" className="text-sm font-medium text-slate-200">
-              Aprovação automática pela IA (sem revisão manual)
+              Aprovação automática da interpretação IA (GPT-4o por alvo)
             </label>
           </div>
           <p className="text-xs text-slate-500 pl-6">
             Alta confiança → planta + relatório. Média confiança → só planta.
             Baixa confiança → descartado. Projeto avança direto para cartografia.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-800/50 p-3 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="skip_ia"
+              id="skip_ia"
+              value="true"
+              className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500"
+            />
+            <label htmlFor="skip_ia" className="text-sm font-medium text-slate-200">
+              Pular interpretação IA dos alvos (GPT-4o)
+            </label>
+          </div>
+          <p className="text-xs text-slate-500 pl-6">
+            Para validações locais. Evita chamadas ao GPT-4o por alvo.
+            O pipeline GPR e a detecção de hipérboles rodam normalmente.
           </p>
         </div>
 
