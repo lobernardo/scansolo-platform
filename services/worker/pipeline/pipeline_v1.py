@@ -383,6 +383,102 @@ def salvar_imagem_padrao_amilson(arr, depth_m, dist_m, caminho, preset, nome_arq
     plt.close("all")
 
 
+def salvar_imagem_preview_radan_5m(
+    arr_dewow_bp: np.ndarray,
+    twtt_max_ns: float,
+    dist_m: float,
+    caminho,
+    preset: dict,
+    nome_arquivo: str = "",
+    depth_preview_m: float = 5.0,
+    agc_window_preview: int = 80,
+) -> dict:
+    """
+    Saida visual comparativa com eixo vertical estendido a depth_preview_m (default 5 m).
+
+    Motivacao: o software RADAN exibe os radargramas com uma velocity_mns maior que
+    a calibrada pelo pipeline, resultando em eixo vertical aparente de ~5 m onde o
+    pipeline oficial mostra ~2.5 m. Esta imagem reproduz essa escala para facilitar
+    comparacao visual lado a lado com outputs RADAN.
+
+    IMPORTANTE — O QUE ESTA IMAGEM NAO FAZ:
+      - Nao altera velocity_mns oficial do pipeline
+      - Nao altera depth_m dos alvos no CSV
+      - Nao e usada pelo detector, IA, cartografia ou relatorio tecnico
+      - Nao representa profundidade calibrada
+
+    Parametros:
+      arr_dewow_bp     : array apos dewow+bandpass (ponto de bifurcacao dos fluxos)
+      twtt_max_ns      : tempo de viagem total (ns) — do prof.twtt[-1]
+      dist_m           : distancia horizontal real do perfil (m)
+      caminho          : caminho de saida do .png
+      preset           : preset de processamento (usa colormap, dpi, contrast)
+      nome_arquivo     : nome do .DZT para o titulo
+      depth_preview_m  : profundidade maxima do eixo visual (default 5.0 m)
+      agc_window_preview: janela AGC aplicada apenas nesta imagem para textura visual
+
+    Retorna dict com parametros de rastreabilidade para log e index_projeto.csv.
+    """
+    # Velocity calculada apenas para construir o eixo vertical desta imagem
+    velocity_preview_mns = round((2.0 * depth_preview_m) / twtt_max_ns, 6) if twtt_max_ns > 0 else 0.1
+
+    # AGC visual — aplicado sobre copia, nao modifica arr_dewow_bp
+    arr = arr_dewow_bp.astype(float).copy()
+    n_samples, n_traces = arr.shape
+    win = max(1, agc_window_preview)
+    arr_agc = np.zeros_like(arr)
+    for col in range(n_traces):
+        trace = arr[:, col]
+        for i in range(n_samples):
+            i0 = max(0, i - win // 2)
+            i1 = min(n_samples, i + win // 2 + 1)
+            rms = float(np.sqrt(np.mean(trace[i0:i1] ** 2))) + 1e-10
+            arr_agc[i, col] = trace[i] / rms
+
+    contrast = preset.get("contrast", 2.5)
+    std = float(np.std(arr_agc)) + 1e-10
+    vmin, vmax = -contrast * std, contrast * std
+
+    aviso = f"Preview ~{depth_preview_m:.0f}m | AGC visual | escala nao calibrada | v_preview={velocity_preview_mns:.4f} m/ns"
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.imshow(
+        arr_agc,
+        extent=[0, dist_m, depth_preview_m, 0],
+        aspect="auto",
+        cmap=preset.get("colormap", "gray"),
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    ax.set_xlabel("Distancia (m)", fontsize=10)
+    ax.set_ylabel("Profundidade (m)", fontsize=10)
+    ax.set_xlim(0, dist_m)
+    ax.set_ylim(depth_preview_m, 0)
+    titulo = f"{nome_arquivo}  |  {datetime.now().strftime('%Y-%m-%d')}"
+    ax.set_title(titulo, fontsize=9, color="#555555", pad=4)
+    ax.text(
+        0.01, 0.01, aviso,
+        transform=ax.transAxes, fontsize=7, color="#cc6600",
+        verticalalignment="bottom",
+        bbox=dict(boxstyle="round,pad=0.2", facecolor="#fff8f0", alpha=0.8),
+    )
+    plt.tight_layout()
+    plt.savefig(str(caminho), format="png", dpi=preset.get("dpi", 150), bbox_inches="tight")
+    plt.close("all")
+
+    return {
+        "twtt_max_ns":              round(twtt_max_ns, 3),
+        "velocity_mns_oficial":     preset.get("velocity_mns", 0.1),
+        "depth_max_oficial_m":      round(twtt_max_ns * preset.get("velocity_mns", 0.1) / 2.0, 3),
+        "depth_preview_m":          depth_preview_m,
+        "velocity_preview_mns":     velocity_preview_mns,
+        "agc_visual_preview":       True,
+        "agc_window_preview":       agc_window_preview,
+        "aviso":                    "Imagem comparativa; nao usar como profundidade oficial",
+    }
+
+
 def salvar_config_json(pasta_saida, preset, preset_nome, config_hash):
     """Salva config_used.json com todos os parametros + metadata do run."""
     config_data = {
@@ -419,6 +515,10 @@ def salvar_config_json(pasta_saida, preset, preset_nome, config_hash):
         "fis_ativo":            preset["fis_ativo"],
         "fis_amp_metal_thr":    preset["fis_amp_metal_thr"],
         "fis_amp_nao_metal_thr":preset["fis_amp_nao_metal_thr"],
+        # Preview RADAN 5m (saida visual comparativa — nao afeta pipeline oficial)
+        "depth_preview_m":      preset.get("depth_preview_m", 5.0),
+        "agc_window_preview":   preset.get("agc_window_preview", 80),
+        "aviso_preview":        "Imagem comparativa; nao usar como profundidade oficial",
         # Velocidade e calibracao
         "velocity_calibrada":   False,
         "metodo_calibracao":    "default",
@@ -881,6 +981,29 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         gc.collect()
         return None
 
+    # ── 4b. PREVIEW RADAN 5m — saida comparativa, nao oficial ──────────────────
+    # Reproduz escala visual do RADAN (~5 m) com velocity calculada dinamicamente.
+    # Usa arr_dewow_bp (pre-bgremoval) + AGC proprio desta imagem.
+    # NAO afeta: detector, CSV de alvos, depth_m oficial, IA, cartografia.
+    path_preview = caminhos["processadas"] / f"{nome}_radargrama_preview_radan_5m.png"
+    preview_meta: dict = {}
+    depth_preview_m_cfg = float(preset.get("depth_preview_m", 5.0))
+    agc_win_preview = int(preset.get("agc_window_preview", 80))
+    try:
+        preview_meta = salvar_imagem_preview_radan_5m(
+            arr_dewow_bp, twtt_max, dist_max, path_preview, preset,
+            nome_arquivo=arquivo_dzt.name,
+            depth_preview_m=depth_preview_m_cfg,
+            agc_window_preview=agc_win_preview,
+        )
+        logger.info(
+            f"  04b Preview RADAN {depth_preview_m_cfg:.0f}m: {path_preview.name} "
+            f"| v_preview={preview_meta.get('velocity_preview_mns', 0):.4f} m/ns"
+        )
+    except Exception as e:
+        logger.warning(f"  Preview RADAN falhou (continuando): {e}")
+        plt.close("all")
+
     # AGC + setVelocity (fluxo relatorio visual + matrizes de compat)
     agc_base = preset.get("agc_window", 150)
     if modo == "minimo":
@@ -967,6 +1090,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "imagem_anotada_completa":       png_completa or "",
         "imagem_anotada_alta":           png_alta or "",          # backward compat
         "imagem_anotada_alta_confianca": png_alta or "",
+        # Preview RADAN 5m — saida comparativa, nao oficial
+        "imagem_preview_radan_5m":       path_preview.name if preview_meta else "",
+        "preview_depth_m":               preview_meta.get("depth_preview_m", ""),
+        "preview_velocity_mns":          preview_meta.get("velocity_preview_mns", ""),
         # Alvos — contagens
         "n_alvos_detectados":      n_alvos,
         "arquivo_alvos":           csv_alvos or "",

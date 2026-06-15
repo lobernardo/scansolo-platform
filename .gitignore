@@ -66,7 +66,11 @@ benchmark_real/05_validacao_amilson/
 services/worker/pipeline/_benchmark_output/
 services/worker/pipeline/_test_v2_output/
 services/worker/pipeline/_audit_output/
-services/worker/pipeline/benchmark_real/
+# benchmark_real: ignorar dados pesados, manter 06_docs/ rastreável
+services/worker/pipeline/benchmark_real/PATIO/
+services/worker/pipeline/benchmark_real/HELPER/
+services/worker/pipeline/benchmark_real/EXEMPLOS_GERAIS_SAÍDAS_ATUAIS_CLIENTE/
+services/worker/pipeline/benchmark_real/05_validacao_amilson/
 services/worker/pipeline/exemplo_saida/
 
 # ─── Arquivos temporários / de desenvolvimento (prefixo _) ───────────────────
