@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export type FilterState = {
@@ -69,11 +69,11 @@ export async function reprocessProfile(
 }
 
 export async function deleteProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  // Auth check with user client
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Não autenticado" };
 
-  // Verify ownership / access
   const { data: proj } = await supabase
     .from("projects")
     .select("id")
@@ -81,30 +81,32 @@ export async function deleteProject(projectId: string): Promise<{ ok: boolean; e
     .maybeSingle();
   if (!proj) return { ok: false, error: "Projeto não encontrado" };
 
-  // Delete in FK order
-  const profiles = await supabase.from("gpr_profiles").select("id").eq("project_id", projectId);
+  // All deletes use service-role client to bypass RLS
+  const admin = createAdminClient();
+
+  const profiles = await admin.from("gpr_profiles").select("id").eq("project_id", projectId);
   const profileIds = (profiles.data ?? []).map((p: { id: string }) => p.id);
 
   if (profileIds.length > 0) {
-    const targets = await supabase.from("detected_targets").select("id").in("profile_id", profileIds);
+    const targets = await admin.from("detected_targets").select("id").in("profile_id", profileIds);
     const targetIds = (targets.data ?? []).map((t: { id: string }) => t.id);
 
     if (targetIds.length > 0) {
-      await supabase.from("technical_reviews").delete().in("target_id", targetIds);
-      await supabase.from("ai_interpretations").delete().in("target_id", targetIds);
+      await admin.from("technical_reviews").delete().in("target_id", targetIds);
+      await admin.from("ai_interpretations").delete().in("target_id", targetIds);
     }
-    await supabase.from("ia_training_examples").delete().in("profile_id", profileIds);
-    await supabase.from("detected_targets").delete().in("profile_id", profileIds);
+    await admin.from("ia_training_examples").delete().in("profile_id", profileIds);
+    await admin.from("detected_targets").delete().in("profile_id", profileIds);
   }
 
-  await supabase.from("ia_training_examples").delete().eq("project_id", projectId);
-  await supabase.from("project_files").delete().eq("project_id", projectId);
-  await supabase.from("gpr_profiles").delete().eq("project_id", projectId);
-  await supabase.from("cartography_outputs").delete().eq("project_id", projectId);
-  await supabase.from("report_outputs").delete().eq("project_id", projectId);
-  await supabase.from("processing_jobs").delete().eq("project_id", projectId);
+  await admin.from("ia_training_examples").delete().eq("project_id", projectId);
+  await admin.from("project_files").delete().eq("project_id", projectId);
+  await admin.from("gpr_profiles").delete().eq("project_id", projectId);
+  await admin.from("cartography_outputs").delete().eq("project_id", projectId);
+  await admin.from("report_outputs").delete().eq("project_id", projectId);
+  await admin.from("processing_jobs").delete().eq("project_id", projectId);
 
-  const { error } = await supabase.from("projects").delete().eq("id", projectId);
+  const { error } = await admin.from("projects").delete().eq("id", projectId);
   if (error) return { ok: false, error: error.message };
 
   redirect("/projetos");
