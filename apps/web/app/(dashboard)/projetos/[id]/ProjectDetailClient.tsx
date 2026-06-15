@@ -25,10 +25,12 @@ const DEFAULT_FILTERS: FilterState = {
   background_removal: true,
   bandpass: true,
   bandpass_low: 80,
-  bandpass_high: 300,
+  bandpass_high: 500,
   gain: true,
   gain_type: "linear",
   contrast: 1.0,
+  depth_preview_m: 5.0,
+  agc_window_preview: 80,
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -49,9 +51,10 @@ export function ProjectDetailClient({
 
   // Per-profile filter state
   const [filterStates, setFilterStates] = useState<Record<string, FilterState>>({});
+  const [filterTargets, setFilterTargets] = useState<Record<string, "processada" | "processada2">>({});
   const [expandedFilters, setExpandedFilters] = useState<Record<string, boolean>>({});
   const [reprocessStatus, setReprocessStatus] = useState<
-    Record<string, "idle" | "loading" | "ok" | "error">
+    Record<string, "idle" | "loading" | "queued" | "error">
   >({});
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
@@ -86,7 +89,7 @@ export function ProjectDetailClient({
       { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
       { url: profile.imagem_processada_url ?? "", label: "Processada" },
       { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
-      { url: profile.imagem_preview_radan_5m_url ?? "", label: "Preview RADAN 5m" },
+      { url: profile.imagem_preview_radan_5m_url ?? "", label: "Processada 2" },
     ].filter((i) => i.url);
     if (!imgs.length) return;
     setLightbox({ images: imgs, index: Math.min(startIndex, imgs.length - 1) });
@@ -125,13 +128,8 @@ export function ProjectDetailClient({
       const result = await reprocessProfile(profileId, getFilters(profileId));
       setReprocessStatus((prev) => ({
         ...prev,
-        [profileId]: result.ok ? "ok" : "error",
+        [profileId]: result.ok ? "queued" : "error",
       }));
-      if (result.ok) {
-        setTimeout(() => {
-          setReprocessStatus((prev) => ({ ...prev, [profileId]: "idle" }));
-        }, 2500);
-      }
     } catch {
       setReprocessStatus((prev) => ({ ...prev, [profileId]: "error" }));
     }
@@ -181,7 +179,7 @@ export function ProjectDetailClient({
                 { url: profile.imagem_bruta_url, label: "Bruta" },
                 { url: profile.imagem_processada_url, label: "Processada" },
                 { url: profile.imagem_anotada_url, label: "Anotada IA" },
-                { url: profile.imagem_preview_radan_5m_url, label: "Preview RADAN 5m" },
+                { url: profile.imagem_preview_radan_5m_url, label: "Processada 2" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
               const customized = isCustomized(profile.id);
@@ -293,6 +291,10 @@ export function ProjectDetailClient({
                     {expanded && (
                       <FilterPanel
                         filters={getFilters(profile.id)}
+                        filterTarget={filterTargets[profile.id] ?? "processada"}
+                        onTargetChange={(t) =>
+                          setFilterTargets((prev) => ({ ...prev, [profile.id]: t }))
+                        }
                         onChange={(patch) => updateFilter(profile.id, patch)}
                         onReprocess={() => handleReprocess(profile.id)}
                         onReset={() => resetFilters(profile.id)}
@@ -587,92 +589,141 @@ export function ProjectDetailClient({
 
 function FilterPanel({
   filters,
+  filterTarget,
+  onTargetChange,
   onChange,
   onReprocess,
   onReset,
   status,
 }: {
   filters: FilterState;
+  filterTarget: "processada" | "processada2";
+  onTargetChange: (t: "processada" | "processada2") => void;
   onChange: (patch: Partial<FilterState>) => void;
   onReprocess: () => void;
   onReset: () => void;
-  status: "idle" | "loading" | "ok" | "error";
+  status: "idle" | "loading" | "queued" | "error";
 }) {
   return (
     <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3 space-y-3">
-      {/* Toggles */}
-      <div className="grid grid-cols-2 gap-2">
-        <Toggle
-          label="Dewow"
-          checked={filters.dewow}
-          onChange={(v) => onChange({ dewow: v })}
-        />
-        <Toggle
-          label="Background removal"
-          checked={filters.background_removal}
-          onChange={(v) => onChange({ background_removal: v })}
-        />
-        <Toggle
-          label="Bandpass"
-          checked={filters.bandpass}
-          onChange={(v) => onChange({ bandpass: v })}
-        />
-        <Toggle
-          label="Gain"
-          checked={filters.gain}
-          onChange={(v) => onChange({ gain: v })}
-        />
+      {/* Output target tabs */}
+      <div className="flex gap-1 rounded-md bg-slate-900 p-0.5 w-fit">
+        {(["processada", "processada2"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => onTargetChange(t)}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              filterTarget === t
+                ? "bg-cyan-500 text-slate-950"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {t === "processada" ? "Processada" : "Processada 2"}
+          </button>
+        ))}
       </div>
 
-      {/* Bandpass sliders — visible when bandpass = on */}
-      {filters.bandpass && (
-        <div className="space-y-2">
+      {filterTarget === "processada" && (
+        <>
+          {/* Toggles */}
+          <div className="grid grid-cols-2 gap-2">
+            <Toggle
+              label="Dewow"
+              checked={filters.dewow}
+              onChange={(v) => onChange({ dewow: v })}
+            />
+            <Toggle
+              label="Background removal"
+              checked={filters.background_removal}
+              onChange={(v) => onChange({ background_removal: v })}
+            />
+            <Toggle
+              label="Bandpass"
+              checked={filters.bandpass}
+              onChange={(v) => onChange({ bandpass: v })}
+            />
+            <Toggle
+              label="Gain"
+              checked={filters.gain}
+              onChange={(v) => onChange({ gain: v })}
+            />
+          </div>
+
+          {/* Bandpass sliders */}
+          {filters.bandpass && (
+            <div className="space-y-2">
+              <SliderRow
+                label={`Bandpass low — ${filters.bandpass_low} MHz`}
+                value={filters.bandpass_low}
+                min={10}
+                max={200}
+                step={10}
+                onChange={(v) => onChange({ bandpass_low: v })}
+              />
+              <SliderRow
+                label={`Bandpass high — ${filters.bandpass_high} MHz`}
+                value={filters.bandpass_high}
+                min={100}
+                max={600}
+                step={10}
+                onChange={(v) => onChange({ bandpass_high: v })}
+              />
+            </div>
+          )}
+
+          {/* Gain type */}
+          {filters.gain && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400 w-20 shrink-0">Tipo de gain</label>
+              <select
+                value={filters.gain_type}
+                onChange={(e) =>
+                  onChange({ gain_type: e.target.value as FilterState["gain_type"] })
+                }
+                className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              >
+                <option value="linear">Linear</option>
+                <option value="exponential">Exponencial</option>
+                <option value="agc">AGC</option>
+              </select>
+            </div>
+          )}
+
+          {/* Contrast */}
           <SliderRow
-            label={`Bandpass low — ${filters.bandpass_low} MHz`}
-            value={filters.bandpass_low}
-            min={10}
+            label={`Contraste — ${filters.contrast.toFixed(1)}×`}
+            value={filters.contrast}
+            min={0.5}
+            max={2.0}
+            step={0.1}
+            onChange={(v) => onChange({ contrast: parseFloat(v.toFixed(1)) })}
+          />
+        </>
+      )}
+
+      {filterTarget === "processada2" && (
+        <>
+          <p className="text-[10px] text-slate-500 leading-relaxed">
+            Imagem visual comparativa (escala RADAN ~5 m). Parâmetros independentes do fluxo científico.
+          </p>
+          <SliderRow
+            label={`Profundidade máxima — ${filters.depth_preview_m.toFixed(1)} m`}
+            value={filters.depth_preview_m}
+            min={2.0}
+            max={8.0}
+            step={0.5}
+            onChange={(v) => onChange({ depth_preview_m: parseFloat(v.toFixed(1)) })}
+          />
+          <SliderRow
+            label={`Janela AGC visual — ${filters.agc_window_preview} traços`}
+            value={filters.agc_window_preview}
+            min={40}
             max={200}
             step={10}
-            onChange={(v) => onChange({ bandpass_low: v })}
+            onChange={(v) => onChange({ agc_window_preview: v })}
           />
-          <SliderRow
-            label={`Bandpass high — ${filters.bandpass_high} MHz`}
-            value={filters.bandpass_high}
-            min={100}
-            max={600}
-            step={10}
-            onChange={(v) => onChange({ bandpass_high: v })}
-          />
-        </div>
+        </>
       )}
-
-      {/* Gain type — visible when gain = on */}
-      {filters.gain && (
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-400 w-20 shrink-0">Tipo de gain</label>
-          <select
-            value={filters.gain_type}
-            onChange={(e) =>
-              onChange({ gain_type: e.target.value as FilterState["gain_type"] })
-            }
-            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-          >
-            <option value="linear">Linear</option>
-            <option value="exponential">Exponencial</option>
-            <option value="agc">AGC</option>
-          </select>
-        </div>
-      )}
-
-      {/* Contrast slider */}
-      <SliderRow
-        label={`Contraste — ${filters.contrast.toFixed(1)}×`}
-        value={filters.contrast}
-        min={0.5}
-        max={2.0}
-        step={0.1}
-        onChange={(v) => onChange({ contrast: parseFloat(v.toFixed(1)) })}
-      />
 
       {/* Actions */}
       <div className="flex gap-2 pt-1">
@@ -681,11 +732,7 @@ function FilterPanel({
           disabled={status === "loading"}
           className="flex-1 rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {status === "loading"
-            ? "Solicitando…"
-            : status === "ok"
-            ? "✓ Solicitado"
-            : "Reaplicar filtros"}
+          {status === "loading" ? "Solicitando…" : "Reaplicar filtros"}
         </button>
         <button
           onClick={onReset}
@@ -695,9 +742,14 @@ function FilterPanel({
         </button>
       </div>
 
+      {status === "queued" && (
+        <p className="text-xs text-cyan-400">
+          ✓ Em fila — reprocessamento em background. Recarregue a página em ~1-2 min.
+        </p>
+      )}
       {status === "error" && (
         <p className="text-xs text-red-400">
-          Erro ao solicitar reprocessamento. Tente novamente.
+          Erro ao criar job. Verifique a conexão e tente novamente.
         </p>
       )}
     </div>

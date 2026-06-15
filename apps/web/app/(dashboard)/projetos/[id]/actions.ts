@@ -12,6 +12,9 @@ export type FilterState = {
   gain: boolean;
   gain_type: "linear" | "exponential" | "agc";
   contrast: number;
+  // Processada 2 (preview RADAN visual) — independent params
+  depth_preview_m: number;
+  agc_window_preview: number;
 };
 
 export async function reprocessProfile(
@@ -59,6 +62,7 @@ export async function reprocessProfile(
 
   if (jobError) {
     console.log("[reprocessProfile] job insert error:", jobError.message);
+    return { ok: false, error: `Erro ao criar job: ${jobError.message}` };
   }
 
   return { ok: true };

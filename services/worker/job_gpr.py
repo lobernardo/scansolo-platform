@@ -236,6 +236,12 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
     if "contrast" in filtros:
         cfg["contrast"] = float(filtros["contrast"])
 
+    # Processada 2 — preview RADAN visual params
+    if "depth_preview_m" in filtros:
+        cfg["depth_preview_m"] = float(filtros["depth_preview_m"])
+    if "agc_window_preview" in filtros:
+        cfg["agc_window_preview"] = int(filtros["agc_window_preview"])
+
     return cfg
 
 
