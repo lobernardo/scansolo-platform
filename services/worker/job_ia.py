@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -47,12 +48,47 @@ _TIPO_LABEL = {
     "desconhecido":      "Desconhecido",
 }
 
-# Cor RGB por confiança
+# Cor RGB por confiança (job IA principal)
 _CONF_COLOR = {
     "alta":  (50, 200, 80),    # verde
     "media": (255, 190, 0),    # amarelo
     "baixa": (160, 160, 160),  # cinza
 }
+
+# ── Anotada P2 — mesmas cores de plotar_deteccoes ───────────────────────────
+def _h2r(h: str) -> tuple:
+    h = h.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+_COR_MATERIAL_PIL = {
+    "possivel_metalico":         _h2r("#FF4444"),
+    "possivel_nao_metalico":     _h2r("#44AAFF"),
+    "possivel_galeria_ou_vazio": _h2r("#FF9900"),
+    "inconclusivo":              _h2r("#CCCCCC"),
+    "metal":     _h2r("#FF4444"),
+    "nao_metal": _h2r("#44AAFF"),
+    "galeria_ar":_h2r("#FF9900"),
+    "N/A":       _h2r("#FFD700"),
+}
+_COR_DEFAULT_PIL = _h2r("#FFD700")
+_COR_FIT_PIL     = (0, 255, 136)   # #00FF88 verde
+_COR_HOUGH_PIL   = (255, 144, 0)   # #FF9000 laranja
+
+_LEGENDA_MATERIAL_PIL = {
+    "possivel_metalico":         "Possivel metalico",
+    "possivel_nao_metalico":     "Possivel nao-metalico",
+    "possivel_galeria_ou_vazio": "Possivel galeria/vazio",
+    "inconclusivo":              "Inconclusivo",
+    "metal":     "Metal",
+    "nao_metal": "Nao-metal",
+    "galeria_ar":"Galeria",
+    "N/A":       "Alvo",
+}
+_ORDEM_LEGENDA = [
+    "possivel_metalico", "possivel_nao_metalico",
+    "possivel_galeria_ou_vazio", "inconclusivo",
+    "metal", "nao_metal", "galeria_ar", "N/A",
+]
 
 
 def handle_ia_job(supa: "SupabaseClient", job: dict) -> None:
@@ -206,9 +242,11 @@ def _gerar_imagem_interpretada_p2(
     targets: list[dict],
 ) -> str | None:
     """
-    Gera _anotada_p2.png: anotações do detector (rank, profundidade, diâmetro)
-    sobre imagem_preview_radan_5m_url, usando depth_preview_m como escala.
-    Mesmo estilo visual da 'Anotada IA' mas na imagem Processada 2.
+    Gera _anotada_p2.png: mesmo estilo visual de plotar_deteccoes (Anotada IA)
+    mas desenhado sobre imagem_preview_radan_5m_url com escala depth_preview_m.
+
+    Por alvo: marcador colorido por tipo_material, arco de hipérbole
+    (verde=fit_ok / laranja=Hough), label rico, legenda com materiais.
     """
     if not targets:
         return None
@@ -231,45 +269,91 @@ def _gerar_imagem_interpretada_p2(
     filtros = profile.get("filtros_customizados") or {}
     depth_max = float(filtros.get("depth_preview_m", 5.0))
 
-    font = _get_font(13)
+    font = _get_font(11)
+    font_small = _get_font(9)
 
+    # Área de dados dentro da figura matplotlib (mesma estimativa de _gerar_imagem_interpretada)
     DL, DR, DT, DB = int(0.09 * W), int(0.96 * W), int(0.10 * H), int(0.87 * H)
     dW = DR - DL
     dH = DB - DT
 
+    tipos_vistos: set[str] = set()
+    tem_fit = False
+    tem_hough = False
+
     for target in targets:
         x_m = target.get("x_m")
-        depth_m = target.get("depth_m")
-        if x_m is None or depth_m is None:
+        h_m = target.get("depth_m")
+        if x_m is None or h_m is None:
             continue
-        if float(depth_m) > depth_max:
-            continue  # alvo além da janela visível da Processada 2
+        x0 = float(x_m)
+        h = float(h_m)
+        if h > depth_max:
+            continue  # além da janela visível da Processada 2
 
-        cx = DL + int(float(x_m) / dist_max * dW)
-        cy = DT + int(float(depth_m) / depth_max * dH)
+        diam = float(target.get("diam_est_m") or 0.0)
+        conf_diam = str(target.get("diam_confianca") or "baixa")
+        fit_ok = bool(target.get("fit_ok") or False)
+        tipo = str(target.get("tipo_material") or "N/A")
+        conf_tipo = str(target.get("confianca_tipo") or "N/A")
+        sc = target.get("confidence_score_0_100")
+        rank = target.get("rank", "?")
+
+        tipos_vistos.add(tipo)
+        cor_apex = _COR_MATERIAL_PIL.get(tipo, _COR_DEFAULT_PIL)
+        cor_arco = _COR_FIT_PIL if fit_ok else _COR_HOUGH_PIL
+        border_w = 2 if conf_diam == "alta" else 1
+
+        if fit_ok:
+            tem_fit = True
+        else:
+            tem_hough = True
+
+        cx = DL + int((x0 / dist_max) * dW)
+        cy = DT + int((h / depth_max) * dH)
         cx = max(0, min(W - 1, cx))
         cy = max(0, min(H - 1, cy))
 
-        confianca = target.get("confidence_label_relatorio") or "baixa"
-        color = _CONF_COLOR.get(confianca, (160, 160, 160))
+        # Marcador no apex
+        r = 8
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=cor_apex, width=border_w)
 
-        r = 7
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=2)
+        # Arco da hipérbole: d(x) = sqrt(h² + (x-x0)²)
+        n_pts = 200
+        x_start = max(0.0, x0 - 3.0)
+        x_end = min(dist_max, x0 + 3.0)
+        if x_end > x_start:
+            arc_pts = []
+            for i in range(n_pts):
+                xv = x_start + i * (x_end - x_start) / (n_pts - 1)
+                d_arc = math.sqrt(h * h + (xv - x0) ** 2)
+                if d_arc >= depth_max:
+                    continue
+                px = DL + int((xv / dist_max) * dW)
+                py = DT + int((d_arc / depth_max) * dH)
+                arc_pts.append((px, py))
+            if len(arc_pts) >= 2:
+                draw.line(arc_pts, fill=cor_arco, width=1)
 
-        rank = target.get("rank", "?")
-        depth_str = f"{float(depth_m):.2f}m"
-        diam = target.get("diam_est_m")
-        diam_str = f" ⌀{float(diam):.2f}" if diam else ""
-        label = f"#{rank} {depth_str}{diam_str}"
+        # Label: #rank  h.hhm  XXcm (A) | TIPO(C) sc=N
+        diam_str = f"{diam * 100:.0f}cm ({conf_diam[0].upper()})" if diam > 0 else "diam N/D"
+        tipo_short = tipo[:4].upper() if tipo != "N/A" else None
+        conf_tipo_short = conf_tipo[0].upper() if conf_tipo not in ("N/A", "") else None
+        tipo_str = f" | {tipo_short}({conf_tipo_short})" if tipo_short and conf_tipo_short else ""
+        sc_str = f" sc={int(sc)}" if sc is not None and str(sc) not in ("", "N/A") else ""
+        label = f"#{rank}  {h:.2f}m  {diam_str}{tipo_str}{sc_str}"
 
-        tx = min(cx + 10, W - 160)
-        ty = max(cy - 18, 2)
+        tx = min(cx + 12, W - 185)
+        ty = max(cy - 20, 2)
         try:
             bbox = draw.textbbox((tx, ty), label, font=font)
             draw.rectangle([bbox[0] - 2, bbox[1] - 1, bbox[2] + 2, bbox[3] + 1], fill=(0, 0, 0))
         except AttributeError:
             pass
-        draw.text((tx, ty), label, fill=color, font=font)
+        draw.text((tx, ty), label, fill=(255, 255, 255), font=font)
+
+    # Legenda
+    _desenhar_legenda_p2(draw, W, DB, tipos_vistos, tem_fit, tem_hough, font_small)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -291,6 +375,53 @@ def _gerar_imagem_interpretada_p2(
     except Exception as exc:
         log.warning("ia_p2_upload_failed", error=str(exc))
         return None
+
+
+def _desenhar_legenda_p2(
+    draw: "ImageDraw.ImageDraw",
+    W: int,
+    DB: int,
+    tipos_vistos: set,
+    tem_fit: bool,
+    tem_hough: bool,
+    font: "ImageFont.ImageFont",
+) -> None:
+    """Desenha legenda de materiais + fit/Hough no canto inferior direito."""
+    linhas: list[tuple] = []  # (tipo_icone, cor_rgb, texto)
+
+    for k in _ORDEM_LEGENDA:
+        if k in tipos_vistos:
+            linhas.append(("circulo", _COR_MATERIAL_PIL.get(k, _COR_DEFAULT_PIL),
+                           _LEGENDA_MATERIAL_PIL.get(k, k)))
+
+    if tem_fit:
+        linhas.append(("linha", _COR_FIT_PIL, "Fit convergido"))
+    if tem_hough:
+        linhas.append(("linha", _COR_HOUGH_PIL, "Hough (sem fit)"))
+
+    if not linhas:
+        return
+
+    line_h = 19
+    pad = 7
+    legend_w = 200
+    legend_h = len(linhas) * line_h + 2 * pad
+
+    lx = W - legend_w - 18
+    ly = DB - legend_h - 12
+
+    draw.rectangle([lx, ly, lx + legend_w, ly + legend_h], fill=(0, 0, 0))
+    draw.rectangle([lx, ly, lx + legend_w, ly + legend_h], outline=(90, 90, 90), width=1)
+
+    for i, (tipo_icone, cor, texto) in enumerate(linhas):
+        cy = ly + pad + i * line_h + line_h // 2
+        icon_cx = lx + pad + 8
+        if tipo_icone == "circulo":
+            r = 5
+            draw.ellipse([icon_cx - r, cy - r, icon_cx + r, cy + r], fill=cor)
+        else:
+            draw.line([(icon_cx - 9, cy), (icon_cx + 9, cy)], fill=cor, width=2)
+        draw.text((icon_cx + 14, cy - 7), texto, fill=(210, 210, 210), font=font)
 
 
 def _auto_aprovar_targets(
