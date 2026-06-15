@@ -703,9 +703,6 @@ function FilterPanel({
 
       {filterTarget === "processada2" && (
         <>
-          <p className="text-[10px] text-slate-500 leading-relaxed">
-            Imagem visual comparativa (escala RADAN ~5 m). Parâmetros independentes do fluxo científico.
-          </p>
           <SliderRow
             label={`Profundidade máxima — ${filters.depth_preview_m.toFixed(1)} m`}
             value={filters.depth_preview_m}
