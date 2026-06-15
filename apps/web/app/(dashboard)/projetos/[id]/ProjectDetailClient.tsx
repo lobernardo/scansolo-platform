@@ -93,7 +93,7 @@ export function ProjectDetailClient({
       { url: profile.imagem_processada_url ?? "", label: "Processada" },
       { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
       { url: profile.imagem_preview_radan_5m_url ?? "", label: "Processada 2" },
-      { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "IA Proc.2" },
+      { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "Anotada P2" },
     ].filter((i) => i.url);
     if (!imgs.length) return;
     setLightbox({ images: imgs, index: Math.min(startIndex, imgs.length - 1) });
@@ -194,7 +194,7 @@ export function ProjectDetailClient({
                 { url: profile.imagem_processada_url, label: "Processada" },
                 { url: profile.imagem_anotada_url, label: "Anotada IA" },
                 { url: profile.imagem_preview_radan_5m_url, label: "Processada 2" },
-                { url: profile.imagem_interpretada_ia_p2_url, label: "IA Proc.2" },
+                { url: profile.imagem_interpretada_ia_p2_url, label: "Anotada P2" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
               const customized = isCustomized(profile.id);
@@ -293,8 +293,8 @@ export function ProjectDetailClient({
                     <p className="text-xs text-slate-500 p-4">Aguardando resultados…</p>
                   )}
 
-                  {/* IA Proc.2 button */}
-                  {profile.imagem_preview_radan_5m_url && profile.imagem_interpretada_url && (
+                  {/* Anotada P2 button */}
+                  {profile.imagem_preview_radan_5m_url && pTargets.length > 0 && (
                     <div className="px-4 py-2 border-t border-slate-800/60 flex items-center gap-3">
                       <button
                         onClick={() => handleIaP2(profile.id)}
@@ -304,8 +304,8 @@ export function ProjectDetailClient({
                         {iaP2Status[profile.id] === "loading"
                           ? "Solicitando…"
                           : profile.imagem_interpretada_ia_p2_url
-                          ? "Regenerar IA Proc.2"
-                          : "Interpretar Proc.2"}
+                          ? "Regenerar Anotada P2"
+                          : "Gerar Anotada P2"}
                       </button>
                       {iaP2Status[profile.id] === "queued" && (
                         <span className="text-xs text-cyan-400">

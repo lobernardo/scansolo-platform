@@ -157,9 +157,10 @@ def handle_ia_job(supa: "SupabaseClient", job: dict) -> None:
 
 def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
     """
-    Gera _interpretada_ia_p2.png: anotação dos resultados de IA já existentes
-    sobre a imagem Processada 2 (_radargrama_preview_radan_5m.png).
-    Não chama GPT-4o — apenas redesenha os labels com a escala de profundidade da P2.
+    Gera _anotada_p2.png: anotações do detector (rank/profundidade/diâmetro)
+    sobrepostas sobre a imagem Processada 2, usando a escala de profundidade
+    correta para aquela imagem (depth_preview_m, padrão 5 m).
+    Não chama GPT-4o.
     """
     job_id: str = job["id"]
     profile_id: str = (job.get("payload") or {}).get("profile_id", "")
@@ -171,7 +172,6 @@ def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
         if not profile_id:
             raise ValueError("payload.profile_id ausente")
 
-        # Busca perfil — usa .execute() + check manual para evitar .single() raising
         res = supa._client.table("gpr_profiles").select("*").eq("id", profile_id).execute()
         profile = res.data[0] if res.data else None
         if not profile:
@@ -180,25 +180,11 @@ def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
         if not profile.get("imagem_preview_radan_5m_url"):
             raise ValueError("imagem_preview_radan_5m_url ausente — processe o DZT primeiro")
 
-        # Busca alvos e interpretações existentes
         targets = supa.get_targets_for_profile(profile_id)
         if not targets:
             raise ValueError("sem alvos detectados neste perfil")
 
-        target_ids = [t["id"] for t in targets]
-        ai_rows = supa.get_ai_interpretations_for_targets(target_ids)
-        ai_by_target_id = {row["target_id"]: row for row in ai_rows}
-
-        if not ai_by_target_id:
-            raise ValueError("sem interpretações IA para este perfil — rode o job 'ia' primeiro")
-
-        targets_ia = [
-            {"target": t, "ai": ai_by_target_id[t["id"]]}
-            for t in targets
-            if t["id"] in ai_by_target_id
-        ]
-
-        url = _gerar_imagem_interpretada_p2(supa, profile, targets_ia)
+        url = _gerar_imagem_interpretada_p2(supa, profile, targets)
         if not url:
             raise RuntimeError("falha ao gerar ou fazer upload da imagem P2")
 
@@ -217,13 +203,14 @@ def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
 def _gerar_imagem_interpretada_p2(
     supa: "SupabaseClient",
     profile: dict,
-    targets_ia: list[dict],
+    targets: list[dict],
 ) -> str | None:
     """
-    Mesma lógica de _gerar_imagem_interpretada mas usa imagem_preview_radan_5m_url
-    como base e depth_preview_m (default 5.0) como escala de profundidade.
+    Gera _anotada_p2.png: anotações do detector (rank, profundidade, diâmetro)
+    sobre imagem_preview_radan_5m_url, usando depth_preview_m como escala.
+    Mesmo estilo visual da 'Anotada IA' mas na imagem Processada 2.
     """
-    if not targets_ia:
+    if not targets:
         return None
 
     base_url = profile.get("imagem_preview_radan_5m_url")
@@ -241,7 +228,6 @@ def _gerar_imagem_interpretada_p2(
     W, H = img.size
     dist_max = float(profile.get("distancia_max_m") or 1.0)
 
-    # depth_max da Processada 2 — lê de filtros_customizados ou usa 5.0 padrão
     filtros = profile.get("filtros_customizados") or {}
     depth_max = float(filtros.get("depth_preview_m", 5.0))
 
@@ -251,31 +237,31 @@ def _gerar_imagem_interpretada_p2(
     dW = DR - DL
     dH = DB - DT
 
-    for item in targets_ia:
-        target = item["target"]
-        ai = item["ai"]
-
+    for target in targets:
         x_m = target.get("x_m")
         depth_m = target.get("depth_m")
         if x_m is None or depth_m is None:
             continue
         if float(depth_m) > depth_max:
-            continue  # alvo além da janela visível desta imagem
+            continue  # alvo além da janela visível da Processada 2
 
         cx = DL + int(float(x_m) / dist_max * dW)
         cy = DT + int(float(depth_m) / depth_max * dH)
         cx = max(0, min(W - 1, cx))
         cy = max(0, min(H - 1, cy))
 
-        tipo = ai.get("ia_tipo_sugerido", "desconhecido")
-        confianca = ai.get("ia_confianca", "baixa")
-        conf_pct = ai.get("ia_confianca_pct", 0)
+        confianca = target.get("confidence_label_relatorio") or "baixa"
         color = _CONF_COLOR.get(confianca, (160, 160, 160))
 
         r = 7
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=2)
 
-        label = f"{_TIPO_LABEL.get(tipo, tipo)} {conf_pct}%"
+        rank = target.get("rank", "?")
+        depth_str = f"{float(depth_m):.2f}m"
+        diam = target.get("diam_est_m")
+        diam_str = f" ⌀{float(diam):.2f}" if diam else ""
+        label = f"#{rank} {depth_str}{diam_str}"
+
         tx = min(cx + 10, W - 160)
         ty = max(cy - 18, 2)
         try:
@@ -292,12 +278,12 @@ def _gerar_imagem_interpretada_p2(
     storage_path = _extract_storage_path(base_url, "gpr-images")
     if storage_path:
         interp_path = storage_path.replace(
-            "_radargrama_preview_radan_5m.png", "_interpretada_ia_p2.png"
+            "_radargrama_preview_radan_5m.png", "_anotada_p2.png"
         )
         if interp_path == storage_path:
-            interp_path = storage_path.rsplit(".", 1)[0] + "_interpretada_ia_p2.png"
+            interp_path = storage_path.rsplit(".", 1)[0] + "_anotada_p2.png"
     else:
-        interp_path = f"interp/{profile['id'][:8]}_interpretada_ia_p2.png"
+        interp_path = f"interp/{profile['id'][:8]}_anotada_p2.png"
 
     try:
         supa.upload_file("gpr-images", interp_path, img_bytes, "image/png")
