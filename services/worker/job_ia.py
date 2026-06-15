@@ -162,60 +162,56 @@ def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
     Não chama GPT-4o — apenas redesenha os labels com a escala de profundidade da P2.
     """
     job_id: str = job["id"]
-    project_id: str = job["project_id"]
     profile_id: str = (job.get("payload") or {}).get("profile_id", "")
 
     log.info("ia_p2_job_start", job_id=job_id, profile_id=profile_id)
     supa.update_job_status(job_id, "processando")
 
-    if not profile_id:
-        supa.update_job_status(job_id, "erro", error_message="payload.profile_id ausente")
-        return
+    try:
+        if not profile_id:
+            raise ValueError("payload.profile_id ausente")
 
-    # Busca perfil
-    res = supa._client.table("gpr_profiles").select("*").eq("id", profile_id).maybeSingle().execute()
-    profile = res.data
-    if not profile:
-        supa.update_job_status(job_id, "erro", error_message=f"perfil {profile_id} não encontrado")
-        return
+        # Busca perfil — usa .execute() + check manual para evitar .single() raising
+        res = supa._client.table("gpr_profiles").select("*").eq("id", profile_id).execute()
+        profile = res.data[0] if res.data else None
+        if not profile:
+            raise ValueError(f"perfil {profile_id} não encontrado")
 
-    if not profile.get("imagem_preview_radan_5m_url"):
-        supa.update_job_status(job_id, "erro", error_message="imagem_preview_radan_5m_url ausente no perfil")
-        return
+        if not profile.get("imagem_preview_radan_5m_url"):
+            raise ValueError("imagem_preview_radan_5m_url ausente — processe o DZT primeiro")
 
-    # Busca alvos do perfil
-    targets = supa.get_targets_for_profile(profile_id)
-    if not targets:
-        supa.update_job_status(job_id, "erro", error_message="sem alvos detectados neste perfil")
-        return
+        # Busca alvos e interpretações existentes
+        targets = supa.get_targets_for_profile(profile_id)
+        if not targets:
+            raise ValueError("sem alvos detectados neste perfil")
 
-    # Busca interpretações IA existentes
-    target_ids = [t["id"] for t in targets]
-    ai_res = supa._client.table("ai_interpretations").select("*").in_("target_id", target_ids).execute()
-    ai_by_target_id = {row["target_id"]: row for row in (ai_res.data or [])}
+        target_ids = [t["id"] for t in targets]
+        ai_rows = supa.get_ai_interpretations_for_targets(target_ids)
+        ai_by_target_id = {row["target_id"]: row for row in ai_rows}
 
-    if not ai_by_target_id:
-        supa.update_job_status(job_id, "erro", error_message="sem interpretações IA para este perfil — rode o job 'ia' primeiro")
-        return
+        if not ai_by_target_id:
+            raise ValueError("sem interpretações IA para este perfil — rode o job 'ia' primeiro")
 
-    # Monta lista com pares (target, ai)
-    targets_ia = [
-        {"target": t, "ai": ai_by_target_id[t["id"]]}
-        for t in targets
-        if t["id"] in ai_by_target_id
-    ]
+        targets_ia = [
+            {"target": t, "ai": ai_by_target_id[t["id"]]}
+            for t in targets
+            if t["id"] in ai_by_target_id
+        ]
 
-    url = _gerar_imagem_interpretada_p2(supa, profile, targets_ia)
-    if url:
+        url = _gerar_imagem_interpretada_p2(supa, profile, targets_ia)
+        if not url:
+            raise RuntimeError("falha ao gerar ou fazer upload da imagem P2")
+
         supa._client.table("gpr_profiles").update(
             {"imagem_interpretada_ia_p2_url": url}
         ).eq("id", profile_id).execute()
-        log.info("ia_p2_done", profile_id=profile_id, url=url[:80])
-    else:
-        supa.update_job_status(job_id, "erro", error_message="falha ao gerar imagem P2")
-        return
 
-    supa.update_job_status(job_id, "concluido")
+        log.info("ia_p2_done", profile_id=profile_id, url=url[:80])
+        supa.update_job_status(job_id, "concluido")
+
+    except Exception as exc:
+        log.error("ia_p2_job_failed", job_id=job_id, profile_id=profile_id, error=str(exc))
+        supa.update_job_status(job_id, "erro", error_message=str(exc))
 
 
 def _gerar_imagem_interpretada_p2(
