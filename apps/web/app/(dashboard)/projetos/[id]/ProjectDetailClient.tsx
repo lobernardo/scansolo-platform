@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useEffect, useCallback } from "react";
 import type { Database } from "@/lib/types/database";
-import { reprocessProfile } from "./actions";
+import { reprocessProfile, requestIaP2 } from "./actions";
 import type { FilterState } from "./actions";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -56,6 +56,9 @@ export function ProjectDetailClient({
   const [reprocessStatus, setReprocessStatus] = useState<
     Record<string, "idle" | "loading" | "queued" | "error">
   >({});
+  const [iaP2Status, setIaP2Status] = useState<
+    Record<string, "idle" | "loading" | "queued" | "error">
+  >({});
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
   const prevImage = useCallback(
@@ -90,6 +93,7 @@ export function ProjectDetailClient({
       { url: profile.imagem_processada_url ?? "", label: "Processada" },
       { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
       { url: profile.imagem_preview_radan_5m_url ?? "", label: "Processada 2" },
+      { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "IA Proc.2" },
     ].filter((i) => i.url);
     if (!imgs.length) return;
     setLightbox({ images: imgs, index: Math.min(startIndex, imgs.length - 1) });
@@ -132,6 +136,16 @@ export function ProjectDetailClient({
       }));
     } catch {
       setReprocessStatus((prev) => ({ ...prev, [profileId]: "error" }));
+    }
+  }
+
+  async function handleIaP2(profileId: string) {
+    setIaP2Status((prev) => ({ ...prev, [profileId]: "loading" }));
+    try {
+      const result = await requestIaP2(profileId);
+      setIaP2Status((prev) => ({ ...prev, [profileId]: result.ok ? "queued" : "error" }));
+    } catch {
+      setIaP2Status((prev) => ({ ...prev, [profileId]: "error" }));
     }
   }
 
@@ -180,6 +194,7 @@ export function ProjectDetailClient({
                 { url: profile.imagem_processada_url, label: "Processada" },
                 { url: profile.imagem_anotada_url, label: "Anotada IA" },
                 { url: profile.imagem_preview_radan_5m_url, label: "Processada 2" },
+                { url: profile.imagem_interpretada_ia_p2_url, label: "IA Proc.2" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
               const customized = isCustomized(profile.id);
@@ -276,6 +291,31 @@ export function ProjectDetailClient({
                   {/* No images / no targets */}
                   {imgs.length === 0 && pTargets.length === 0 && (
                     <p className="text-xs text-slate-500 p-4">Aguardando resultados…</p>
+                  )}
+
+                  {/* IA Proc.2 button */}
+                  {profile.imagem_preview_radan_5m_url && profile.imagem_interpretada_url && (
+                    <div className="px-4 py-2 border-t border-slate-800/60 flex items-center gap-3">
+                      <button
+                        onClick={() => handleIaP2(profile.id)}
+                        disabled={iaP2Status[profile.id] === "loading"}
+                        className="text-xs px-3 py-1 rounded border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100 disabled:opacity-50 transition-colors"
+                      >
+                        {iaP2Status[profile.id] === "loading"
+                          ? "Solicitando…"
+                          : profile.imagem_interpretada_ia_p2_url
+                          ? "Regenerar IA Proc.2"
+                          : "Interpretar Proc.2"}
+                      </button>
+                      {iaP2Status[profile.id] === "queued" && (
+                        <span className="text-xs text-cyan-400">
+                          ✓ Em fila — recarregue em ~1 min
+                        </span>
+                      )}
+                      {iaP2Status[profile.id] === "error" && (
+                        <span className="text-xs text-red-400">Erro ao criar job</span>
+                      )}
+                    </div>
                   )}
 
                   {/* Filter panel */}

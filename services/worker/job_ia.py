@@ -155,6 +155,162 @@ def handle_ia_job(supa: "SupabaseClient", job: dict) -> None:
 
 # ── Auto-aprovação ────────────────────────────────────────────────────────────
 
+def handle_ia_p2_job(supa: "SupabaseClient", job: dict) -> None:
+    """
+    Gera _interpretada_ia_p2.png: anotação dos resultados de IA já existentes
+    sobre a imagem Processada 2 (_radargrama_preview_radan_5m.png).
+    Não chama GPT-4o — apenas redesenha os labels com a escala de profundidade da P2.
+    """
+    job_id: str = job["id"]
+    project_id: str = job["project_id"]
+    profile_id: str = (job.get("payload") or {}).get("profile_id", "")
+
+    log.info("ia_p2_job_start", job_id=job_id, profile_id=profile_id)
+    supa.update_job_status(job_id, "processando")
+
+    if not profile_id:
+        supa.update_job_status(job_id, "erro", error_message="payload.profile_id ausente")
+        return
+
+    # Busca perfil
+    res = supa._client.table("gpr_profiles").select("*").eq("id", profile_id).maybeSingle().execute()
+    profile = res.data
+    if not profile:
+        supa.update_job_status(job_id, "erro", error_message=f"perfil {profile_id} não encontrado")
+        return
+
+    if not profile.get("imagem_preview_radan_5m_url"):
+        supa.update_job_status(job_id, "erro", error_message="imagem_preview_radan_5m_url ausente no perfil")
+        return
+
+    # Busca alvos do perfil
+    targets = supa.get_targets_for_profile(profile_id)
+    if not targets:
+        supa.update_job_status(job_id, "erro", error_message="sem alvos detectados neste perfil")
+        return
+
+    # Busca interpretações IA existentes
+    target_ids = [t["id"] for t in targets]
+    ai_res = supa._client.table("ai_interpretations").select("*").in_("target_id", target_ids).execute()
+    ai_by_target_id = {row["target_id"]: row for row in (ai_res.data or [])}
+
+    if not ai_by_target_id:
+        supa.update_job_status(job_id, "erro", error_message="sem interpretações IA para este perfil — rode o job 'ia' primeiro")
+        return
+
+    # Monta lista com pares (target, ai)
+    targets_ia = [
+        {"target": t, "ai": ai_by_target_id[t["id"]]}
+        for t in targets
+        if t["id"] in ai_by_target_id
+    ]
+
+    url = _gerar_imagem_interpretada_p2(supa, profile, targets_ia)
+    if url:
+        supa._client.table("gpr_profiles").update(
+            {"imagem_interpretada_ia_p2_url": url}
+        ).eq("id", profile_id).execute()
+        log.info("ia_p2_done", profile_id=profile_id, url=url[:80])
+    else:
+        supa.update_job_status(job_id, "erro", error_message="falha ao gerar imagem P2")
+        return
+
+    supa.update_job_status(job_id, "concluido")
+
+
+def _gerar_imagem_interpretada_p2(
+    supa: "SupabaseClient",
+    profile: dict,
+    targets_ia: list[dict],
+) -> str | None:
+    """
+    Mesma lógica de _gerar_imagem_interpretada mas usa imagem_preview_radan_5m_url
+    como base e depth_preview_m (default 5.0) como escala de profundidade.
+    """
+    if not targets_ia:
+        return None
+
+    base_url = profile.get("imagem_preview_radan_5m_url")
+    img_data = _download_from_storage_url(supa, base_url)
+    if not img_data:
+        return None
+
+    try:
+        img = Image.open(io.BytesIO(img_data)).convert("RGB")
+    except Exception as exc:
+        log.warning("ia_p2_image_open_failed", error=str(exc))
+        return None
+
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
+    dist_max = float(profile.get("distancia_max_m") or 1.0)
+
+    # depth_max da Processada 2 — lê de filtros_customizados ou usa 5.0 padrão
+    filtros = profile.get("filtros_customizados") or {}
+    depth_max = float(filtros.get("depth_preview_m", 5.0))
+
+    font = _get_font(13)
+
+    DL, DR, DT, DB = int(0.09 * W), int(0.96 * W), int(0.10 * H), int(0.87 * H)
+    dW = DR - DL
+    dH = DB - DT
+
+    for item in targets_ia:
+        target = item["target"]
+        ai = item["ai"]
+
+        x_m = target.get("x_m")
+        depth_m = target.get("depth_m")
+        if x_m is None or depth_m is None:
+            continue
+        if float(depth_m) > depth_max:
+            continue  # alvo além da janela visível desta imagem
+
+        cx = DL + int(float(x_m) / dist_max * dW)
+        cy = DT + int(float(depth_m) / depth_max * dH)
+        cx = max(0, min(W - 1, cx))
+        cy = max(0, min(H - 1, cy))
+
+        tipo = ai.get("ia_tipo_sugerido", "desconhecido")
+        confianca = ai.get("ia_confianca", "baixa")
+        conf_pct = ai.get("ia_confianca_pct", 0)
+        color = _CONF_COLOR.get(confianca, (160, 160, 160))
+
+        r = 7
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=2)
+
+        label = f"{_TIPO_LABEL.get(tipo, tipo)} {conf_pct}%"
+        tx = min(cx + 10, W - 160)
+        ty = max(cy - 18, 2)
+        try:
+            bbox = draw.textbbox((tx, ty), label, font=font)
+            draw.rectangle([bbox[0] - 2, bbox[1] - 1, bbox[2] + 2, bbox[3] + 1], fill=(0, 0, 0))
+        except AttributeError:
+            pass
+        draw.text((tx, ty), label, fill=color, font=font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    img_bytes = buf.getvalue()
+
+    storage_path = _extract_storage_path(base_url, "gpr-images")
+    if storage_path:
+        interp_path = storage_path.replace(
+            "_radargrama_preview_radan_5m.png", "_interpretada_ia_p2.png"
+        )
+        if interp_path == storage_path:
+            interp_path = storage_path.rsplit(".", 1)[0] + "_interpretada_ia_p2.png"
+    else:
+        interp_path = f"interp/{profile['id'][:8]}_interpretada_ia_p2.png"
+
+    try:
+        supa.upload_file("gpr-images", interp_path, img_bytes, "image/png")
+        return supa.get_public_url("gpr-images", interp_path)
+    except Exception as exc:
+        log.warning("ia_p2_upload_failed", error=str(exc))
+        return None
+
+
 def _auto_aprovar_targets(
     supa: "SupabaseClient",
     project_id: str,

@@ -68,6 +68,32 @@ export async function reprocessProfile(
   return { ok: true };
 }
 
+export async function requestIaP2(profileId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  const { data: profileRaw } = await supabase
+    .from("gpr_profiles")
+    .select("id, project_id")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (!profileRaw) return { ok: false, error: "Perfil não encontrado" };
+  const profile = profileRaw as { id: string; project_id: string };
+
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({
+      project_id: profile.project_id,
+      job_type: "ia_p2",
+      status: "aguardando",
+      payload: { profile_id: profileId },
+    } as unknown as never);
+
+  if (error) return { ok: false, error: `Erro ao criar job: ${error.message}` };
+  return { ok: true };
+}
+
 export async function deleteProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
   // Auth check with user client
   const supabase = await createClient();

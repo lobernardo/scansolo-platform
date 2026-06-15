@@ -20,7 +20,7 @@ except ImportError:
 
 from clients.supabase_client import SupabaseClient
 from job_gpr import handle_gpr_job, handle_inferencias_job
-from job_ia import handle_ia_job
+from job_ia import handle_ia_job, handle_ia_p2_job
 from job_cartografia import handle_cartografia_job
 from job_relatorio import handle_relatorio_job
 from job_interpretada import handle_interpretada_job
@@ -58,6 +58,8 @@ def poll_once(supa: SupabaseClient) -> None:
         handle_gpr_job(supa, job)
     elif job_type == "ia":
         handle_ia_job(supa, job)
+    elif job_type == "ia_p2":
+        handle_ia_p2_job(supa, job)
     elif job_type == "cartografia":
         handle_cartografia_job(supa, job)
     elif job_type == "relatorio":

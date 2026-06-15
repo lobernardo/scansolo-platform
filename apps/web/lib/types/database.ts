@@ -314,6 +314,7 @@ export type Database = {
           imagem_interpretada_manual_data: Json | null
           imagem_interpretada_status: string
           imagem_interpretada_url: string | null
+          imagem_interpretada_ia_p2_url: string | null
           imagem_preview_radan_5m_url: string | null
           imagem_processada_url: string | null
           modo_processamento: string | null
@@ -344,6 +345,7 @@ export type Database = {
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
+          imagem_interpretada_ia_p2_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
           modo_processamento?: string | null
@@ -374,6 +376,7 @@ export type Database = {
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
+          imagem_interpretada_ia_p2_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
           modo_processamento?: string | null
@@ -861,6 +864,7 @@ export type Database = {
       job_type:
         | "gpr"
         | "ia"
+        | "ia_p2"
         | "cartografia"
         | "relatorio"
         | "inferencias"
