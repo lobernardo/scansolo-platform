@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-15 (preview RADAN 5m + job ia_p2 + delete projeto + skip_ia)
+> Última atualização: 2026-06-16 (polling reprocess + sem-ia-imagem sempre ativo + P13 resolvido)
 
 ---
 
@@ -209,6 +209,8 @@ Dois fluxos:
 
 **`skip_ia` flag:** `processing_config.skip_ia = true` → worker não cria job `ia` após o GPR concluir. Disponível na UI de Nova Entrada como checkbox. Útil para testes e validação local sem custo de GPT-4o.
 
+**`--sem-ia-imagem` sempre ativo:** flag passada em toda execução do worker (job completo e reprocessamento) — `gpt-image-1` nunca roda via worker, independente de `processing_config`.
+
 ### job_ia.py
 
 1. Interpreta cada alvo via GPT-4o (prompt em inglês, resposta JSON com 10 campos)
@@ -352,7 +354,7 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/dashboard` | `dashboard/page.tsx` | Visão geral de projetos |
 | `/projetos` | `projetos/page.tsx` + `ProjetosTable.tsx` | Lista de projetos |
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto + upload DZT (UI 2-step) |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / Processada 2 / Anotada P2) + botão deletar |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional de DZTs |
 | `/projetos/[id]/revisao` | `ReviewClient.tsx` | Revisão técnica por alvo |
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
@@ -507,6 +509,7 @@ supabase db push --password <DB_PASSWORD>
 | P10 | Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado) | 232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta | Avaliar elevar `det_depth_min_m` para 0.50m em modo MINIMO, ou forçar bandpass quando SNR_ratio > 100 |
 | P11 | Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222) | Confunde auditorias — pipeline é v2.0.0 | Atualizar texto de impressão para "v2.0" |
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
+| P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
 
 ---
 
