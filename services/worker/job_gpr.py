@@ -225,10 +225,9 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
     # Gain
     if filtros.get("gain", True):
         gain_type = filtros.get("gain_type", "linear")
-        # tpow_power=0 usa AGC; valores positivos = tpow linear/exponencial
         if gain_type == "agc":
-            cfg["tpow_power"] = 0  # pipeline usará só AGC
-        # Para linear/exponencial, mantém o preset (tpow já é o padrão)
+            cfg["tpow_power"] = 0  # desativa tpow; pipeline usa só AGC
+        # "linear" = mantém tpow do preset (padrão)
     else:
         cfg["tpow_power"] = 0  # desativa tpow; AGC ainda é aplicado internamente
 
@@ -262,19 +261,26 @@ def _run_pipeline(
         "--solo", tipo_solo,
     ]
 
+    cmd.append("--sem-ia-imagem")
+
     if processing_config:
         cfg_path = output_dir / "filter_config.json"
         cfg_path.write_text(json.dumps(processing_config), encoding="utf-8")
         cmd += ["--filter-config", str(cfg_path)]
         log.info("pipeline_filter_config", config=processing_config)
-    else:
-        cmd.append("--sem-ia-imagem")
 
     log.info("pipeline_start", cmd=" ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        log.error("pipeline_stderr", stderr=result.stderr)
-        raise RuntimeError(f"pipeline_v1.py exited {result.returncode}: {result.stderr[-1000:]}")
+        log.error("pipeline_failed",
+                  returncode=result.returncode,
+                  stderr=result.stderr[-2000:] or "(vazio)",
+                  stdout=result.stdout[-2000:] or "(vazio)")
+        raise RuntimeError(
+            f"pipeline_v1.py exited {result.returncode}\n"
+            f"STDERR: {result.stderr[-1000:] or '(vazio)'}\n"
+            f"STDOUT: {result.stdout[-1000:] or '(vazio)'}"
+        )
     log.info("pipeline_done", stdout_tail=result.stdout[-500:])
 
 

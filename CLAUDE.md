@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-12 (pipeline v2.0.0 — tres fluxos separados + detector RAW)
+> Última atualização: 2026-06-15 (preview RADAN 5m + job ia_p2 + delete projeto + skip_ia)
 
 ---
 
@@ -49,6 +49,7 @@
 | 7 | `_migrada.png` (Kirchhoff numpy) + velocity estimada + espectro por alvo | ✅ |
 | 8 | Relatório de inferências sob demanda (job `inferencias` → `.txt` para Amilson) | ✅ |
 | 9 | Workflow da imagem interpretada (Amilson aprova/regenera/anota manualmente) | ✅ |
+| 10 | Preview RADAN 5m (`_radargrama_preview_radan_5m.png`) + job `ia_p2` (anotações sobre P2) + delete projeto + `skip_ia` flag | ✅ |
 
 ---
 
@@ -72,6 +73,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | Científico | raw→dewow→bp→tpow | `_radargrama_cientifico.png` | Revisão técnica (Amilson) |
 | Relatório | raw→dewow→bp→bgremoval→tpow→AGC | `_radargrama_relatorio.png` / `_processada.png` | Cliente/PDF |
 | Detector | controlado por `detector_input_mode` (default: `raw`) | `_anotada_completa.png` | Hough+CurveFit+DeltaT |
+| Preview RADAN | arr_dewow_bp (cópia) → AGC(80) | `_radargrama_preview_radan_5m.png` | Comparação visual com RADAN (5m fixo) |
 
 **Mudança principal v2.0.0:** detector opera sobre `arr_raw` por padrão (82% CurveFit em PATIO)
 vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
@@ -89,7 +91,8 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
 9. **Detector:** Hough → CurveFit → DeltaT + física — entrada = `arr_detector`; filtro `det_depth_min_m=0.30m`
 10. **Score filter** ≥30; anotações desenhadas sobre `arr_cientifico` (não sobre arr_proc)
 11. **Velocity** por semblance; **Espectro** por alvo
-12. `_anotada_completa.png` + `_anotada_alta_confianca.png` + `_alvos.csv` + `index_projeto.csv` + `config_used.json`
+12. **Preview RADAN 5m**: `arr_dewow_bp` (cópia independente) → AGC(window=80) → PNG com footer laranja de aviso; velocity calculada dinamicamente `(2 × 5.0) / twtt_max_ns`; campos `preview_depth_m` + `preview_velocity_mns` adicionados ao `index_projeto.csv`
+13. `_anotada_completa.png` + `_anotada_alta_confianca.png` + `_radargrama_preview_radan_5m.png` + `_alvos.csv` + `index_projeto.csv` + `config_used.json`
 
 ### Matrizes numpy — finalidades separadas
 
@@ -192,6 +195,7 @@ Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5
 |---|---|---|
 | `gpr` | `job_gpr.handle_gpr_job` | Roda pipeline_v1.py via subprocess |
 | `ia` | `job_ia.handle_ia_job` | GPT-4o por alvo + `_interpretada_ia.png` |
+| `ia_p2` | `job_ia.handle_ia_p2_job` | Anotações do detector sobre `imagem_preview_radan_5m` (sem nova chamada GPT-4o) |
 | `cartografia` | `job_cartografia.handle_cartografia_job` | DXF + KML + GeoJSON + CSV |
 | `relatorio` | `job_relatorio.handle_relatorio_job` | DOCX + PDF via LibreOffice |
 | `inferencias` | `job_gpr.handle_inferencias_job` | Relatório `.txt` sob demanda (não altera status) |
@@ -200,8 +204,10 @@ Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5
 ### job_gpr.py
 
 Dois fluxos:
-1. **Job completo** (sem `payload.profile_id`): baixa todos DZTs do projeto → roda pipeline → persiste perfis + alvos + imagens
+1. **Job completo** (sem `payload.profile_id`): baixa todos DZTs do projeto → roda pipeline → persiste perfis + alvos + imagens (inclusive `imagem_preview_radan_5m_url`)
 2. **Reprocessamento individual** (com `payload.profile_id`): reprocessa um único DZT com filtros customizados → não altera status do projeto, não cria job IA
+
+**`skip_ia` flag:** `processing_config.skip_ia = true` → worker não cria job `ia` após o GPR concluir. Disponível na UI de Nova Entrada como checkbox. Útil para testes e validação local sem custo de GPT-4o.
 
 ### job_ia.py
 
@@ -224,6 +230,19 @@ Upload para `gpr-tabelas/{project_id}/`
 
 Gera DOCX via python-docx + converte para PDF via LibreOffice (instalado no Dockerfile do Railway)  
 Upload para `gpr-tabelas/{project_id}/`
+
+### job_ia.py — handle_ia_p2_job (Fase 10)
+
+Disparado por `requestIaP2(profileId)` via server action → job `ia_p2` em `processing_jobs`
+
+1. Reusa resultados do job `ia` já existentes no perfil (sem nova chamada GPT-4o)
+2. Baixa `imagem_preview_radan_5m_url` do Storage (`gpr-images`)
+3. Usa `depth_preview_m` de `filtros_customizados` (ou 5.0 por padrão) como escala de profundidade
+4. Desenha anotações do detector (rank / profundidade / diâmetro) no mesmo estilo de `plotar_deteccoes` (Anotada IA) — alvos fora da janela visível são silenciados
+5. Upload → `gpr-images/{project_id}/{run_id}/{stem}_anotada_p2.png`
+6. Salva URL em `gpr_profiles.imagem_interpretada_ia_p2_url`
+
+**Frontend:** aba "IA Proc.2" visível quando Processada 2 + IA existem; botões "Interpretar Proc.2" / "Regenerar IA P2"
 
 ### job_interpretada.py (Fase 9)
 
@@ -333,7 +352,7 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/dashboard` | `dashboard/page.tsx` | Visão geral de projetos |
 | `/projetos` | `projetos/page.tsx` + `ProjetosTable.tsx` | Lista de projetos |
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto + upload DZT (UI 2-step) |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline do projeto |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / Processada 2 / Anotada P2) + botão deletar |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional de DZTs |
 | `/projetos/[id]/revisao` | `ReviewClient.tsx` | Revisão técnica por alvo |
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
@@ -387,7 +406,9 @@ aguardando_arquivos
 | `imagem_processada_url` | text | URL pública `gpr-images` — `_processada.png` (alias de `_radargrama_relatorio.png`) |
 | `imagem_anotada_url` | text | URL pública `gpr-images` — `_anotada_completa.png` (sobre radargrama científico) |
 | `imagem_migrada_url` | text | URL pública `gpr-images` |
+| `imagem_preview_radan_5m_url` | text | URL pública `gpr-images` — `_radargrama_preview_radan_5m.png` (5m preview) |
 | `imagem_interpretada_url` | text | URL pública — `_interpretada_ia.png` (job_ia) |
+| `imagem_interpretada_ia_p2_url` | text | URL pública — `_anotada_p2.png` (job_ia_p2, sobre preview RADAN 5m) |
 | `imagem_interpretada_status` | enum | pendente / aprovado / regenerando / manual |
 | `imagem_interpretada_manual_data` | JSONB | Anotações do canvas manual |
 | `csv_alvos_url` | text | URL signed `gpr-tabelas` |
@@ -409,7 +430,7 @@ Decisões de revisão por alvo: `vai_para_planta`, `vai_para_relatorio`, `tipo_c
 
 | Campo | Tipo | Uso |
 |---|---|---|
-| `job_type` | enum | gpr / ia / cartografia / relatorio / inferencias / interpretada |
+| `job_type` | enum | gpr / ia / ia_p2 / cartografia / relatorio / inferencias / interpretada |
 | `status` | enum | aguardando / processando / concluido / erro |
 | `payload` | JSONB | Parâmetros opcionais (ex: `profile_id` para reprocessamento) |
 | `error_message` | text | Mensagem de erro se status=erro |
@@ -425,12 +446,12 @@ Alvos aprovados pelo Amilson salvos para futura melhoria do modelo. Campos: `pro
 | Bucket | Conteúdo | Visibilidade |
 |---|---|---|
 | `gpr-uploads` | DZTs brutos | Privado |
-| `gpr-images` | PNGs (bruta / processada / anotada / interpretada / migrada) | Público |
+| `gpr-images` | PNGs (bruta / processada / anotada / interpretada / migrada / preview_radan_5m / anotada_p2) | Público |
 | `gpr-tabelas` | CSVs, DXF, KML, GeoJSON, DOCX, PDF, inferencias.txt | Privado |
 
 ---
 
-## Migrations aplicadas (remoto sincronizado em 2026-06-09)
+## Migrations aplicadas (remoto sincronizado em 2026-06-09; novas locais em 2026-06-15)
 
 | Arquivo | Conteúdo |
 |---|---|
@@ -445,8 +466,10 @@ Alvos aprovados pelo Amilson salvos para futura melhoria do modelo. Campos: `pro
 | 20260603000001 | imagem_interpretada_status + imagem_interpretada_manual_data + ia_training_examples; enum extensions |
 | 20260606000001 | fix constraint confidence_label_relatorio — adiciona 'media' aos valores aceitos |
 | 20260608000001 | SNR gate: snr_imagem_db, snr_imagem_ratio, modo_processamento, tipo_solo em gpr_profiles |
+| 20260615000001 | `imagem_preview_radan_5m_url` em gpr_profiles (Preview RADAN 5m) |
+| 20260615000002 | `ia_p2` no enum job_type + `imagem_interpretada_ia_p2_url` em gpr_profiles |
 
-Banco remoto sincronizado: `supabase migration list` confirma Local = Remote para todas as 11 migrations.
+Banco remoto sincronizado: `supabase migration list` confirma Local = Remote para todas as 13 migrations (verificado 2026-06-15).
 
 ---
 
@@ -480,7 +503,10 @@ supabase db push --password <DB_PASSWORD>
 | P6 | `fis_amp_metal_thr=0.75` e `fis_amp_nao_metal_thr=0.40` não calibrados | Classificação metal/não-metal imprecisa | Calibrar com ~10 alvos de tipo conhecido (Amilson) |
 | P7 | GPT-4o tem viés para `galeria_concreto` sem contexto do projeto | Interpretações automáticas pouco diferenciadas | Adicionar contexto do projeto no prompt |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
-| P9 | `job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão | v2.0.0 ativo automaticamente no worker sem alteração | ✅ Resolvido — preset contém default correto |
+| P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
+| P10 | Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado) | 232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta | Avaliar elevar `det_depth_min_m` para 0.50m em modo MINIMO, ou forçar bandpass quando SNR_ratio > 100 |
+| P11 | Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222) | Confunde auditorias — pipeline é v2.0.0 | Atualizar texto de impressão para "v2.0" |
+| P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 
 ---
 
@@ -493,3 +519,5 @@ supabase db push --password <DB_PASSWORD>
 5. **Qualidade visual** — comparar `_radargrama_relatorio.png` do pipeline v2.0.0 vs. output RADAN para o mesmo DZT lado a lado
 6. **Prompt GPT-4o** — adicionar contexto do projeto para reduzir viés `galeria_concreto`
 7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso.
+8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade de 5m e a velocity dinâmica são adequados para cada projeto.
+9. **Pileup 0.30m em DZTs HELPER** (SNR ratio 720–1125, modo MINIMO) — confirmar se 232 alvos em 0.30m são falsos positivos antes de ajustar `det_depth_min_m`. Benchmarks em `pipeline/benchmark_real/04_benchmarks_detector/HELPER/` e `06_docs/AUDITORIA_UI_PREVIEW_RADAN_5M_LOCAL.md`.

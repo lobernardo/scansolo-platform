@@ -10,7 +10,7 @@ export type FilterState = {
   bandpass_low: number;
   bandpass_high: number;
   gain: boolean;
-  gain_type: "linear" | "exponential" | "agc";
+  gain_type: "linear" | "agc";
   contrast: number;
   // Processada 2 (preview RADAN visual) — independent params
   depth_preview_m: number;
@@ -20,7 +20,7 @@ export type FilterState = {
 export async function reprocessProfile(
   profileId: string,
   filters: FilterState
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -50,10 +50,14 @@ export async function reprocessProfile(
     );
   }
 
+  // Generate the job ID client-side so we can return it without a second SELECT
+  const jobId = crypto.randomUUID();
+
   // Insert a GPR reprocessing job with profile_id + filters in payload
   const { error: jobError } = await supabase
     .from("processing_jobs")
     .insert({
+      id: jobId,
       project_id: profile.project_id,
       job_type: "gpr",
       status: "aguardando",
@@ -65,7 +69,23 @@ export async function reprocessProfile(
     return { ok: false, error: `Erro ao criar job: ${jobError.message}` };
   }
 
-  return { ok: true };
+  return { ok: true, jobId };
+}
+
+export async function getJobStatus(jobId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("processing_jobs")
+    .select("status")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  return (data as { status: string } | null)?.status ?? null;
 }
 
 export async function requestIaP2(profileId: string): Promise<{ ok: boolean; error?: string }> {

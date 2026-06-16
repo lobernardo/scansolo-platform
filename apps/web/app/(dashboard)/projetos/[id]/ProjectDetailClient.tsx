@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import type { Database } from "@/lib/types/database";
-import { reprocessProfile, requestIaP2 } from "./actions";
+import { reprocessProfile, requestIaP2, getJobStatus } from "./actions";
 import type { FilterState } from "./actions";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -28,7 +29,7 @@ const DEFAULT_FILTERS: FilterState = {
   bandpass_high: 500,
   gain: true,
   gain_type: "linear",
-  contrast: 1.0,
+  contrast: 2.5,
   depth_preview_m: 5.0,
   agc_window_preview: 80,
 };
@@ -46,6 +47,7 @@ export function ProjectDetailClient({
   aiByTargetId: Record<string, AiInterpretationRow>;
   downloadFiles: DownloadFile[];
 }) {
+  const router = useRouter();
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
 
@@ -59,6 +61,37 @@ export function ProjectDetailClient({
   const [iaP2Status, setIaP2Status] = useState<
     Record<string, "idle" | "loading" | "queued" | "error">
   >({});
+
+  // Maps profileId → jobId for in-flight reprocess jobs (enables polling)
+  const [pendingJobs, setPendingJobs] = useState<Record<string, string>>({});
+
+  // Poll pending reprocess jobs every 5s; refresh page when any completes
+  useEffect(() => {
+    if (!Object.keys(pendingJobs).length) return;
+
+    const interval = setInterval(async () => {
+      const entries = Object.entries(pendingJobs);
+      for (const [profileId, jobId] of entries) {
+        const status = await getJobStatus(jobId);
+        if (status === "concluido" || status === "erro") {
+          setPendingJobs((prev) => {
+            const next = { ...prev };
+            delete next[profileId];
+            return next;
+          });
+          setReprocessStatus((prev) => ({
+            ...prev,
+            [profileId]: status === "concluido" ? "idle" : "error",
+          }));
+          if (status === "concluido") {
+            router.refresh();
+          }
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [pendingJobs, router]);
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
   const prevImage = useCallback(
@@ -130,6 +163,9 @@ export function ProjectDetailClient({
     setReprocessStatus((prev) => ({ ...prev, [profileId]: "loading" }));
     try {
       const result = await reprocessProfile(profileId, getFilters(profileId));
+      if (result.ok && result.jobId) {
+        setPendingJobs((prev) => ({ ...prev, [profileId]: result.jobId! }));
+      }
       setReprocessStatus((prev) => ({
         ...prev,
         [profileId]: result.ok ? "queued" : "error",
@@ -722,9 +758,8 @@ function FilterPanel({
                 }
                 className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
               >
-                <option value="linear">Linear</option>
-                <option value="exponential">Exponencial</option>
-                <option value="agc">AGC</option>
+                <option value="linear">tpow (preset padrão)</option>
+                <option value="agc">Só AGC (desativa tpow)</option>
               </select>
             </div>
           )}
