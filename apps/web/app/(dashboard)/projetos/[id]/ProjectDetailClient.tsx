@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { Database } from "@/lib/types/database";
 import { reprocessProfile, requestIaP2, getJobStatus, requestRecalibrarVelocity } from "./actions";
 import type { FilterState } from "./actions";
+import { getPipelineMetrics, type PipelineMetrics } from "@/app/actions/gpr-actions";
+import { PipelineLog, MetricsDiff } from "@/components/PipelineLog";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
@@ -77,6 +79,12 @@ export function ProjectDetailClient({
   const [velocityStatus, setVelocityStatus] = useState<"idle" | "loading" | "concluido" | "error">("idle");
   const [velocityJobId, setVelocityJobId] = useState<string | null>(null);
 
+  // Pipeline log state (C3/C4): loaded lazily per profile
+  const [pipelineLogs, setPipelineLogs] = useState<Record<string, PipelineMetrics | null>>({});
+  const [logLoading, setLogLoading] = useState<Record<string, boolean>>({});
+  const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
+  const [prevLogs, setPrevLogs] = useState<Record<string, PipelineMetrics | null>>({});
+
   // Poll pending reprocess jobs every 5s; refresh page when any completes
   useEffect(() => {
     if (!Object.keys(pendingJobs).length) return;
@@ -97,6 +105,16 @@ export function ProjectDetailClient({
           }));
           if (status === "concluido") {
             router.refresh();
+            // Re-fetch metrics so Pipeline Log + diff show updated values
+            void (async () => {
+              setLogLoading((prev) => ({ ...prev, [profileId]: true }));
+              try {
+                const m = await getPipelineMetrics(profileId);
+                setPipelineLogs((prev) => ({ ...prev, [profileId]: m }));
+              } finally {
+                setLogLoading((prev) => ({ ...prev, [profileId]: false }));
+              }
+            })();
           }
         }
       }
@@ -182,11 +200,30 @@ export function ProjectDetailClient({
     setFilterStates((prev) => ({ ...prev, [profileId]: DEFAULT_FILTERS }));
   }
 
+  async function loadMetrics(profileId: string) {
+    setLogLoading((prev) => ({ ...prev, [profileId]: true }));
+    try {
+      const m = await getPipelineMetrics(profileId);
+      setPipelineLogs((prev) => ({ ...prev, [profileId]: m }));
+    } finally {
+      setLogLoading((prev) => ({ ...prev, [profileId]: false }));
+    }
+  }
+
   function toggleFilterPanel(profileId: string) {
-    setExpandedFilters((prev) => ({ ...prev, [profileId]: !prev[profileId] }));
+    const expanding = !(expandedFilters[profileId] ?? false);
+    setExpandedFilters((prev) => ({ ...prev, [profileId]: expanding }));
+    // Auto-load metrics for compact state-atual view
+    if (expanding && pipelineLogs[profileId] === undefined) {
+      void loadMetrics(profileId);
+    }
   }
 
   async function handleReprocess(profileId: string) {
+    // Snapshot current metrics as "before" for diff display after reprocess
+    if (pipelineLogs[profileId] !== undefined) {
+      setPrevLogs((prev) => ({ ...prev, [profileId]: pipelineLogs[profileId] }));
+    }
     setReprocessStatus((prev) => ({ ...prev, [profileId]: "loading" }));
     try {
       const result = await reprocessProfile(profileId, getFilters(profileId));
@@ -357,6 +394,40 @@ export function ProjectDetailClient({
                     <p className="text-xs text-slate-500 p-4">Aguardando resultados…</p>
                   )}
 
+                  {/* Pipeline Log (C3) — colapsado por padrão */}
+                  {imgs.length > 0 && (
+                    <div className="px-4 py-2 border-t border-slate-800/60">
+                      <button
+                        onClick={() => {
+                          const expanding = !(expandedLogs[profile.id] ?? false);
+                          setExpandedLogs((prev) => ({ ...prev, [profile.id]: expanding }));
+                          if (expanding && pipelineLogs[profile.id] === undefined) {
+                            void loadMetrics(profile.id);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        <span className="text-[10px]">
+                          {expandedLogs[profile.id] ? "▾" : "▸"}
+                        </span>
+                        <span>Pipeline Log</span>
+                        {logLoading[profile.id] && (
+                          <span className="text-[10px] text-cyan-400 animate-pulse ml-1">
+                            carregando…
+                          </span>
+                        )}
+                      </button>
+                      {expandedLogs[profile.id] && (
+                        <div className="mt-2 max-h-96 overflow-y-auto">
+                          <PipelineLog
+                            metrics={pipelineLogs[profile.id] ?? null}
+                            compact={false}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Anotada P2 button */}
                   {profile.imagem_preview_radan_5m_url && pTargets.length > 0 && (
                     <div className="px-4 py-2 border-t border-slate-800/60 flex items-center gap-3">
@@ -403,6 +474,9 @@ export function ProjectDetailClient({
                         onReprocess={() => handleReprocess(profile.id)}
                         onReset={() => resetFilters(profile.id)}
                         status={rpStatus}
+                        currentMetrics={pipelineLogs[profile.id] ?? null}
+                        prevMetrics={prevLogs[profile.id] ?? null}
+                        metricsLoading={logLoading[profile.id] ?? false}
                       />
                     )}
                   </div>
@@ -748,6 +822,9 @@ function FilterPanel({
   onReprocess,
   onReset,
   status,
+  currentMetrics,
+  prevMetrics,
+  metricsLoading,
 }: {
   filters: FilterState;
   filterTarget: "processada" | "processada2";
@@ -756,9 +833,29 @@ function FilterPanel({
   onReprocess: () => void;
   onReset: () => void;
   status: "idle" | "loading" | "queued" | "error";
+  currentMetrics?: PipelineMetrics | null;
+  prevMetrics?: PipelineMetrics | null;
+  metricsLoading?: boolean;
 }) {
   return (
     <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3 space-y-3">
+      {/* Estado atual — compact PipelineLog (C4) */}
+      {(currentMetrics || metricsLoading) && (
+        <div className="pb-2 border-b border-slate-700/50 space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            Estado atual
+          </p>
+          {metricsLoading ? (
+            <p className="text-xs text-slate-500 animate-pulse">Carregando métricas…</p>
+          ) : (
+            <PipelineLog metrics={currentMetrics ?? null} compact />
+          )}
+        </div>
+      )}
+      {/* Diff antes → depois (aparece após reprocessamento) */}
+      {prevMetrics && currentMetrics && !metricsLoading && (
+        <MetricsDiff prev={prevMetrics} curr={currentMetrics} />
+      )}
       {/* Output target tabs */}
       <div className="flex gap-1 rounded-md bg-slate-900 p-0.5 w-fit">
         {(["processada", "processada2"] as const).map((t) => (

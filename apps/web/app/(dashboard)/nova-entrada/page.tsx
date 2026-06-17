@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useEffect } from "react";
+import { Fragment, useActionState, useState, useEffect } from "react";
 import { createProject, type CreateProjectState } from "./actions";
 import type { GprPreset } from "@/app/actions/preset-actions";
 
@@ -164,28 +164,59 @@ export default function NovaEntradaPage() {
                     Alterações aqui sobrescrevem apenas este projeto — o preset original não é modificado.
                   </p>
 
+                  {/* Mini pipeline visual */}
+                  <div className="flex items-center flex-wrap gap-0.5">
+                    {(["Filtros", "SNR Gate", "Detector", "Imagens"] as const).map(
+                      (label, i, arr) => (
+                        <Fragment key={label}>
+                          <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900 text-[10px] text-slate-400">
+                            {label}
+                          </span>
+                          {i < arr.length - 1 && (
+                            <span className="text-slate-700 text-[10px] mx-0.5">→</span>
+                          )}
+                        </Fragment>
+                      )
+                    )}
+                    <span className="ml-2 text-[10px] text-slate-600">
+                      Hover ⓘ em cada parâmetro para detalhes
+                    </span>
+                  </div>
+
                   <CustomGroup label="Filtragem de Sinal">
-                    <CInt label="dewow_window" value={Number(getParam("dewow_window", 5))} min={3} max={15} onChange={(v) => setOverride("dewow_window", v)} />
-                    <CInt label="bandpass_low_mhz" value={Number(getParam("bandpass_low_mhz", 80))} min={30} max={200} onChange={(v) => setOverride("bandpass_low_mhz", v)} />
-                    <CInt label="bandpass_high_mhz" value={Number(getParam("bandpass_high_mhz", 500))} min={200} max={900} onChange={(v) => setOverride("bandpass_high_mhz", v)} />
-                    <CInt label="bgremoval_traces" value={Number(getParam("bgremoval_traces", 30))} min={5} max={60} onChange={(v) => setOverride("bgremoval_traces", v)} />
+                    <CInt label="dewow_window" value={Number(getParam("dewow_window", 5))} min={3} max={15} onChange={(v) => setOverride("dewow_window", v)}
+                      tooltip="Filtra deriva de baixa frequência (saturação do receptor). Raramente precisa ser alterado. Recomendado: 3–7." />
+                    <CInt label="bandpass_low_mhz" value={Number(getParam("bandpass_low_mhz", 80))} min={30} max={200} onChange={(v) => setOverride("bandpass_low_mhz", v)}
+                      tooltip="Frequência de corte inferior do filtro passa-banda. Elimina componentes DC e ruído abaixo do espectro da antena. Recomendado: 60–100 MHz para antena 270 MHz." />
+                    <CInt label="bandpass_high_mhz" value={Number(getParam("bandpass_high_mhz", 500))} min={200} max={900} onChange={(v) => setOverride("bandpass_high_mhz", v)}
+                      tooltip="Frequência de corte superior do filtro passa-banda. Elimina ruído de alta frequência. Recomendado: 400–600 MHz para antena 270 MHz." />
+                    <CInt label="bgremoval_traces" value={Number(getParam("bgremoval_traces", 30))} min={5} max={60} onChange={(v) => setOverride("bgremoval_traces", v)}
+                      tooltip="Remove padrões horizontais (solo homogêneo, interferências). Maior = remoção mais agressiva. Muito alto apaga hipérboles rasas. Recomendado: 15–40 traços." />
                   </CustomGroup>
 
                   <CustomGroup label="Ganho e Contraste">
-                    <CFloat label="tpow_power" value={Number(getParam("tpow_power", 0.5))} min={0.1} max={2.0} step={0.05} onChange={(v) => setOverride("tpow_power", v)} />
-                    <CInt label="agc_window" value={Number(getParam("agc_window", 150))} min={50} max={300} onChange={(v) => setOverride("agc_window", v)} />
-                    <CFloat label="contrast" value={Number(getParam("contrast", 2.5))} min={1.0} max={5.0} step={0.1} onChange={(v) => setOverride("contrast", v)} />
+                    <CFloat label="tpow_power" value={Number(getParam("tpow_power", 0.5))} min={0.1} max={2.0} step={0.05} onChange={(v) => setOverride("tpow_power", v)}
+                      tooltip="Ganho por potência do tempo — compensa atenuação com profundidade. Maior = mais amplificação de reflexões profundas. Recomendado: 0.3–0.8." />
+                    <CInt label="agc_window" value={Number(getParam("agc_window", 150))} min={50} max={300} onChange={(v) => setOverride("agc_window", v)}
+                      tooltip="Controle automático de ganho. Janela menor = mais agressivo (amplifica sinais fracos, pode saturar sinais fortes). Ideal para solos úmidos/argilosos. Recomendado: 80–200 samples." />
+                    <CFloat label="contrast" value={Number(getParam("contrast", 2.5))} min={1.0} max={5.0} step={0.1} onChange={(v) => setOverride("contrast", v)}
+                      tooltip="Multiplicador de contraste da imagem final. Não afeta o processamento — só a visualização. Recomendado: 1.5–3.0." />
                   </CustomGroup>
 
                   <CustomGroup label="Escala">
-                    <CFloat label="velocity_mns" value={Number(getParam("velocity_mns", 0.10))} min={0.04} max={0.30} step={0.01} onChange={(v) => setOverride("velocity_mns", v)} />
+                    <CFloat label="velocity_mns" value={Number(getParam("velocity_mns", 0.10))} min={0.04} max={0.30} step={0.01} onChange={(v) => setOverride("velocity_mns", v)}
+                      tooltip="Converte eixo de tempo (ns) em profundidade (m). NÃO afeta filtros de sinal. ε_r = (0.3/v)². Recomendado: 0.06 (argila saturada) a 0.20 (areia seca)." />
                   </CustomGroup>
 
                   <CustomGroup label="Detector">
-                    <CFloat label="det_amp_threshold" value={Number(getParam("det_amp_threshold", 0.50))} min={0.10} max={0.90} step={0.01} onChange={(v) => setOverride("det_amp_threshold", v)} />
-                    <CFloat label="det_h_max_m" value={Number(getParam("det_h_max_m", 3.0))} min={0.5} max={6.0} step={0.25} onChange={(v) => setOverride("det_h_max_m", v)} />
-                    <CInt label="det_min_score_csv" value={Number(getParam("det_min_score_csv", 30))} min={10} max={80} onChange={(v) => setOverride("det_min_score_csv", v)} />
-                    <CFloat label="det_depth_min_m" value={Number(getParam("det_depth_min_m", 0.30))} min={0.10} max={1.00} step={0.05} onChange={(v) => setOverride("det_depth_min_m", v)} />
+                    <CFloat label="det_amp_threshold" value={Number(getParam("det_amp_threshold", 0.50))} min={0.10} max={0.90} step={0.01} onChange={(v) => setOverride("det_amp_threshold", v)}
+                      tooltip="Amplitude mínima relativa para candidato a alvo. Maior = menos candidatos, menos falsos positivos. Recomendado: 0.40–0.60." />
+                    <CFloat label="det_h_max_m" value={Number(getParam("det_h_max_m", 3.0))} min={0.5} max={6.0} step={0.25} onChange={(v) => setOverride("det_h_max_m", v)}
+                      tooltip="Profundidade máxima de busca de hipérboles. Definida pelo contexto do projeto. Recomendado: 2–5 m." />
+                    <CInt label="det_min_score_csv" value={Number(getParam("det_min_score_csv", 30))} min={10} max={80} onChange={(v) => setOverride("det_min_score_csv", v)}
+                      tooltip="Score mínimo para incluir alvo no CSV (combina geometria CurveFit + análise física). Recomendado: 25–40." />
+                    <CFloat label="det_depth_min_m" value={Number(getParam("det_depth_min_m", 0.30))} min={0.10} max={1.00} step={0.05} onChange={(v) => setOverride("det_depth_min_m", v)}
+                      tooltip="Alvos acima deste limiar são descartados. Elimina reflexão de superfície (airwave). Aumentar em modo MINIMO se houver muitos falsos positivos rasos. Recomendado: 0.30–0.50m." />
                   </CustomGroup>
                 </div>
               )}
@@ -263,20 +294,35 @@ function CustomGroup({ label, children }: { label: string; children: React.React
 
 const inputCls = "w-full bg-slate-900 border border-slate-700 text-slate-100 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500";
 
-function CInt({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+function ParamTooltip({ text }: { text: string }) {
+  return (
+    <span className="relative group inline-block ml-0.5 cursor-help align-middle">
+      <span className="text-slate-600 group-hover:text-cyan-500 text-[9px] leading-none transition-colors">ⓘ</span>
+      <span className="pointer-events-none invisible group-hover:visible absolute z-50 w-60 p-2.5 rounded-lg bg-slate-800 border border-slate-600/60 text-[10px] text-slate-300 leading-relaxed shadow-xl left-4 top-0 whitespace-normal">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function CInt({ label, value, min, max, onChange, tooltip }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void; tooltip?: string }) {
   return (
     <div>
-      <label className="block text-[10px] text-slate-400 mb-0.5">{label}</label>
+      <label className="flex items-center text-[10px] text-slate-400 mb-0.5">
+        {label}{tooltip && <ParamTooltip text={tooltip} />}
+      </label>
       <input type="number" value={value} min={min} max={max} step={1}
         onChange={(e) => onChange(parseInt(e.target.value) || min)} className={inputCls} />
     </div>
   );
 }
 
-function CFloat({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+function CFloat({ label, value, min, max, step, onChange, tooltip }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; tooltip?: string }) {
   return (
     <div>
-      <label className="block text-[10px] text-slate-400 mb-0.5">{label}</label>
+      <label className="flex items-center text-[10px] text-slate-400 mb-0.5">
+        {label}{tooltip && <ParamTooltip text={tooltip} />}
+      </label>
       <input type="number" value={value} min={min} max={max} step={step}
         onChange={(e) => onChange(parseFloat(e.target.value) || min)} className={inputCls} />
     </div>
