@@ -158,8 +158,8 @@ def handle_interpretada_job(supa: "SupabaseClient", job: dict) -> None:
                 supa._client.table("detected_targets")
                 .select(
                     "id, rank, x_m, depth_m, diam_est_m, confidence_score, "
-                    "technical_reviews(vai_para_relatorio, tipo_final, revisado_por, "
-                    "observacoes, confianca_revisao)"
+                    "technical_reviews(vai_para_relatorio, tipo_final, reviewed_by, "
+                    "observacao, confianca_revisao)"
                 )
                 .eq("profile_id", profile_id)
                 .execute()
@@ -187,8 +187,8 @@ def handle_interpretada_job(supa: "SupabaseClient", job: dict) -> None:
                     "score_detector": t.get("confidence_score"),
                     "preset_usado": filtros.get("preset", "270mhz"),
                     "confianca_revisao": conf,
-                    "observacoes": rev.get("observacoes"),
-                    "validado_por": rev.get("revisado_por"),
+                    "observacoes": rev.get("observacao"),
+                    "validado_por": rev.get("reviewed_by"),
                 }
                 supa._client.table("gpr_ground_truth").upsert(
                     ground_truth_row, on_conflict="profile_id,target_rank"
