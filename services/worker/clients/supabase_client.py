@@ -8,6 +8,7 @@ Never exposed to frontend or committed to source control.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import structlog
@@ -131,8 +132,23 @@ class SupabaseClient:
     # ── Storage ───────────────────────────────────────────────────────────────
 
     def download_file(self, bucket: str, path: str) -> bytes:
-        response = self._client.storage.from_(bucket).download(path)
-        return response
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                return self._client.storage.from_(bucket).download(path)
+            except Exception as e:
+                last_exc = e
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                log.warning(
+                    "download_file_retry",
+                    bucket=bucket,
+                    path=path,
+                    attempt=attempt + 1,
+                    wait_s=wait,
+                    error=str(e),
+                )
+                time.sleep(wait)
+        raise last_exc
 
     def upload_file(self, bucket: str, path: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         self._client.storage.from_(bucket).upload(
