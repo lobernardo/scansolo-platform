@@ -334,6 +334,11 @@ function FullLog({ m }: { m: PipelineMetrics }) {
           pipeline v{m.pipeline_version} · preset: {m.preset_name ?? ND}
         </p>
       )}
+      {!m.metricas_pipeline_url && (
+        <p className="text-[9px] text-amber-700/80 italic pt-0.5">
+          JSON de métricas ausente — dados parciais (perfil processado antes da Fase 11)
+        </p>
+      )}
     </div>
   );
 }
@@ -438,7 +443,7 @@ export function PipelineLog({
   if (!metrics) {
     return (
       <p className="text-xs text-slate-500">
-        Log não disponível (processado antes de v2.0.0 ou metricas_pipeline_url ausente).
+        Log não disponível — perfil não encontrado.
       </p>
     );
   }

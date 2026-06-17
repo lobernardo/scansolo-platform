@@ -419,10 +419,16 @@ export function ProjectDetailClient({
                       </button>
                       {expandedLogs[profile.id] && (
                         <div className="mt-2 max-h-96 overflow-y-auto">
-                          <PipelineLog
-                            metrics={pipelineLogs[profile.id] ?? null}
-                            compact={false}
-                          />
+                          {logLoading[profile.id] ? (
+                            <p className="text-xs text-slate-500 animate-pulse">
+                              Carregando métricas…
+                            </p>
+                          ) : (
+                            <PipelineLog
+                              metrics={pipelineLogs[profile.id] ?? null}
+                              compact={false}
+                            />
+                          )}
                         </div>
                       )}
                     </div>

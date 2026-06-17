@@ -486,7 +486,7 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/dashboard` | `dashboard/page.tsx` | Visão geral de projetos |
 | `/projetos` | `projetos/page.tsx` + `ProjetosTable.tsx` | Lista de projetos |
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto: selector de preset (obrigatório) + summary dos parâmetros-chave + accordion "Personalizar" com overrides → `preset_id` + `processing_config` salvos no projeto |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / **Interpretada IA** / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) + painel "Calibrar velocity do solo" |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / **Interpretada IA** / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) + painel "Calibrar velocity do solo" + seção "Pipeline Log" colapsável por perfil |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional de DZTs |
 | `/projetos/[id]/revisao` | `ReviewClient.tsx` | Revisão técnica por alvo |
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
@@ -738,7 +738,7 @@ supabase db push --password <DB_PASSWORD>
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
 | P14 | ~~`job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by`~~ | ~~Campos ficam null no ground truth (silencioso — não aborta job)~~ | ✅ **Resolvido** — commit bab0ef1 |
-| P15 | `gpr_presets.parameters` no banco ainda não tem `bandpass_tipo` nos presets seedados | Presets `270mhz_void` e `270mhz_concrete` não usarão FIR triangular via UI | Adicionar `"bandpass_tipo": "triangular"` no JSON dos dois presets afetados via migration ou UPDATE direto |
+| P15 | ~~`gpr_presets.parameters` no banco ainda não tem `bandpass_tipo` nos presets seedados~~ | ~~Presets `270mhz_void` e `270mhz_concrete` não usarão FIR triangular via UI~~ | ✅ **Resolvido** — UPDATE direto nos dois presets no banco remoto (2026-06-17) |
 
 ---
 
