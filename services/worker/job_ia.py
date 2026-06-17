@@ -103,6 +103,9 @@ def handle_ia_job(supa: "SupabaseClient", job: dict) -> None:
     if not project:
         raise RuntimeError(f"Project {project_id} not found")
 
+    tipo_obra_str = (project.get("tipo_obra") or "não informado")
+    log.info("ia_contexto_projeto_incluido", tipo_obra=tipo_obra_str, project_id=project_id)
+
     run_id = supa.get_latest_run_id(project_id)
     if not run_id:
         raise RuntimeError(f"No GPR run found for project {project_id}")

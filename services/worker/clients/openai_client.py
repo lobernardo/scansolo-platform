@@ -18,7 +18,16 @@ AI_TEMPERATURE = 0.2
 _COST_INPUT = 2.50 / 1_000_000
 _COST_OUTPUT = 10.00 / 1_000_000
 
-_SYSTEM_PROMPT = """\
+TIPO_OBRA_EN = {
+    "utilities":     "underground utilities (water, gas, electricity, telecom)",
+    "roads":         "road/pavement investigation",
+    "structures":    "structural investigation (floors, walls, slabs)",
+    "environmental": "environmental survey",
+    "archaeology":   "archaeological survey",
+    "other":         "general GPR survey",
+}
+
+_SYSTEM_PROMPT_HEAD = """\
 You are a GPR (Ground Penetrating Radar) expert geophysicist.
 
 Analyze the detected target from a 270MHz GSSI antenna radargram. The crop image shows the \
@@ -28,7 +37,9 @@ In a radargram:
 - Horizontal axis = distance along the survey line
 - Vertical axis = depth (increasing downward)
 - A hyperbolic signature indicates a buried point or cylindrical object
-- Brighter/stronger reflections indicate higher dielectric contrast with surrounding soil
+- Brighter/stronger reflections indicate higher dielectric contrast with surrounding soil"""
+
+_SYSTEM_PROMPT_TAIL = """
 
 Common buried objects in urban/infrastructure surveys:
 - tubulacao_agua: water pipe (metal or PVC) — clean strong reflection
@@ -54,6 +65,25 @@ Respond ONLY with a valid JSON object. All description text must be in Brazilian
   "vai_para_relatorio_sugerido": true or false,
   "observacoes": "<additional observations or null>"
 }"""
+
+
+def _build_system_prompt(project: dict) -> str:
+    tipo_obra_raw = (project.get("tipo_obra") or "").strip()
+    tipo_obra_desc = TIPO_OBRA_EN.get(tipo_obra_raw, tipo_obra_raw or "not informed")
+    freq_str = str(project.get("antena_freq_mhz") or 270) + " MHz"
+    area_m2 = project.get("area_m2")
+    area_str = f"{area_m2:.0f} m²" if area_m2 else "not informed"
+
+    project_context = (
+        "\n\nPROJECT CONTEXT:\n"
+        f"- Project code: {project.get('codigo_projeto') or 'N/A'}\n"
+        f"- Work type: {tipo_obra_desc}\n"
+        f"- Site area: {area_str}\n"
+        f"- GPR antenna frequency: {freq_str}\n"
+        f"- Client contact: {project.get('contato_nome') or 'N/A'}"
+    )
+
+    return _SYSTEM_PROMPT_HEAD + project_context + _SYSTEM_PROMPT_TAIL
 
 
 class OpenAIClient:
@@ -149,7 +179,7 @@ def _build_messages(
         })
 
     return [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": _build_system_prompt(project_context)},
         {"role": "user", "content": user_content},
     ]
 
