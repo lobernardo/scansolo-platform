@@ -125,6 +125,7 @@ export function ProjectDetailClient({
       { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
       { url: profile.imagem_processada_url ?? "", label: "Processada" },
       { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
+      { url: profile.imagem_interpretada_url ?? "", label: "Interpretada IA" },
       { url: profile.imagem_preview_radan_5m_url ?? "", label: "Processada 2" },
       { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "Anotada P2" },
     ].filter((i) => i.url);
@@ -229,6 +230,7 @@ export function ProjectDetailClient({
                 { url: profile.imagem_bruta_url, label: "Bruta" },
                 { url: profile.imagem_processada_url, label: "Processada" },
                 { url: profile.imagem_anotada_url, label: "Anotada IA" },
+                { url: profile.imagem_interpretada_url, label: "Interpretada IA" },
                 { url: profile.imagem_preview_radan_5m_url, label: "Processada 2" },
                 { url: profile.imagem_interpretada_ia_p2_url, label: "Anotada P2" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
