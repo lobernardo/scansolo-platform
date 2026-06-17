@@ -56,6 +56,7 @@ Flags opcionais:
   --detector-input MODE Seleciona matriz de entrada do detector (default: raw)
 """
 
+import copy
 import gc
 import os, sys, json, hashlib, shutil, argparse, logging, warnings
 from datetime import datetime
@@ -171,39 +172,85 @@ PRESETS = {
         # quando Amilson souber a velocidade real do levantamento.
         "velocidade_operador_ms": 1.2,
     },
-    "default": {
-        "descricao":         "Preset generico",
-        "dewow_window":      5,
-        "bandpass_low_mhz":  80,
-        "bandpass_high_mhz": 500,
-        "bandpass_order":    5,
-        "bgremoval_traces":  30,
-        "tpow_power":        0.5,
-        "agc_window":        150,
-        "velocity_mns":      0.1,
-        "contrast":          2.5,
-        "colormap":          "gray",
-        "dpi":               150,
-        "det_amp_threshold": 0.50,
-        "det_h_min_m":       0.10,
-        "det_h_max_m":       3.00,
-        "det_h_step_m":      0.04,
-        "det_nms_radius_m":  0.50,
-        "det_top_n":         25,
-        "det_min_score_csv":  30,
-        "det_min_score_plot": 40,
-        "det_cf_wing_half_m":2.0,
-        "det_cf_amp_frac":   0.30,
-        "det_dt_min_diam_m": 0.05,
-        "det_dt_max_diam_m": 1.50,
-        "det_dt_conf_frac":  0.20,
-        "fis_ativo":             True,
-        "fis_amp_metal_thr":     0.65,   # metal/cabo: R→0.90–1.0 vs vazio≈0.50 (Fresnel, εr_solo=9)
-        "fis_amp_nao_metal_thr": 0.22,   # PVC/PE: R≈0.27, HDPE: R≈0.33 (Fresnel)
-        "detector_input_mode":   "raw",
-        "det_depth_min_m":       0.30,
-        "velocidade_operador_ms": 1.2,
-    },
+}
+PRESETS["270mhz_clay"] = {
+    **PRESETS["270mhz"],
+    "descricao":         "270 MHz — Solo argiloso/úmido",
+    # Argila úmida εr≈18 → v=0.07 m/ns (Reynolds 1997)
+    # bgremoval mais conservador: argila atenua fundo rápido, 20 traces suficiente
+    # tpow ligeiramente mais agressivo: compensa atenuação extra da argila
+    "velocity_mns":      0.070,
+    "bgremoval_traces":  20,
+    "tpow_power":        0.70,
+}
+PRESETS["270mhz_sandy"] = {
+    **PRESETS["270mhz"],
+    "descricao":         "270 MHz — Solo arenoso/seco",
+    # Areia seca εr≈5 → v=0.13 m/ns (Daniels 2004)
+    # AGC window maior: areia seca tem baixa atenuação, sinal penetra fundo
+    "velocity_mns":      0.130,
+    "agc_window":        200,
+}
+PRESETS["270mhz_deep"] = {
+    **PRESETS["270mhz"],
+    "descricao":         "270 MHz — Alvos profundos (3–5 m)",
+    # tpow mais agressivo e AGC menor: recupera energia de reflexões tardias
+    # det_h_max_m ampliado para capturar hipérboles em profundidade > 3m
+    "tpow_power":        0.80,
+    "agc_window":        100,
+    "det_h_max_m":       5.00,
+}
+PRESETS["270mhz_void"] = {
+    **PRESETS["270mhz"],
+    "descricao":         "270 MHz — Detecção de vazios e galerias",
+    # Vazios têm R≈0.50 (Fresnel ar/solo) — acima do threshold não-metal, abaixo do metal
+    # Rebalancear thresholds para priorizar vazio > PVC/PE
+    "fis_amp_metal_thr":     0.30,
+    "fis_amp_nao_metal_thr": 0.45,
+}
+PRESETS["270mhz_concrete"] = {
+    **PRESETS["270mhz"],
+    "descricao":         "270 MHz — Laje/piso de concreto",
+    # Concreto εr≈8 → v≈0.107 m/ns (próximo ao padrão)
+    # det_h_max_m reduzido: objetos em laje raramente > 0.5m de profundidade
+    # dewow_window menor: pulso mais curto em concreto seco
+    "velocity_mns":      0.107,
+    "det_h_max_m":       0.50,
+    "dewow_window":      3,
+}
+
+_PRESET_DEFAULT = {
+    "descricao":         "Preset generico",
+    "dewow_window":      5,
+    "bandpass_low_mhz":  80,
+    "bandpass_high_mhz": 500,
+    "bandpass_order":    5,
+    "bgremoval_traces":  30,
+    "tpow_power":        0.5,
+    "agc_window":        150,
+    "velocity_mns":      0.1,
+    "contrast":          2.5,
+    "colormap":          "gray",
+    "dpi":               150,
+    "det_amp_threshold": 0.50,
+    "det_h_min_m":       0.10,
+    "det_h_max_m":       3.00,
+    "det_h_step_m":      0.04,
+    "det_nms_radius_m":  0.50,
+    "det_top_n":         25,
+    "det_min_score_csv":  30,
+    "det_min_score_plot": 40,
+    "det_cf_wing_half_m":2.0,
+    "det_cf_amp_frac":   0.30,
+    "det_dt_min_diam_m": 0.05,
+    "det_dt_max_diam_m": 1.50,
+    "det_dt_conf_frac":  0.20,
+    "fis_ativo":             True,
+    "fis_amp_metal_thr":     0.65,   # metal/cabo: R→0.90–1.0 vs vazio≈0.50 (Fresnel, εr_solo=9)
+    "fis_amp_nao_metal_thr": 0.22,   # PVC/PE: R≈0.27, HDPE: R≈0.33 (Fresnel)
+    "detector_input_mode":   "raw",
+    "det_depth_min_m":       0.30,
+    "velocidade_operador_ms": 1.2,
 }
 
 PASTAS = {
@@ -1471,7 +1518,7 @@ def main():
     parser = argparse.ArgumentParser(description=f"Pipeline v{SCRIPT_VERSION} - ScanSOLO GPR")
     parser.add_argument("--input",        default=None)
     parser.add_argument("--output",       default=None)
-    parser.add_argument("--preset",       default="270mhz", choices=list(PRESETS.keys()))
+    parser.add_argument("--preset",       default="270mhz", choices=list(PRESETS.keys()) + ["default"])
     parser.add_argument("--sem-detector", action="store_true",
                         help="Pula deteccao de alvos (so processamento de imagens + .npy)")
     parser.add_argument("--sem-fisica",   action="store_true",
@@ -1500,7 +1547,12 @@ def main():
     script_dir    = Path(__file__).resolve().parent
     pasta_entrada = Path(args.input)  if args.input  else script_dir.parent / "Exemplos_dados_bruos_georadar"
     pasta_saida   = Path(args.output) if args.output else script_dir / "exemplo_saida"
-    preset        = dict(PRESETS[args.preset])  # copia mutavel
+    if args.preset in PRESETS:
+        preset = copy.deepcopy(PRESETS[args.preset])
+    elif args.preset == "default":
+        preset = dict(_PRESET_DEFAULT)
+    else:
+        preset = copy.deepcopy(PRESETS["270mhz"])
     preset["_name"] = args.preset
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
