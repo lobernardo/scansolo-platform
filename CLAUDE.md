@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + import_ground_truth + KB_ScansoloPlataform)
+> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + bandpass FIR triangular + import_ground_truth + KB_ScansoloPlataform)
 
 ---
 
@@ -131,6 +131,19 @@ A1 em `main()`: aplica `VELOCITY_POR_SOLO[tipo_solo]` antes dos filtros_customiz
 
 Os 5 derivados são criados via `{**PRESETS["270mhz"], **overrides}` em nível de módulo.
 
+### Bandpass — dois modos disponíveis
+
+`aplicar_bandpass(prof, low_mhz, high_mhz, order, bandpass_tipo="butterworth")`
+
+| `bandpass_tipo` | Implementação | Quando usar |
+|---|---|---|
+| `"butterworth"` | Butterworth SOS via `scipy.signal.butter` + `sosfiltfilt` (loop por traço) | Default — boa atenuação fora da banda |
+| `"triangular"` | FIR `firwin2` com resposta triangular `fl→fc→fh` + `filtfilt` em bloco | Vazios, galerias, concreto armado — menos ringing em reflexões largas/múltiplas |
+
+`numtaps` do FIR: `max(101, ceil(fs/fl) × 3) | 1` — garante ímpar e resolução em baixas frequências.
+
+Presets com `"triangular"` por default: `270mhz_void`, `270mhz_concrete`.
+
 ### Preset base `270mhz`
 
 ```python
@@ -139,6 +152,7 @@ Os 5 derivados são criados via `{**PRESETS["270mhz"], **overrides}` em nível d
     "bandpass_low_mhz":      80,
     "bandpass_high_mhz":     500,
     "bandpass_order":        5,
+    "bandpass_tipo":         "butterworth",   # "butterworth" (SOS) ou "triangular" (FIR firwin2)
     "bgremoval_traces":      30,
     "tpow_power":            0.5,
     "agc_window":            150,

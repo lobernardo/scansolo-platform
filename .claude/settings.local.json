@@ -158,7 +158,14 @@
       "mcp__claude_ai_Supabase__list_migrations",
       "mcp__claude_ai_Supabase__execute_sql",
       "PowerShell(taskkill *)",
-      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\"; git add apps/web/app/\\(dashboard\\)/projetos/[id]/ProjectDetailClient.tsx apps/web/app/\\(dashboard\\)/projetos/[id]/actions.ts services/worker/job_gpr.py CLAUDE.md .claude/settings.local.json)"
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\"; git add apps/web/app/\\(dashboard\\)/projetos/[id]/ProjectDetailClient.tsx apps/web/app/\\(dashboard\\)/projetos/[id]/actions.ts services/worker/job_gpr.py CLAUDE.md .claude/settings.local.json)",
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; $env:PYTHONUTF8=\"1\"; python worker_main.py 2>&1 | Select-Object -First 40)",
+      "PowerShell($workerPath = \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; Start-Process -FilePath \"powershell.exe\" -ArgumentList \"-NoExit\", \"-Command\", \"cd '$workerPath'; `$env:PYTHONUTF8='1'; python worker_main.py\" -WindowStyle Normal)",
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; $env:PYTHONUTF8=\"1\"; python worker_main.py)",
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; $env:PYTHONUTF8=\"1\"; python -c \"print\\('python ok'\\); import structlog; print\\('structlog ok'\\); from dotenv import load_dotenv; load_dotenv\\(\\); print\\('dotenv ok'\\); from clients.supabase_client import SupabaseClient; print\\('supabase ok'\\)\" 2>&1)",
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; $env:PYTHONUTF8=\"1\"; python -c \"print\\('start'\\); from job_gpr import handle_gpr_job, handle_inferencias_job; print\\('job_gpr ok'\\); from job_ia import handle_ia_job, handle_ia_p2_job; print\\('job_ia ok'\\); from job_cartografia import handle_cartografia_job; print\\('cart ok'\\); from job_relatorio import handle_relatorio_job; print\\('rel ok'\\); from job_interpretada import handle_interpretada_job; print\\('all ok'\\)\" 2>&1)",
+      "PowerShell(cd \"C:\\\\Users\\\\leool\\\\OneDrive\\\\Documentos\\\\Claude\\\\Projects\\\\ScanSOLO\\\\scansolo-platform\\\\services\\\\worker\"; $env:PYTHONUTF8=\"1\"; $env:PYTHONUNBUFFERED=\"1\"; python -u worker_main.py 2>&1 | Select-Object -First 20)",
+      "Bash(git *)"
     ]
   }
 }
