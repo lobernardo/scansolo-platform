@@ -1,0 +1,5 @@
+projeto,perfil,rank,x_m,depth_m_sistema,profundidade_real_m,tipo_confirmado,e_falso_positivo,observacoes
+PT-GPR-SOL-036,PATIO_001,1,2.50,1.20,1.15,tubulacao_agua,false,"Tubo ferro galvanizado confirmado por as-built da obra"
+PT-GPR-SOL-036,PATIO_001,3,5.10,0.45,,inconclusivo,true,"Artefato de superfície — airwave, não é alvo real"
+PT-GPR-SOL-036,PATIO_002,2,3.80,0.95,0.90,cabo_eletrico,false,"Localizado com pipe locator 2025-06. Profundidade medida com trena em manholo próximo"
+,HELPER_005,1,1.20,2.10,,,false,"Hipérbole clara mas tipo desconhecido — alvos profundos aguardando confirmação"

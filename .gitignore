@@ -87,3 +87,8 @@ PROMPT_MELHORIAS_UI.md
 
 # ─── Arquivos de scripts externos não relacionados ao projeto ─────────────────
 services/worker/baixar_imagens.py
+
+# ─── KB_ScansoloPlataform — dados pesados e PDFs de referência ───────────────
+KB_ScansoloPlataform/benchmark_real/
+KB_ScansoloPlataform/*.pdf
+KB_ScansoloPlataform/**/*.pdf
