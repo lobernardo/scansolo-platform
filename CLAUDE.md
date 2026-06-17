@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + bandpass FIR triangular + import_ground_truth + KB_ScansoloPlataform)
+> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + bandpass FIR triangular + bandpass sempre ativo + tab Interpretada IA + import_ground_truth + KB_ScansoloPlataform)
 
 ---
 
@@ -22,6 +22,7 @@
 - RLS obrigatório em todas as tabelas com dados de projeto
 - Arquivos brutos `.DZT` nunca apagados — só versionados
 - Reprocessamento gera novo `run_id` — nunca sobrescreve
+- `Bandpass nunca pulado` — modo minimo ajusta tpow e AGC mas NÃO pula o bandpass; DZTs com SNR alto (onda direta forte) precisam mais do filtro, não menos
 
 ---
 
@@ -619,8 +620,8 @@ supabase db push --password <DB_PASSWORD>
 | P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (tipo_obra, area_m2, antena_freq_mhz) no system message (commit 91e5f9c) |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
 | P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
-| P10 | Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado) | 232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta | Avaliar elevar `det_depth_min_m` para 0.50m em modo MINIMO, ou forçar bandpass quando SNR_ratio > 100 |
-| P11 | Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222) | Confunde auditorias — pipeline é v2.0.0 | Atualizar texto de impressão para "v2.0" |
+| P10 | ~~Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado)~~ | ~~232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta~~ | ✅ **Resolvido** — bandpass nunca mais pulado em modo MINIMO (2026-06-17); monitorar se `det_depth_min_m=0.50m` é suficiente em DZTs HELPER futuros |
+| P11 | ~~Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222)~~ | ~~Confunde auditorias — pipeline é v2.0.0~~ | ✅ **Resolvido** — banner já era `v2.0.0` na linha 1630 (verificado 2026-06-17) |
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
 | P14 | ~~`job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by`~~ | ~~Campos ficam null no ground truth (silencioso — não aborta job)~~ | ✅ **Resolvido** — commit bab0ef1 |
