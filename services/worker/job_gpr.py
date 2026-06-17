@@ -373,6 +373,37 @@ def _persist_outputs(
         if img_updates:
             supa._client.table("gpr_profiles").update(img_updates).eq("id", profile_id).execute()
 
+        # Upload de métricas do pipeline (JSON de rastreabilidade por DZT)
+        metrics_file = images_proc_dir / f"{stem}_pipeline_metrics.json"
+        if metrics_file.exists():
+            try:
+                metrics_bytes = metrics_file.read_bytes()
+                m_path = f"{project_id}/{run_id}/{profile_id[:8]}/{metrics_file.name}"
+                supa.upload_file("gpr-tabelas", m_path, metrics_bytes, "application/json")
+                signed = supa._client.storage.from_("gpr-tabelas").create_signed_url(
+                    m_path, 315360000  # 10 anos em segundos
+                )
+                metrics_url = (signed or {}).get("signedURL") or ""
+                if not metrics_url and isinstance((signed or {}).get("data"), dict):
+                    metrics_url = (signed["data"] or {}).get("signedURL", "")
+                if metrics_url:
+                    try:
+                        supa._client.table("gpr_profiles").update(
+                            {"metricas_pipeline_url": metrics_url}
+                        ).eq("id", profile_id).execute()
+                    except Exception as db_exc:
+                        log.warning("metrics_url_db_failed", error=str(db_exc))
+                    log.info("metrics_uploaded", stem=stem)
+                try:
+                    m_data = json.loads(metrics_bytes)
+                    sha = m_data.get("dzt_sha256", "")
+                    if sha:
+                        log.info("dzt_sha256", stem=stem, sha256=f"{sha[:16]}...")
+                except Exception:
+                    pass
+            except Exception as exc:
+                log.warning("metrics_upload_failed", stem=stem, error=str(exc))
+
         if csv_path.exists():
             if existing_profile_id:
                 supa._client.table("detected_targets").delete().eq("profile_id", profile_id).execute()

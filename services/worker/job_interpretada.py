@@ -146,6 +146,61 @@ def handle_interpretada_job(supa: "SupabaseClient", job: dict) -> None:
         except Exception as e:
             log.warning("falha_salvar_training_examples", error=str(e))
 
+    # Alimenta tabela de ground truth com resultados da revisão técnica
+    try:
+        n_vp = 0
+        n_fp = 0
+        _conf_map = {"alta": "certa", "media": "provavel", "média": "provavel", "baixa": "duvidosa"}
+        _conf_allowed = {"certa", "provavel", "duvidosa"}
+        for profile in profiles:
+            profile_id = profile["id"]
+            result = (
+                supa._client.table("detected_targets")
+                .select(
+                    "id, rank, x_m, depth_m, diam_est_m, confidence_score, "
+                    "technical_reviews(vai_para_relatorio, tipo_final, revisado_por, "
+                    "observacoes, confianca_revisao)"
+                )
+                .eq("profile_id", profile_id)
+                .execute()
+            )
+            filtros = profile.get("filtros_customizados") or {}
+            for t in result.data or []:
+                reviews = t.get("technical_reviews") or []
+                if isinstance(reviews, dict):
+                    reviews = [reviews]
+                if not reviews:
+                    continue
+                rev = reviews[0]
+                e_vp = bool(rev.get("vai_para_relatorio", False))
+                conf_raw = rev.get("confianca_revisao") or "provavel"
+                conf = conf_raw if conf_raw in _conf_allowed else _conf_map.get(conf_raw, "provavel")
+                ground_truth_row = {
+                    "project_id": project_id,
+                    "profile_id": profile_id,
+                    "target_rank": t.get("rank"),
+                    "x_m": t.get("x_m"),
+                    "depth_m": t.get("depth_m"),
+                    "diam_est_m": t.get("diam_est_m"),
+                    "tipo_confirmado": rev.get("tipo_final"),
+                    "e_falso_positivo": not e_vp,
+                    "score_detector": t.get("confidence_score"),
+                    "preset_usado": filtros.get("preset", "270mhz"),
+                    "confianca_revisao": conf,
+                    "observacoes": rev.get("observacoes"),
+                    "validado_por": rev.get("revisado_por"),
+                }
+                supa._client.table("gpr_ground_truth").upsert(
+                    ground_truth_row, on_conflict="profile_id,target_rank"
+                ).execute()
+                if e_vp:
+                    n_vp += 1
+                else:
+                    n_fp += 1
+        log.info("ground_truth_saved", n_vp=n_vp, n_fp=n_fp, project_id=project_id)
+    except Exception as e:
+        log.warning("ground_truth_skipped", error=str(e))
+
     supa.update_job_status(job_id, "concluido")
     supa.update_project_status(project_id, "interpretada_gerada")
     log.info("interpretada_job_done", project_id=project_id)

@@ -90,7 +90,8 @@ except ImportError as _e:
 # ---------------------------------------------------------------------------
 # VERSAO DO SCRIPT
 # ---------------------------------------------------------------------------
-SCRIPT_VERSION = "2.0.0"
+SCRIPT_VERSION    = "2.0.0"
+PIPELINE_VERSION  = SCRIPT_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,10 @@ PRESETS = {
         # Profundidade minima dos candidatos — elimina airwave superficial
         # Candidatos com depth_m < det_depth_min_m sao descartados antes do CSV/plot
         "det_depth_min_m":       0.30,
+        # Velocidade do operador — usada APENAS em modo tempo (sem encoder/odometro)
+        # para converter tracos/s em metros. Ajustar via filtros_customizados
+        # quando Amilson souber a velocidade real do levantamento.
+        "velocidade_operador_ms": 1.2,
     },
     "default": {
         "descricao":         "Preset generico",
@@ -186,6 +191,7 @@ PRESETS = {
         "fis_amp_nao_metal_thr": 0.40,
         "detector_input_mode":   "raw",
         "det_depth_min_m":       0.30,
+        "velocidade_operador_ms": 1.2,
     },
 }
 
@@ -551,7 +557,7 @@ def _salvar_npy_seguro(arr, caminho):
 
 
 # ---------------------------------------------------------------------------
-# SNR GATE (v1.2.0)
+# SNR GATE (v2.0.0)
 # ---------------------------------------------------------------------------
 def calcular_snr_imagem_db(
     arr_raw: np.ndarray,
@@ -596,6 +602,154 @@ def calcular_snr_imagem_db(
         modo = "agressivo"
 
     return snr_db, round(snr_ratio, 2), modo
+
+
+# ---------------------------------------------------------------------------
+# PROFUNDIDADE MINIMA ADAPTATIVA POR MODO SNR
+# ---------------------------------------------------------------------------
+def calcular_depth_min_adaptativo(modo_processamento: str, preset_val: float) -> float:
+    """
+    Ajusta det_depth_min_m com base no modo de processamento SNR.
+
+    minimo   : bandpass pulado -> mais ruido superficial -> margem maior (0.50m)
+    padrao   : comportamento original do preset, sem mudanca
+    agressivo: aceitar candidatos mais rasos -> max(0.20, preset_val * 0.67)
+    """
+    if modo_processamento == "minimo":
+        return 0.50
+    elif modo_processamento == "agressivo":
+        return max(0.20, preset_val * 0.67)
+    else:
+        return preset_val
+
+
+# ---------------------------------------------------------------------------
+# TIME-ZERO CORRECTION
+# ---------------------------------------------------------------------------
+def detectar_time_zero(arr_raw: np.ndarray) -> int:
+    """
+    Detecta a amostra de time-zero pelo pico do envelope de Hilbert
+    na media de todos os tracos.
+
+    Busca apenas nas primeiras 25% das amostras — o pulso direto antena-solo
+    aparece no inicio da janela de tempo. Amostras antes do pico sao
+    tempo morto (transmissao do pulso) e devem ser removidas.
+
+    Retorna 0 quando o pico esta em 0 ou 1 (dado ja pode estar corrigido).
+    """
+    trace_media = np.mean(arr_raw, axis=1)
+    envelope = np.abs(hilbert(trace_media))
+    search_end = max(2, int(0.25 * len(trace_media)))
+    tz = int(np.argmax(envelope[:search_end]))
+    if tz <= 1:
+        return 0
+    return tz
+
+
+def aplicar_time_zero(arr: np.ndarray, time_zero: int) -> np.ndarray:
+    """
+    Remove as amostras antes do pulso direto (time-zero).
+    Se time_zero <= 1 retorna arr sem modificacao.
+    """
+    if time_zero <= 1:
+        return arr
+    return arr[time_zero:, :]
+
+
+# ---------------------------------------------------------------------------
+# MODO COLETA — distancia vs. tempo
+# ---------------------------------------------------------------------------
+def detectar_modo_coleta(header: dict) -> str:
+    """
+    Detecta modo de coleta a partir do header DZT.
+
+    'distancia': tracos disparados por odometro/encoder (rhf_spm > 0 ou dx > 0).
+                 Espacamento horizontal regular em metros — nenhuma correcao necessaria.
+    'tempo'    : tracos disparados por relogio (rhf_sps). prof.profilePos fica em
+                 segundos no GPRPy; requer conversao por velocidade do operador.
+    """
+    if header.get("rhf_spm", 0) > 0 or header.get("dx", 0) > 0:
+        return "distancia"
+    return "tempo"
+
+
+def normalizar_distancia(
+    arr: np.ndarray,
+    header: dict,
+    velocidade_operador_ms: float = 1.2,
+) -> tuple:
+    """
+    Calcula dist_total_m a partir do header sem modificar o array.
+
+    Modo distancia: usa rhf_spm (scans/m) ou dx (m/scan) do header.
+    Modo tempo    : assume velocidade_operador_ms uniforme — melhor estimativa
+                   disponivel sem encoder. Deve ser calibrado com Amilson quando
+                   a velocidade real do levantamento for conhecida.
+
+    Retorna (arr_sem_modificacao, dist_total_m).
+    """
+    n_tracos = arr.shape[1]
+    rhf_spm  = header.get("rhf_spm", 0)
+    dx_hdr   = header.get("dx", 0)
+
+    if rhf_spm > 0:
+        dist_por_trace_m = 1.0 / float(rhf_spm)
+    elif dx_hdr > 0:
+        dist_por_trace_m = float(dx_hdr)
+    else:
+        rhf_sps = float(header.get("rhf_sps", 100.0)) or 100.0
+        dist_por_trace_m = velocidade_operador_ms / rhf_sps
+
+    dist_total_m = n_tracos * dist_por_trace_m
+    return arr, dist_total_m
+
+
+# ---------------------------------------------------------------------------
+# RASTREABILIDADE — hash do DZT e SNR por estágio
+# ---------------------------------------------------------------------------
+def calcular_sha256_dzt(filepath: str) -> str:
+    """
+    SHA-256 do arquivo DZT lido em chunks de 8 MB.
+    Detecta corrupção silenciosa: se dois runs com o mesmo hash produzem
+    resultados diferentes, o pipeline (não o dado) mudou.
+    Retorna "ERROR" em caso de falha de leitura.
+    """
+    h = hashlib.sha256()
+    chunk = 8 * 1024 * 1024  # 8 MB
+    try:
+        with open(filepath, "rb") as fh:
+            while True:
+                blk = fh.read(chunk)
+                if not blk:
+                    break
+                h.update(blk)
+        return h.hexdigest()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"  SHA256 falhou ({filepath}): {e}")
+        return "ERROR"
+
+
+def calcular_snr_hilbert(arr: np.ndarray, label: str) -> float:
+    """
+    SNR em dB pelo mesmo método do SNR gate (Hilbert per-trace).
+    Janela de sinal: 10%-75% das amostras.
+    Janela de ruído: últimas 5% das amostras.
+    Usado apenas para coleta de métricas — não altera nenhum fluxo.
+    Retorna -999.0 se o cálculo falhar.
+    """
+    try:
+        n = arr.shape[0]
+        s0, s1, r0 = max(1, int(0.10 * n)), int(0.75 * n), int(0.95 * n)
+        ratios = []
+        for i in range(arr.shape[1]):
+            tr = arr[:, i].astype(float)
+            env = np.abs(hilbert(tr[s0:s1]))
+            ruido = float(np.std(tr[r0:])) + 1e-10
+            ratios.append(float(np.max(env)) / ruido)
+        ratio = float(np.median(ratios))
+        return round(20.0 * np.log10(ratio) if ratio > 0 else -999.0, 2)
+    except Exception:
+        return -999.0
 
 
 # ---------------------------------------------------------------------------
@@ -803,6 +957,9 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     t_inicio = datetime.now()
     logger.info(f"Iniciando: {arquivo_dzt.name}")
 
+    dzt_sha256 = calcular_sha256_dzt(str(arquivo_dzt))
+    logger.info(f"  SHA256 {arquivo_dzt.name}: {dzt_sha256[:16]}...")
+
     try:
         prof = gp.gprpyProfile(str(arquivo_dzt))
     except Exception as e:
@@ -840,6 +997,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             prof.profilePos = _pos_rel
 
     n_amostras, n_tracos = prof.data.shape
+    n_amostras_original = n_amostras   # preservado antes do time-zero correction
     twtt_max = float(prof.twtt[-1])
     dist_max = abs(float(prof.profilePos[-1]) - float(prof.profilePos[0]))
     dt_ns    = twtt_max / (n_amostras - 1)
@@ -866,11 +1024,92 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         gc.collect()
         return None
 
+    # ── TIME-ZERO CORRECTION — remove amostras antes do pulso direto ─────────
+    # raw.npy e bruta.png acima preservam o dado original para auditoria.
+    # A partir daqui todos os arrays e prof.data/prof.twtt sao corrigidos.
+    tz_detectado = 0
+    if not preset.get("skip_time_zero", False):
+        tz_detectado = detectar_time_zero(arr_raw)
+        tz_gprpy = prof.info.get("timezero")
+        if tz_gprpy is not None:
+            diff = abs(tz_detectado - int(tz_gprpy))
+            if diff > 5:
+                logger.warning(
+                    f"  Time-zero: discrepancia de {diff} amostras entre "
+                    f"GPRPy ({int(tz_gprpy)}) e detector ({tz_detectado}). Usando detector."
+                )
+            else:
+                logger.debug(
+                    f"  Time-zero: GPRPy ({int(tz_gprpy)}) e detector "
+                    f"({tz_detectado}) concordam (diff={diff})"
+                )
+        else:
+            logger.debug(
+                f"  Time-zero: header DZT sem timezero. Detector: {tz_detectado} amostras"
+            )
+        if tz_detectado > 1:
+            logger.info(
+                f"  Time-zero: {tz_detectado} amostras removidas "
+                f"(~{tz_detectado * dt_ns:.2f} ns)"
+            )
+            arr_raw = aplicar_time_zero(arr_raw, tz_detectado)
+            prof.data = np.matrix(arr_raw.astype(np.float64))
+            n_amostras = arr_raw.shape[0]
+            twtt_max = (n_amostras - 1) * dt_ns
+            prof.twtt = np.linspace(0, twtt_max, n_amostras)
+            logger.debug(
+                f"  Time-zero: prof.data + prof.twtt atualizados "
+                f"-> {n_amostras} amostras, twtt_max={twtt_max:.1f}ns"
+            )
+        else:
+            logger.debug(f"  Time-zero: pico em amostra {tz_detectado} — sem correcao necessaria")
+    else:
+        logger.debug("  Time-zero: pulado (skip_time_zero=True)")
+
+    # ── MODO COLETA — normalização de distância ───────────────────────────────
+    # Em modo tempo, prof.profilePos contém segundos (n_tracos / rhf_sps).
+    # Corrigimos para metros antes de qualquer cálculo de dx_m ou x_m.
+    vel_op_ms   = float(preset.get("velocidade_operador_ms", 1.2))
+    modo_coleta = detectar_modo_coleta(prof.info)
+    _, dist_total_m_coleta = normalizar_distancia(arr_raw, prof.info, vel_op_ms)
+    dist_por_trace_m = dist_total_m_coleta / max(n_tracos, 1)
+
+    if modo_coleta == "tempo":
+        rhf_sps_log = float(prof.info.get("rhf_sps", 100.0)) or 100.0
+        logger.warning(
+            f"  Modo TEMPO detectado: assumindo velocidade={vel_op_ms}m/s, "
+            f"rhf_sps={rhf_sps_log:.0f}Hz, "
+            f"dist_por_trace={dist_por_trace_m:.4f}m, total={dist_total_m_coleta:.1f}m. "
+            f"CALIBRAR com Amilson se velocidade real diferente."
+        )
+        prof.profilePos = np.linspace(0.0, dist_total_m_coleta, n_tracos)
+        dist_max = dist_total_m_coleta
+    else:
+        logger.info(
+            f"  Modo DISTANCIA: rhf_spm={prof.info.get('rhf_spm', 0):.1f} tr/m, "
+            f"dist_por_trace={dist_por_trace_m:.4f}m, total={dist_total_m_coleta:.2f}m"
+        )
+
+    # ── METRICAS SNR POR ESTAGIO — coleta paralela, nao altera nenhum fluxo ──
+    snr_metrics: dict = {}
+    snr_metrics["raw"] = calcular_snr_hilbert(arr_raw, "raw")
+
     # ── SNR do dado bruto — governador do processamento ──────────────────────
     snr_db, snr_ratio, modo = calcular_snr_imagem_db(arr_raw, tipo_solo)
     logger.info(
         f"  SNR raw: {snr_db:.1f} dB (S/sig={snr_ratio:.1f}) | "
         f"solo={tipo_solo} | modo={modo.upper()}"
+    )
+
+    # Profundidade minima adaptativa — ajuste por modo SNR antes do detector
+    depth_min_preset = float(preset.get("det_depth_min_m", 0.30))
+    if preset.get("_det_depth_min_m_explicit", False):
+        depth_min_usado = depth_min_preset
+    else:
+        depth_min_usado = calcular_depth_min_adaptativo(modo, depth_min_preset)
+    preset["det_depth_min_m"] = depth_min_usado
+    logger.info(
+        f"det_depth_min_m: {depth_min_preset:.2f}m (preset) → {depth_min_usado:.2f}m (modo={modo})"
     )
 
     # ── 2. DEWOW + BANDPASS (comum aos fluxos cientifico, relatorio, detector) ─
@@ -879,6 +1118,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         logger.debug(f"  dewow({preset['dewow_window']})")
     else:
         logger.debug("  dewow desativado (dewow_window=0)")
+
+    snr_metrics["dewow"] = calcular_snr_hilbert(
+        np.asarray(prof.data).astype(np.float32), "dewow"
+    )
 
     bandpass_aplicado = f"{preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']} MHz"
     if modo == "minimo" and preset.get("bandpass_low_mhz", 0) > 0:
@@ -898,6 +1141,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     # Este array vai para: detector (raw_dewow_bandpass), base do radargrama_cientifico
     arr_dewow_bp = np.asarray(prof.data).astype(np.float32).copy()
     logger.debug(f"  arr_dewow_bp capturado shape={arr_dewow_bp.shape}")
+    snr_metrics["bp"] = (
+        None if bandpass_aplicado == "pulado"
+        else calcular_snr_hilbert(arr_dewow_bp, "bp")
+    )
 
     # ── 3. FLUXO CIENTIFICO — dewow + bp + tpow, SEM bgremoval, SEM AGC ────────
     tpow_base = preset.get("tpow_power", 0.5)
@@ -947,6 +1194,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     else:
         logger.debug("  bgremoval desativado (bgremoval_traces=0)")
 
+    snr_metrics["bgremoval"] = calcular_snr_hilbert(
+        np.asarray(prof.data).astype(np.float32), "bgremoval"
+    )
+
     if tpow_usado > 0:
         prof.tpowGain(power=tpow_usado)
         logger.debug(f"  tpowGain(power={tpow_usado}) [base={tpow_base}, modo={modo}] [fluxo relatorio]")
@@ -956,6 +1207,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     arr_sem_agc = np.asarray(prof.data).astype(np.float32)
     _salvar_npy_seguro(arr_sem_agc, caminhos["dados"] / f"{nome}_processado_sem_agc.npy")
     logger.debug(f"  processado_sem_agc.npy salvo shape={arr_sem_agc.shape}")
+    snr_metrics["tpow"] = calcular_snr_hilbert(arr_sem_agc, "tpow")
 
     # SNR pos bgremoval+tpow — antes AGC (mede impacto do bgremoval no sinal)
     snr_db_rel, snr_ratio_rel, _ = calcular_snr_imagem_db(arr_sem_agc, tipo_solo)
@@ -1023,6 +1275,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado.npy")
     _salvar_npy_seguro(arr_proc_save, caminhos["dados"] / f"{nome}_processado_visual.npy")
     logger.debug(f"  processado.npy + processado_visual.npy (com AGC) salvos [compat]")
+    snr_metrics["agc"] = calcular_snr_hilbert(arr_proc_save, "agc")
 
     # ── 5. SELECAO DO ARRAY DO DETECTOR (v2.0.0) ─────────────────────────────
     detector_input_mode = preset.get("detector_input_mode", "raw")
@@ -1063,6 +1316,35 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     tempo_s = round((t_fim - t_inicio).total_seconds(), 1)
     logger.debug(f"  Tempo total: {tempo_s}s")
 
+    # ── PIPELINE METRICS JSON — rastreabilidade completa por DZT ─────────────
+    metrics_path = None
+    try:
+        _metrics = {
+            "pipeline_version":      PIPELINE_VERSION,
+            "dzt_sha256":            dzt_sha256,
+            "dzt_filename":          arquivo_dzt.name,
+            "dzt_size_bytes":        os.path.getsize(str(arquivo_dzt)),
+            "processed_at_utc":      datetime.utcnow().isoformat() + "Z",
+            "preset_name":           preset.get("_name", "unknown"),
+            "modo_processamento":    modo,
+            "modo_coleta":           modo_coleta,
+            "time_zero_sample":      tz_detectado,
+            "time_zero_ns":          round(tz_detectado * dt_ns, 3),
+            "snr_stages_db":         snr_metrics,
+            "det_depth_min_m_usado": depth_min_usado,
+            "n_amostras_original":   n_amostras_original,
+            "n_amostras_final":      arr_raw.shape[0],
+            "n_tracos":              arr_raw.shape[1],
+            "dist_total_m":          dist_total_m_coleta,
+        }
+        metrics_path = caminhos["processadas"] / f"{nome}_pipeline_metrics.json"
+        with open(str(metrics_path), "w", encoding="utf-8") as _mf:
+            json.dump(_metrics, _mf, indent=2, default=str)
+        logger.info(f"  Metricas salvas: {metrics_path.name}")
+    except Exception as _me:
+        logger.warning(f"  Metricas nao salvas: {_me}")
+        metrics_path = None
+
     # Libera arrays grandes e figuras matplotlib antes do próximo DZT.
     # Sem isso, acumulação de memória entre iterações causa MemoryError
     # já na 2ª ou 3ª alocação numpy/matplotlib em projetos com múltiplos DZTs.
@@ -1080,6 +1362,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "twtt_max_ns":             round(twtt_max, 2),
         "profundidade_max_m":      depth_max,
         "distancia_max_m":         round(dist_max, 3),
+        "modo_coleta":             modo_coleta,
+        "dist_por_trace_m":        round(dist_por_trace_m, 6),
         "fs_mhz":                  round(fs_mhz, 0),
         # Imagens (v2.0.0 — tres fluxos)
         "imagem_bruta":                  path_bruta.name,
@@ -1121,7 +1405,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "tpow_power":              tpow_usado,
         "agc_window":              agc_janela,
         # SNR medido em 3 pontos do pipeline (v2.0.0)
-        "snr_imagem_db":           snr_db,          # SNR raw — backward compat (v1.2.0)
+        "snr_imagem_db":           snr_db,          # SNR raw — backward compat (v2.0.0)
         "snr_imagem_ratio":        snr_ratio,        # SNR raw ratio — backward compat
         "snr_raw_db":              snr_db,           # SNR raw (alias explicito)
         "snr_raw_ratio":           snr_ratio,
@@ -1133,13 +1417,18 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "tipo_solo":               tipo_solo,
         # Detector v2.0.0
         "detector_input_mode":     detector_input_mode,
+        "det_depth_min_m_usado":   depth_min_usado,
         "n_removidos_depth_min":   metricas.get("n_removidos_depth_min", 0),
+        "time_zero_sample":        tz_detectado,
+        "time_zero_ns":            round(tz_detectado * dt_ns, 3),
         # Velocidade e calibracao
         "velocity_mns":            preset["velocity_mns"],
         "velocity_calibrada":      False,
         "metodo_calibracao":       "default",
         "observacao_calibracao":   "[CALIBRAR] Confirmar com Amilson usando alvo de posicao/profundidade conhecidas",
         "config_hash":             config_hash or "",
+        "dzt_sha256":              dzt_sha256,
+        "metrics_path":            str(metrics_path) if metrics_path else "",
         # Metadata
         "status":                  "processado",
         "tempo_processamento_s":   tempo_s,
@@ -1184,6 +1473,7 @@ def main():
     pasta_entrada = Path(args.input)  if args.input  else script_dir.parent / "Exemplos_dados_bruos_georadar"
     pasta_saida   = Path(args.output) if args.output else script_dir / "exemplo_saida"
     preset        = dict(PRESETS[args.preset])  # copia mutavel
+    preset["_name"] = args.preset
     usar_detector = not args.sem_detector
     usar_fisica   = not args.sem_fisica
     tipo_solo     = args.solo
@@ -1198,6 +1488,8 @@ def main():
             with open(args.filter_config, encoding="utf-8") as _fh:
                 _overrides = json.load(_fh)
             preset.update(_overrides)
+            if "det_depth_min_m" in _overrides:
+                preset["_det_depth_min_m_explicit"] = True
             logger_root = logging.getLogger()
             logger_root.info(f"filter-config aplicado: {_overrides}")
         except Exception as _e:
@@ -1219,7 +1511,7 @@ def main():
     logger.info(f"Solo         : {tipo_solo}")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
-    logger.info(f"Matrizes V1.2: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
+    logger.info(f"Matrizes v2.0.0: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
     logger.info("=" * 65)
 
     # Salva config_used.json
