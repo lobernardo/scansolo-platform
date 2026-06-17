@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (sistema de presets + gpr_presets table + Nova Entrada refatorada + job_recalibrar_velocity + tab Interpretada IA + velocity Processada 2 corrigida + download_file retry + bandpass sempre ativo)
+> Última atualização: 2026-06-17 (módulo de treinamento ground truth: wizard /treinamento + gpr_training_sessions + extensão gpr_ground_truth + training-actions.ts + upload_file retry + job_recalibrar usa e_verdadeiro_positivo)
 
 ---
 
@@ -53,6 +53,7 @@
 | 10 | Preview RADAN 5m (`_radargrama_preview_radan_5m.png`) + job `ia_p2` (anotações sobre P2) + delete projeto + `skip_ia` flag | ✅ |
 | 11 | Loop de aprendizado: `pipeline_metrics.json` + `gpr_ground_truth` + `job_recalibrar` + dashboard qualidade + `parse_dzx.py` + GPT-4o contexto do projeto + campos revisão (`confianca_revisao`, `e_referencia`, `profundidade_real_m`) | ✅ |
 | 12 | Sistema de presets: `gpr_presets` table + 6 presets científicos seedados + `/presets` UI + Nova Entrada com selector + `job_gpr` fetch+merge preset → project config | ✅ |
+| 13 | Módulo de treinamento ground truth: `gpr_training_sessions` + extensão de `gpr_ground_truth` (18 novas colunas + nullable legacy) + wizard `/treinamento` (4 passos) + `training-actions.ts` + modal recalibração | ✅ |
 
 ---
 
@@ -258,9 +259,9 @@ Dois fluxos:
 
 **Integração de presets (Fase 12):** `_get_processing_config` busca `projects.preset_id` → carrega `gpr_presets.parameters` → merge com `projects.processing_config` (projeto override ganha). O `--preset 270mhz` é passado como base ao subprocess; o merged dict é passado via `--filter-config` sobrescrevendo todos os campos do preset carregado do banco.
 
-### supabase_client.py — download_file retry
+### supabase_client.py — retry com backoff exponencial
 
-`download_file(bucket, path)` faz até 3 tentativas com backoff exponencial (1s, 2s, 4s). Loga cada retry via structlog (`download_file_retry`). Levanta a última exceção se todas as tentativas falharem.
+`download_file(bucket, path)` e `upload_file(bucket, path, data, content_type)` fazem até 3 tentativas com backoff exponencial (1s, 2s, 4s). Loga cada retry via structlog (`download_file_retry` / `upload_file_retry`). Levanta a última exceção se todas as tentativas falharem.
 
 ### job_ia.py
 
@@ -325,17 +326,17 @@ Disparado por `finalizeReview` → job `interpretada` em `processing_jobs`
 - Upload para `gpr-tabelas/{project_id}/inferencias.txt` (upsert)
 - **Não altera `project.status`** — job independente
 
-### job_recalibrar.py (Fase 11)
+### job_recalibrar.py (Fase 11 + 13)
 
-Disparado manualmente via INSERT em `processing_jobs` (`job_type='recalibrar'`) ou pelo botão no dashboard de qualidade.
+Disparado manualmente via INSERT em `processing_jobs` (`job_type='recalibrar'`) ou pelo botão no dashboard de qualidade / tela `/treinamento`.
 
 1. Busca todos os rows de `gpr_ground_truth` (mínimo 20 amostras)
-2. Inverte `e_falso_positivo` → `e_verdadeiro_positivo` para cálculos
+2. Usa `e_verdadeiro_positivo` diretamente (coluna no banco desde Fase 13); rows antigos têm backfill automático de `NOT e_falso_positivo`
 3. **Score threshold (F1):** varre 10–90 (step=5), maximiza F1 = 2TP/(2TP+FP+FN)
 4. **det_amp_threshold:** mediana(`amplitude_relativa_max` dos VP) − 0.1×IQR; requer ≥5 amostras com esse campo
-5. **det_depth_min_m:** se >5 FP com `depth_m < 0.5m` → mediana + 0.05m; senão mantém 0.30
+5. **det_depth_min_m:** se >5 FP com `depth_detector_m < 0.5m` → mediana + 0.05m; senão mantém 0.30
 6. Salva candidato JSON em `gpr-tabelas/recalibracao/candidato_<ts>.json` com `aprovado: false`
-7. **NÃO aplica thresholds automaticamente** — requer revisão manual
+7. **NÃO aplica thresholds automaticamente** — requer revisão manual (via modal em `/treinamento`)
 
 ### job_recalibrar_velocity.py (Fase 12)
 
@@ -491,12 +492,24 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/projetos/[id]/cartografia` | `CartografiaClient.tsx` | Download DXF/KML/GeoJSON |
 | `/projetos/[id]/relatorio` | `RelatorioClient.tsx` | Gerar e baixar relatório + inferências |
 | `/presets` | `PresetsClient.tsx` | Cards de presets (sistema + personalizados), expand parâmetros, modal criar/editar/duplicar (admin/socio apenas) |
+| `/treinamento` | `TreinamentoClient.tsx` | Wizard de validação manual (4 passos: idle→select→metadata→validate), stats/F1, histórico de sessões, modal recalibração com comparação atual vs. sugerido + botão "Aplicar ao preset" |
 | `/admin/qualidade` | `QualidadeClient.tsx` | Dashboard de qualidade — ground truth, F1, candidatos de recalibração, botão disparar job (visível apenas para `socio`/`admin`) |
 | `/api/presets` | `route.ts` (GET) | Retorna presets ativos para o selector client-side da Nova Entrada |
 
 ### Server actions — `apps/web/app/actions/preset-actions.ts`
 
 `getPresets`, `getPresetById`, `createPreset`, `updatePreset`, `deletePreset` (soft delete via `is_active=false`), `duplicatePreset`. Apenas `admin`/`socio` podem criar/editar/deletar.
+
+### Server actions — `apps/web/app/actions/training-actions.ts` (Fase 13)
+
+`getProjectsForTraining` / `getProfilesForProject` / `getTargetsForProfile` — dados para o wizard.  
+`createTrainingSession(projectId, profileId, descricao)` → `{ ok, session_id }`.  
+`saveGroundTruthEntry(entry)` — copia métricas de `detected_targets` e insere em `gpr_ground_truth`.  
+`finalizeTrainingSession(sessionId)` — conta VP/FP/FN da sessão, atualiza `gpr_training_sessions.status='concluida'`.  
+`getGroundTruthStats()` — totais VP/FP/FN, F1 estimado, distribuição por tipo_solo e tipo_alvo.  
+`triggerRecalibracao()` — insere job `recalibrar` em `processing_jobs`.  
+`getTrainingSessions()` / `getRecalibracaoResults()` / `getRecalibracaoContent(signedUrl)` — histórico e candidatos.  
+`applyRecalibracao(thresholds)` — importa `createPreset` e cria preset de usuário com thresholds do candidato.
 
 ### Fluxo de status do projeto
 
@@ -599,6 +612,29 @@ Decisões de revisão por alvo: `vai_para_planta`, `vai_para_relatorio`, `tipo_c
 
 Alvos aprovados pelo Amilson salvos para futura melhoria do modelo. Campos: `project_id`, `profile_id`, `target_data` (JSONB com geometria + tipo confirmado), `source` (aprovacao / canvas).
 
+### `gpr_training_sessions` (Fase 13)
+
+| Campo | Tipo | Uso |
+|---|---|---|
+| `id` | uuid PK | — |
+| `project_id` | uuid FK | Projeto avaliado |
+| `profile_id` | uuid FK | Perfil (DZT) avaliado |
+| `created_by` | uuid | Usuário que criou a sessão |
+| `descricao` | text | Descrição da sessão |
+| `total_vp / total_fp / total_fn` | int | Contagens atualizadas por `finalizeTrainingSession` |
+| `status` | text | rascunho / concluida |
+
+### `gpr_ground_truth` — Schema expandido (Fase 11 + 13)
+
+Tabela dupla: rows do job_interpretada.py (Fase 11, auto-feed) e rows do wizard (Fase 13, manual).
+
+**Colunas legadas (Fase 11 — auto-feed):** `target_rank`*, `x_m`*, `depth_m`*, `e_falso_positivo`, `confianca_revisao`, `e_referencia`, `profundidade_real_m`, `tipo_confirmado`, `score_detector`, `tipo_solo`, `status`, `source`
+
+**Colunas novas (Fase 13 — wizard):** `session_id` FK, `created_by`, `detected_target_id` FK, `e_verdadeiro_positivo`†, `e_falso_negativo`, `x_real_m`, `depth_real_m`, `tipo_alvo_confirmado`, `material_alvo`, `diametro_real_mm`, `fonte_confirmacao`, `confianca_fonte`, `umidade_solo`, `tipo_superficie`, `dias_sem_chuva`, `profundidade_lencol_m`, `amplitude_relativa_max`, `depth_detector_m`
+
+*\* tornadas nullable na Fase 13 — job_interpretada.py ainda as preenche; wizard pode omitir (ex: FN sem match do detector).*  
+*† backfill automático: `e_verdadeiro_positivo = NOT e_falso_positivo` para rows da Fase 11. job_recalibrar.py usa `e_verdadeiro_positivo` diretamente.*
+
 ---
 
 ## Supabase Storage — buckets
@@ -628,11 +664,12 @@ Alvos aprovados pelo Amilson salvos para futura melhoria do modelo. Campos: `pro
 | 20260608000001 | SNR gate: snr_imagem_db, snr_imagem_ratio, modo_processamento, tipo_solo em gpr_profiles | ✅ |
 | 20260615000001 | `imagem_preview_radan_5m_url` em gpr_profiles (Preview RADAN 5m) | ✅ |
 | 20260615000002 | `ia_p2` no enum job_type + `imagem_interpretada_ia_p2_url` em gpr_profiles | ✅ |
-| 20260617000001 | `recalibrar_velocity` no enum job_type | pendente push |
-| 20260617000002 | `gpr_presets` table + RLS + `preset_id` FK em projects | pendente push |
-| 20260617000003 | Seed dos 6 presets científicos do sistema em `gpr_presets` | pendente push |
+| 20260617000001 | `recalibrar_velocity` no enum job_type | ✅ remoto |
+| 20260617000002 | `gpr_presets` table + RLS + `preset_id` FK em projects | ✅ remoto |
+| 20260617000003 | Seed dos 6 presets científicos do sistema em `gpr_presets` | ✅ remoto |
+| 20260617000004 | `gpr_training_sessions` (CREATE) + `gpr_ground_truth` extensão (18 novas colunas + nullable legacy + backfill `e_verdadeiro_positivo`) | ✅ remoto |
 
-As 3 migrations 20260617 foram aplicadas ao banco remoto via MCP Supabase na sessão de 2026-06-17. Confirmar com `supabase migration list`.
+Todas as migrations foram aplicadas ao banco remoto via MCP Supabase. Versões no remoto usam timestamps próprios (não os números do arquivo local) — `supabase db push` pode tentar reaplicar os arquivos locais; preferir MCP para novas migrations.
 
 ---
 
@@ -663,7 +700,7 @@ supabase db push --password <DB_PASSWORD>
 | P3 | `fkMigration` do GPRPy requer `irlib` não instalado — usa Kirchhoff numpy próprio | Qualidade da migração vs. GPRPy nativo | Avaliar com Amilson se qualidade atual é suficiente |
 | P4 | IA de imagem (`gpt-image-1`) off por padrão | Melhoria potencial das imagens processadas | Avaliar custo/benefício com Amilson em projeto real |
 | P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 |
-| P6 | `fis_amp_metal_thr` revisado para 0.65 e `fis_amp_nao_metal_thr` para 0.22 via Fresnel; valores aguardam validação com alvos reais | Classificação metal/não-metal ainda não validada em campo | Usar `KB_ScansoloPlataform/GROUND_TRUTH/` + `import_ground_truth.py` para acumular ≥20 amostras e disparar `job_recalibrar` |
+| P6 | `fis_amp_metal_thr` revisado para 0.65 e `fis_amp_nao_metal_thr` para 0.22 via Fresnel; valores aguardam validação com alvos reais | Classificação metal/não-metal ainda não validada em campo | Usar `/treinamento` (wizard) ou `import_ground_truth.py` para acumular ≥20 amostras; disparar `job_recalibrar` via `/admin/qualidade` ou `/treinamento` |
 | P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (commit 91e5f9c) |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
 | P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
@@ -687,5 +724,5 @@ supabase db push --password <DB_PASSWORD>
 7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso usando os novos presets `270mhz_clay`, `270mhz_sandy` etc.
 8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade derivada da velocity do preset é adequada.
 9. **Pileup 0.30m em DZTs HELPER** — confirmar se 232 alvos em 0.30m eram falsos positivos (onda direta). Agora que o bandpass nunca é pulado, monitorar nova taxa de pileup nos próximos processamentos.
-10. **Candidato de recalibração** — após acumular ≥20 amostras validadas no `gpr_ground_truth`, usar dashboard `/admin/qualidade` para disparar `job_recalibrar` e revisar o candidato JSON antes de aplicar ao preset de produção.
+10. **Candidato de recalibração** — após acumular ≥20 amostras validadas no `gpr_ground_truth` (via `/treinamento` ou `import_ground_truth.py`), disparar `job_recalibrar` pelo botão em `/treinamento` ou `/admin/qualidade`. Revisar o candidato JSON no modal de recalibração antes de aplicar ao preset de produção.
 11. **Presets seedados** — validar que os 6 presets do sistema têm parâmetros adequados para cada tipo de projeto antes de usar em produção. Amilson deve revisar `det_h_max_m`, `det_depth_min_m` e `velocity_mns` de cada preset.
