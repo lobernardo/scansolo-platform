@@ -558,7 +558,7 @@ supabase db push --password <DB_PASSWORD>
 | P11 | Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222) | Confunde auditorias — pipeline é v2.0.0 | Atualizar texto de impressão para "v2.0" |
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
-| P14 | `job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by` | Campos ficam null no ground truth (silencioso — não aborta job) | Corrigir nomes das colunas no SELECT do `detected_targets` join `technical_reviews` |
+| P14 | ~~`job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by`~~ | ~~Campos ficam null no ground truth (silencioso — não aborta job)~~ | ✅ **Resolvido** — commit bab0ef1 |
 
 ---
 
