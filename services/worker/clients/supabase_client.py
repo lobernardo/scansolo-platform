@@ -151,11 +151,28 @@ class SupabaseClient:
         raise last_exc
 
     def upload_file(self, bucket: str, path: str, data: bytes, content_type: str = "application/octet-stream") -> None:
-        self._client.storage.from_(bucket).upload(
-            path=path,
-            file=data,
-            file_options={"content-type": content_type, "upsert": "true"},
-        )
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                self._client.storage.from_(bucket).upload(
+                    path=path,
+                    file=data,
+                    file_options={"content-type": content_type, "upsert": "true"},
+                )
+                return
+            except Exception as e:
+                last_exc = e
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                log.warning(
+                    "upload_file_retry",
+                    bucket=bucket,
+                    path=path,
+                    attempt=attempt + 1,
+                    wait_s=wait,
+                    error=str(e),
+                )
+                time.sleep(wait)
+        raise last_exc
 
     def get_public_url(self, bucket: str, path: str) -> str:
         return self._client.storage.from_(bucket).get_public_url(path)

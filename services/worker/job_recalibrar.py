@@ -91,7 +91,7 @@ def _calcular_depth_min(fp: list[dict]) -> float:
     Se há muitos FP rasos (< 0.5 m), sugere elevar det_depth_min_m.
     Usa mediana dos FP rasos + 0.05 m de margem.
     """
-    fp_rasos = [r["depth_m"] for r in fp if r.get("depth_m") is not None and r["depth_m"] < 0.5]
+    fp_rasos = [r["depth_detector_m"] for r in fp if r.get("depth_detector_m") is not None and r["depth_detector_m"] < 0.5]
     if len(fp_rasos) > 5:
         sugerido = round(statistics.median(fp_rasos) + 0.05, 2)
         return max(_PRESET_ATUAL["det_depth_min_m"], sugerido)
@@ -120,12 +120,9 @@ def handle_recalibrar_job(job_id: str, payload: dict, supa: "SupabaseClient") ->
         return
 
     # ── ETAPA 2: Separar VP e FP ──────────────────────────────────────────────
-    # Coluna no banco é e_falso_positivo; invertemos para e_verdadeiro_positivo
-    for r in rows:
-        r["e_verdadeiro_positivo"] = not r.get("e_falso_positivo", True)
-
-    vp = [r for r in rows if r["e_verdadeiro_positivo"]]
-    fp = [r for r in rows if not r["e_verdadeiro_positivo"]]
+    # Coluna e_verdadeiro_positivo direto no banco (não mais e_falso_positivo)
+    vp = [r for r in rows if r.get("e_verdadeiro_positivo") and not r.get("e_falso_negativo")]
+    fp = [r for r in rows if not r.get("e_verdadeiro_positivo")]
 
     log.info("recalibrar_dados", n_vp=len(vp), n_fp=len(fp), total=len(rows))
 

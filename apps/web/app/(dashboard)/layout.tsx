@@ -56,6 +56,12 @@ export default async function DashboardLayout({
               >
                 Presets
               </Link>
+              <Link
+                href="/treinamento"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+              >
+                Treinamento
+              </Link>
               {isAdmin && (
                 <Link
                   href="/admin/qualidade"
