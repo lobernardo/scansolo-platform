@@ -298,6 +298,239 @@ export type Database = {
           },
         ]
       }
+      gpr_ground_truth: {
+        Row: {
+          amplitude_relativa_max: number | null
+          amplitude_relativa_raw: number | null
+          amplitude_relativa_sem_agc: number | null
+          confianca_fonte: number | null
+          confianca_revisao: string | null
+          created_at: string | null
+          created_by: string | null
+          depth_detector_m: number | null
+          depth_m: number | null
+          depth_real_m: number | null
+          detected_target_id: string | null
+          diam_est_m: number | null
+          diam_real_m: number | null
+          diametro_real_mm: number | null
+          dias_sem_chuva: number | null
+          e_falso_negativo: boolean | null
+          e_falso_positivo: boolean | null
+          e_referencia: boolean | null
+          e_verdadeiro_positivo: boolean | null
+          fase_consistente: boolean | null
+          fit_ok: boolean | null
+          fonte_confirmacao: string | null
+          freq_dominante_mhz: number | null
+          id: string
+          material_alvo: string | null
+          motivo_rejeicao: string | null
+          observacoes: string | null
+          patch_url: string | null
+          pipeline_version: string | null
+          preset_usado: string | null
+          profile_id: string | null
+          profundidade_lencol_m: number | null
+          profundidade_real_m: number | null
+          project_id: string | null
+          score_detector: number | null
+          session_id: string | null
+          snr_raw_db: number | null
+          source: string | null
+          status: string | null
+          target_rank: number | null
+          tipo_alvo_confirmado: string | null
+          tipo_confirmado: string | null
+          tipo_solo: string | null
+          tipo_superficie: string | null
+          umidade_solo: string | null
+          validado_em: string | null
+          validado_por: string | null
+          velocity_usada_mns: number | null
+          x_m: number | null
+          x_real_m: number | null
+        }
+        Insert: {
+          amplitude_relativa_max?: number | null
+          amplitude_relativa_raw?: number | null
+          amplitude_relativa_sem_agc?: number | null
+          confianca_fonte?: number | null
+          confianca_revisao?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          depth_detector_m?: number | null
+          depth_m?: number | null
+          depth_real_m?: number | null
+          detected_target_id?: string | null
+          diam_est_m?: number | null
+          diam_real_m?: number | null
+          diametro_real_mm?: number | null
+          dias_sem_chuva?: number | null
+          e_falso_negativo?: boolean | null
+          e_falso_positivo?: boolean | null
+          e_referencia?: boolean | null
+          e_verdadeiro_positivo?: boolean | null
+          fase_consistente?: boolean | null
+          fit_ok?: boolean | null
+          fonte_confirmacao?: string | null
+          freq_dominante_mhz?: number | null
+          id?: string
+          material_alvo?: string | null
+          motivo_rejeicao?: string | null
+          observacoes?: string | null
+          patch_url?: string | null
+          pipeline_version?: string | null
+          preset_usado?: string | null
+          profile_id?: string | null
+          profundidade_lencol_m?: number | null
+          profundidade_real_m?: number | null
+          project_id?: string | null
+          score_detector?: number | null
+          session_id?: string | null
+          snr_raw_db?: number | null
+          source?: string | null
+          status?: string | null
+          target_rank?: number | null
+          tipo_alvo_confirmado?: string | null
+          tipo_confirmado?: string | null
+          tipo_solo?: string | null
+          tipo_superficie?: string | null
+          umidade_solo?: string | null
+          validado_em?: string | null
+          validado_por?: string | null
+          velocity_usada_mns?: number | null
+          x_m?: number | null
+          x_real_m?: number | null
+        }
+        Update: {
+          amplitude_relativa_max?: number | null
+          amplitude_relativa_raw?: number | null
+          amplitude_relativa_sem_agc?: number | null
+          confianca_fonte?: number | null
+          confianca_revisao?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          depth_detector_m?: number | null
+          depth_m?: number | null
+          depth_real_m?: number | null
+          detected_target_id?: string | null
+          diam_est_m?: number | null
+          diam_real_m?: number | null
+          diametro_real_mm?: number | null
+          dias_sem_chuva?: number | null
+          e_falso_negativo?: boolean | null
+          e_falso_positivo?: boolean | null
+          e_referencia?: boolean | null
+          e_verdadeiro_positivo?: boolean | null
+          fase_consistente?: boolean | null
+          fit_ok?: boolean | null
+          fonte_confirmacao?: string | null
+          freq_dominante_mhz?: number | null
+          id?: string
+          material_alvo?: string | null
+          motivo_rejeicao?: string | null
+          observacoes?: string | null
+          patch_url?: string | null
+          pipeline_version?: string | null
+          preset_usado?: string | null
+          profile_id?: string | null
+          profundidade_lencol_m?: number | null
+          profundidade_real_m?: number | null
+          project_id?: string | null
+          score_detector?: number | null
+          session_id?: string | null
+          snr_raw_db?: number | null
+          source?: string | null
+          status?: string | null
+          target_rank?: number | null
+          tipo_alvo_confirmado?: string | null
+          tipo_confirmado?: string | null
+          tipo_solo?: string | null
+          tipo_superficie?: string | null
+          umidade_solo?: string | null
+          validado_em?: string | null
+          validado_por?: string | null
+          velocity_usada_mns?: number | null
+          x_m?: number | null
+          x_real_m?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gpr_ground_truth_detected_target_id_fkey"
+            columns: ["detected_target_id"]
+            isOneToOne: false
+            referencedRelation: "detected_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gpr_ground_truth_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "gpr_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gpr_ground_truth_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gpr_ground_truth_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "gpr_training_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gpr_presets: {
+        Row: {
+          antenna_freq_mhz: number | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          is_system: boolean | null
+          name: string
+          parameters: Json
+          scientific_basis: string | null
+          target_scenario: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          antenna_freq_mhz?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          name: string
+          parameters: Json
+          scientific_basis?: string | null
+          target_scenario?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          antenna_freq_mhz?: number | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          name?: string
+          parameters?: Json
+          scientific_basis?: string | null
+          target_scenario?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       gpr_profiles: {
         Row: {
           arquivo_dzt: string
@@ -311,12 +544,13 @@ export type Database = {
           imagem_alta_conf_url: string | null
           imagem_anotada_url: string | null
           imagem_bruta_url: string | null
+          imagem_interpretada_ia_p2_url: string | null
           imagem_interpretada_manual_data: Json | null
           imagem_interpretada_status: string
           imagem_interpretada_url: string | null
-          imagem_interpretada_ia_p2_url: string | null
           imagem_preview_radan_5m_url: string | null
           imagem_processada_url: string | null
+          metricas_pipeline_url: string | null
           modo_processamento: string | null
           n_amostras: number | null
           n_tracos: number | null
@@ -342,12 +576,13 @@ export type Database = {
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_interpretada_ia_p2_url?: string | null
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
-          imagem_interpretada_ia_p2_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          metricas_pipeline_url?: string | null
           modo_processamento?: string | null
           n_amostras?: number | null
           n_tracos?: number | null
@@ -373,12 +608,13 @@ export type Database = {
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_interpretada_ia_p2_url?: string | null
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
           imagem_interpretada_url?: string | null
-          imagem_interpretada_ia_p2_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          metricas_pipeline_url?: string | null
           modo_processamento?: string | null
           n_amostras?: number | null
           n_tracos?: number | null
@@ -395,6 +631,60 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "gpr_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gpr_training_sessions: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          descricao: string | null
+          id: string
+          profile_id: string | null
+          project_id: string | null
+          status: string | null
+          total_fn: number | null
+          total_fp: number | null
+          total_vp: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          profile_id?: string | null
+          project_id?: string | null
+          status?: string | null
+          total_fn?: number | null
+          total_fp?: number | null
+          total_vp?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          profile_id?: string | null
+          project_id?: string | null
+          status?: string | null
+          total_fn?: number | null
+          total_fp?: number | null
+          total_vp?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gpr_training_sessions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "gpr_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gpr_training_sessions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -622,6 +912,7 @@ export type Database = {
           nome: string
           observacoes: string | null
           prazo_desejado: string | null
+          preset_id: string | null
           prioridade: string | null
           processing_config: Json | null
           saida_desejada: Database["public"]["Enums"]["saida_desejada"] | null
@@ -630,7 +921,9 @@ export type Database = {
           tem_dzg: boolean | null
           tem_kml: boolean | null
           tem_pipe_locator: boolean | null
+          tipo_obra: string | null
           tipo_servico: string | null
+          tipo_solo: string
           updated_at: string
         }
         Insert: {
@@ -654,6 +947,7 @@ export type Database = {
           nome: string
           observacoes?: string | null
           prazo_desejado?: string | null
+          preset_id?: string | null
           prioridade?: string | null
           processing_config?: Json | null
           saida_desejada?: Database["public"]["Enums"]["saida_desejada"] | null
@@ -662,7 +956,9 @@ export type Database = {
           tem_dzg?: boolean | null
           tem_kml?: boolean | null
           tem_pipe_locator?: boolean | null
+          tipo_obra?: string | null
           tipo_servico?: string | null
+          tipo_solo?: string
           updated_at?: string
         }
         Update: {
@@ -686,6 +982,7 @@ export type Database = {
           nome?: string
           observacoes?: string | null
           prazo_desejado?: string | null
+          preset_id?: string | null
           prioridade?: string | null
           processing_config?: Json | null
           saida_desejada?: Database["public"]["Enums"]["saida_desejada"] | null
@@ -694,7 +991,9 @@ export type Database = {
           tem_dzg?: boolean | null
           tem_kml?: boolean | null
           tem_pipe_locator?: boolean | null
+          tipo_obra?: string | null
           tipo_servico?: string | null
+          tipo_solo?: string
           updated_at?: string
         }
         Relationships: [
@@ -710,6 +1009,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_preset_id_fkey"
+            columns: ["preset_id"]
+            isOneToOne: false
+            referencedRelation: "gpr_presets"
             referencedColumns: ["id"]
           },
         ]
@@ -786,10 +1092,13 @@ export type Database = {
       }
       technical_reviews: {
         Row: {
+          confianca_revisao: string | null
           diametro_ajustado: number | null
+          e_referencia: boolean | null
           id: string
           observacao: string | null
           profundidade_ajustada: number | null
+          profundidade_real_m: number | null
           reviewed_at: string | null
           reviewed_by: string | null
           status_review: Database["public"]["Enums"]["review_status"]
@@ -799,10 +1108,13 @@ export type Database = {
           vai_para_relatorio: boolean | null
         }
         Insert: {
+          confianca_revisao?: string | null
           diametro_ajustado?: number | null
+          e_referencia?: boolean | null
           id?: string
           observacao?: string | null
           profundidade_ajustada?: number | null
+          profundidade_real_m?: number | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status_review?: Database["public"]["Enums"]["review_status"]
@@ -812,10 +1124,13 @@ export type Database = {
           vai_para_relatorio?: boolean | null
         }
         Update: {
+          confianca_revisao?: string | null
           diametro_ajustado?: number | null
+          e_referencia?: boolean | null
           id?: string
           observacao?: string | null
           profundidade_ajustada?: number | null
+          profundidade_real_m?: number | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status_review?: Database["public"]["Enums"]["review_status"]
@@ -864,11 +1179,12 @@ export type Database = {
       job_type:
         | "gpr"
         | "ia"
-        | "ia_p2"
         | "cartografia"
         | "relatorio"
         | "inferencias"
         | "interpretada"
+        | "ia_p2"
+        | "recalibrar_velocity"
       output_type: "dxf" | "kml" | "geojson" | "csv"
       project_status:
         | "criado"
@@ -1045,6 +1361,8 @@ export const Constants = {
         "relatorio",
         "inferencias",
         "interpretada",
+        "ia_p2",
+        "recalibrar_velocity",
       ],
       output_type: ["dxf", "kml", "geojson", "csv"],
       project_status: [

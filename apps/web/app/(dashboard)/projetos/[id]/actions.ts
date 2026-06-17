@@ -12,6 +12,7 @@ export type FilterState = {
   gain: boolean;
   gain_type: "linear" | "agc";
   contrast: number;
+  velocity_mns: number;
   // Processada 2 (preview RADAN visual) — independent params
   depth_preview_m: number;
   agc_window_preview: number;

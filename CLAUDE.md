@@ -617,6 +617,9 @@ aguardando_arquivos
 | `snr_imagem_ratio` | float | S/sigma ratio |
 | `modo_processamento` | text | minimo / padrao / agressivo |
 | `tipo_solo` | text | solo usado no SNR gate |
+| `n_tracos` | int | Número de traços do DZT |
+| `distancia_max_m` | float | Distância total da linha (m) |
+| `profundidade_max_m` | float | Profundidade máxima registrada (m) |
 | `filtros_customizados` | JSONB | Override de filtros no reprocessamento |
 | `metricas_pipeline_url` | text | URL signed (10 anos) para `{stem}_pipeline_metrics.json` em `gpr-tabelas` |
 

@@ -32,6 +32,7 @@ const DEFAULT_FILTERS: FilterState = {
   gain: true,
   gain_type: "linear",
   contrast: 2.5,
+  velocity_mns: 0.10,
   depth_preview_m: 5.0,
   agc_window_preview: 80,
 };
@@ -216,6 +217,21 @@ export function ProjectDetailClient({
     // Auto-load metrics for compact state-atual view
     if (expanding && pipelineLogs[profileId] === undefined) {
       void loadMetrics(profileId);
+    }
+    // Initialize filter state with per-profile velocity when first opening
+    if (expanding && filterStates[profileId] === undefined) {
+      const profile = profiles.find((p) => p.id === profileId);
+      const fc = profile?.filtros_customizados as Record<string, unknown> | null | undefined;
+      const v =
+        (typeof fc?.velocity_mns === "number" ? fc.velocity_mns : null) ??
+        (typeof processingConfig?.velocity_mns === "number"
+          ? (processingConfig.velocity_mns as number)
+          : null) ??
+        0.10;
+      setFilterStates((prev) => ({
+        ...prev,
+        [profileId]: { ...DEFAULT_FILTERS, velocity_mns: v },
+      }));
     }
   }
 
@@ -953,6 +969,33 @@ function FilterPanel({
             step={0.1}
             onChange={(v) => onChange({ contrast: parseFloat(v.toFixed(1)) })}
           />
+
+          {/* Velocity */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">
+                Velocity — {filters.velocity_mns.toFixed(2)} m/ns
+              </span>
+              <span
+                className="text-[10px] text-slate-600 hover:text-cyan-400 cursor-help transition-colors"
+                title="Velocity do solo (m/ns). Converte eixo de tempo em profundidade. Não afeta filtros de sinal. Padrão: 0.10 (solo seco = 0.13, argiloso = 0.07, entulho seco = 0.20)."
+              >
+                ⓘ
+              </span>
+            </div>
+            <input
+              type="number"
+              min="0.04"
+              max="0.35"
+              step="0.01"
+              value={filters.velocity_mns}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v) && v >= 0.04 && v <= 0.35) onChange({ velocity_mns: v });
+              }}
+              className="w-28 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            />
+          </div>
         </>
       )}
 
