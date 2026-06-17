@@ -25,6 +25,7 @@ from job_cartografia import handle_cartografia_job
 from job_relatorio import handle_relatorio_job
 from job_interpretada import handle_interpretada_job
 from job_recalibrar import handle_recalibrar_job
+from job_recalibrar_velocity import handle_recalibrar_velocity_job
 
 log = structlog.get_logger()
 
@@ -71,6 +72,8 @@ def poll_once(supa: SupabaseClient) -> None:
         handle_interpretada_job(supa, job)
     elif job_type == "recalibrar":
         handle_recalibrar_job(job_id, job.get("payload") or {}, supa)
+    elif job_type == "recalibrar_velocity":
+        handle_recalibrar_velocity_job(job_id, job.get("payload") or {}, supa)
     else:
         log.warning("unknown_job_type_skipped", job_id=job_id, job_type=job_type)
         supa.update_job_status(job_id, "erro", error_message=f"job_type '{job_type}' not implemented in this worker version")

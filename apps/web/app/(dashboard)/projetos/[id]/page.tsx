@@ -538,6 +538,8 @@ export default async function ProjetoDetailPage({
           targets={targets}
           aiByTargetId={aiByTargetId}
           downloadFiles={downloadFiles}
+          projectId={project.id}
+          processingConfig={(project.processing_config as Record<string, unknown>) ?? null}
         />
       ) : (
         !isProcessing && project.status !== "aguardando_arquivos" && (

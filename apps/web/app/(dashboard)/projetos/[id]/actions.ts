@@ -157,3 +157,30 @@ export async function deleteProject(projectId: string): Promise<{ ok: boolean; e
 
   redirect("/projetos");
 }
+
+export async function requestRecalibrarVelocity(
+  projectId: string,
+  velocityMns: number
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  if (velocityMns < 0.04 || velocityMns > 0.35) {
+    return { ok: false, error: "Velocity fora do intervalo válido (0.04–0.35 m/ns)" };
+  }
+
+  const jobId = crypto.randomUUID();
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({
+      id: jobId,
+      project_id: projectId,
+      job_type: "recalibrar_velocity",
+      status: "aguardando",
+      payload: { project_id: projectId, velocity_mns: velocityMns },
+    } as unknown as never);
+
+  if (error) return { ok: false, error: `Erro ao criar job: ${error.message}` };
+  return { ok: true, jobId };
+}

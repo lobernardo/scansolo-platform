@@ -509,8 +509,9 @@ def salvar_imagem_preview_radan_5m(
 
     Retorna dict com parametros de rastreabilidade para log e index_projeto.csv.
     """
-    # Velocity calculada apenas para construir o eixo vertical desta imagem
-    velocity_preview_mns = round((2.0 * depth_preview_m) / twtt_max_ns, 6) if twtt_max_ns > 0 else 0.1
+    # Velocity e profundidade derivadas do preset — mesma calibração do pipeline oficial
+    velocity_preview_mns = round(preset.get("velocity_mns", 0.1), 6)
+    depth_preview_m = round(twtt_max_ns * velocity_preview_mns / 2.0, 2) if twtt_max_ns > 0 else 0.0
 
     # AGC visual — aplicado sobre copia, nao modifica arr_dewow_bp
     arr = arr_dewow_bp.astype(float).copy()
@@ -529,7 +530,7 @@ def salvar_imagem_preview_radan_5m(
     std = float(np.std(arr_agc)) + 1e-10
     vmin, vmax = -contrast * std, contrast * std
 
-    aviso = f"Preview ~{depth_preview_m:.0f}m | AGC visual | escala nao calibrada | v_preview={velocity_preview_mns:.4f} m/ns"
+    aviso = f"Processada 2 | AGC visual | v={velocity_preview_mns:.4f} m/ns | prof.={depth_preview_m:.2f}m"
 
     fig, ax = plt.subplots(figsize=(14, 5))
     ax.imshow(
@@ -1326,18 +1327,17 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     # NAO afeta: detector, CSV de alvos, depth_m oficial, IA, cartografia.
     path_preview = caminhos["processadas"] / f"{nome}_radargrama_preview_radan_5m.png"
     preview_meta: dict = {}
-    depth_preview_m_cfg = float(preset.get("depth_preview_m", 5.0))
     agc_win_preview = int(preset.get("agc_window_preview", 80))
     try:
         preview_meta = salvar_imagem_preview_radan_5m(
             arr_dewow_bp, twtt_max, dist_max, path_preview, preset,
             nome_arquivo=arquivo_dzt.name,
-            depth_preview_m=depth_preview_m_cfg,
             agc_window_preview=agc_win_preview,
         )
         logger.info(
-            f"  04b Preview RADAN {depth_preview_m_cfg:.0f}m: {path_preview.name} "
-            f"| v_preview={preview_meta.get('velocity_preview_mns', 0):.4f} m/ns"
+            f"  04b Processada 2: {path_preview.name} "
+            f"| v={preview_meta.get('velocity_preview_mns', 0):.4f} m/ns"
+            f"| prof.={preview_meta.get('depth_preview_m', 0):.2f}m"
         )
     except Exception as e:
         logger.warning(f"  Preview RADAN falhou (continuando): {e}")

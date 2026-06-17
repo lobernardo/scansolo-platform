@@ -3,7 +3,7 @@
 import { Fragment, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Database } from "@/lib/types/database";
-import { reprocessProfile, requestIaP2, getJobStatus } from "./actions";
+import { reprocessProfile, requestIaP2, getJobStatus, requestRecalibrarVelocity } from "./actions";
 import type { FilterState } from "./actions";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
@@ -41,11 +41,15 @@ export function ProjectDetailClient({
   targets,
   aiByTargetId,
   downloadFiles,
+  projectId,
+  processingConfig,
 }: {
   profiles: GprProfileRow[];
   targets: DetectedTargetRow[];
   aiByTargetId: Record<string, AiInterpretationRow>;
   downloadFiles: DownloadFile[];
+  projectId: string;
+  processingConfig?: Record<string, unknown> | null;
 }) {
   const router = useRouter();
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
@@ -64,6 +68,14 @@ export function ProjectDetailClient({
 
   // Maps profileId → jobId for in-flight reprocess jobs (enables polling)
   const [pendingJobs, setPendingJobs] = useState<Record<string, string>>({});
+
+  // Velocity calibration panel (project-level)
+  const initialVelocity = typeof processingConfig?.velocity_mns === "number"
+    ? processingConfig.velocity_mns
+    : 0.10;
+  const [velocityInput, setVelocityInput] = useState(initialVelocity);
+  const [velocityStatus, setVelocityStatus] = useState<"idle" | "loading" | "concluido" | "error">("idle");
+  const [velocityJobId, setVelocityJobId] = useState<string | null>(null);
 
   // Poll pending reprocess jobs every 5s; refresh page when any completes
   useEffect(() => {
@@ -92,6 +104,20 @@ export function ProjectDetailClient({
 
     return () => clearInterval(interval);
   }, [pendingJobs, router]);
+
+  // Poll velocity job
+  useEffect(() => {
+    if (!velocityJobId) return;
+    const interval = setInterval(async () => {
+      const status = await getJobStatus(velocityJobId);
+      if (status === "concluido" || status === "erro") {
+        setVelocityStatus(status === "concluido" ? "concluido" : "error");
+        setVelocityJobId(null);
+        if (status === "concluido") router.refresh();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [velocityJobId, router]);
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
   const prevImage = useCallback(
@@ -657,6 +683,55 @@ export function ProjectDetailClient({
               </a>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* ── Calibrar velocity do solo (painel por projeto) ── */}
+      {profiles.length > 0 && (
+        <section className="rounded-xl border border-slate-700 bg-slate-800/30 p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-200">Calibrar velocity do solo</h3>
+          <p className="text-xs text-slate-500">
+            Altera a escala de profundidade de todas as imagens do projeto. As imagens PNG serão redesenhadas no próximo processamento completo.
+          </p>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-slate-400 shrink-0">Velocity (m/ns)</label>
+            <input
+              type="number"
+              min="0.04"
+              max="0.35"
+              step="0.01"
+              value={velocityInput}
+              onChange={(e) => {
+                setVelocityStatus("idle");
+                setVelocityInput(parseFloat(e.target.value) || 0.10);
+              }}
+              className="w-28 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            />
+            <button
+              disabled={velocityStatus === "loading"}
+              onClick={async () => {
+                setVelocityStatus("loading");
+                const result = await requestRecalibrarVelocity(projectId, velocityInput);
+                if (result.ok && result.jobId) {
+                  setVelocityJobId(result.jobId);
+                } else {
+                  setVelocityStatus("error");
+                }
+              }}
+              className="rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+            >
+              {velocityStatus === "loading" ? "Aguardando…" : "Recalibrar imagens"}
+            </button>
+          </div>
+          {velocityStatus === "concluido" && (
+            <p className="text-xs text-emerald-400">✓ Recalibração concluída. Página recarregada.</p>
+          )}
+          {velocityStatus === "error" && (
+            <p className="text-xs text-red-400">Erro ao criar job. Tente novamente.</p>
+          )}
+          {velocityJobId && (
+            <p className="text-xs text-cyan-400 animate-pulse">⏳ Recalibrando em background…</p>
+          )}
         </section>
       )}
     </div>

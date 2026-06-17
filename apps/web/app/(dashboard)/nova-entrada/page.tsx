@@ -1,13 +1,22 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createProject, type CreateProjectState } from "./actions";
+
+const VELOCITY_OPTIONS = [
+  { value: "0.06", label: "Solo úmido / argiloso — 0.06 m/ns (ε_r ≈ 25)" },
+  { value: "0.10", label: "Solo misto padrão — 0.10 m/ns (ε_r ≈ 9)" },
+  { value: "0.13", label: "Solo seco / pavimento — 0.13 m/ns (ε_r ≈ 5)" },
+  { value: "0.20", label: "Areia seca / entulho seco — 0.20 m/ns (ε_r ≈ 2.2)" },
+  { value: "custom", label: "Personalizado" },
+];
 
 export default function NovaEntradaPage() {
   const [state, formAction, pending] = useActionState<CreateProjectState, FormData>(
     createProject,
     null
   );
+  const [velocitySelect, setVelocitySelect] = useState("0.10");
 
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
@@ -102,6 +111,36 @@ export default function NovaEntradaPage() {
           <p className="text-xs text-slate-500 pl-6">
             Para validações locais. Evita chamadas ao GPT-4o por alvo.
             O pipeline GPR e a detecção de hipérboles rodam normalmente.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-800/50 p-3 space-y-2">
+          <label className="block text-sm font-medium text-slate-200">
+            Velocity do solo
+          </label>
+          <select
+            name={velocitySelect !== "custom" ? "velocity_mns" : undefined}
+            value={velocitySelect}
+            onChange={(e) => setVelocitySelect(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
+          >
+            {VELOCITY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          {velocitySelect === "custom" && (
+            <input
+              type="number"
+              name="velocity_mns"
+              min="0.05"
+              max="0.30"
+              step="0.01"
+              placeholder="0.10"
+              className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
+            />
+          )}
+          <p className="text-xs text-slate-500">
+            Afeta apenas a escala de profundidade. Padrão: 0.10 m/ns (solo misto). Use 0.20 m/ns para areia seca ou entulho urbano seco.
           </p>
         </div>
 

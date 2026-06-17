@@ -31,6 +31,8 @@ export async function createProject(
   const tem_pipe_locator = formData.get("tem_pipe_locator") === "true";
   const auto_accept_ia = formData.get("auto_accept_ia") === "true";
   const skip_ia = formData.get("skip_ia") === "true";
+  const velocity_raw = formData.get("velocity_mns") as string;
+  const velocity_mns = velocity_raw && !isNaN(parseFloat(velocity_raw)) ? parseFloat(velocity_raw) : null;
 
   if (!nome || !cliente || !estado || !data_levantamento) {
     return { error: "Preencha todos os campos obrigatórios (nome, cliente, estado, data)." };
@@ -48,7 +50,9 @@ export async function createProject(
     antena_freq_mhz,
     tem_pipe_locator,
     auto_accept_ia,
-    processing_config: skip_ia ? { skip_ia: true } : null,
+    processing_config: (skip_ia || velocity_mns)
+      ? { ...(skip_ia ? { skip_ia: true } : {}), ...(velocity_mns ? { velocity_mns } : {}) }
+      : null,
     created_by: user.id,
     status: "aguardando_arquivos",
   };

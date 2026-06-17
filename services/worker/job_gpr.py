@@ -100,6 +100,12 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         else:
             processing_config = raw_config
 
+        # Injetar velocity_mns configurada na Nova Entrada (se não sobrescrita pelos filtros)
+        velocity_from_config = (raw_config or {}).get("velocity_mns")
+        if velocity_from_config and isinstance(processing_config, dict) and "velocity_mns" not in processing_config:
+            processing_config["velocity_mns"] = float(velocity_from_config)
+            log.info("pipeline_velocity_from_project_config", velocity_mns=velocity_from_config)
+
         _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
 
         run_id = str(uuid.uuid4())
@@ -133,9 +139,17 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
 
     except Exception as exc:
         log.error("gpr_job_failed", job_id=job_id, error=str(exc))
-        supa.update_job_status(job_id, "erro", error_message=str(exc))
+        # Envolver em try/except para que ConnectError aqui não mascare o erro original
+        # e não deixe o job em status desconhecido no DB.
+        try:
+            supa.update_job_status(job_id, "erro", error_message=str(exc))
+        except Exception as status_exc:
+            log.warning("update_job_status_failed_after_error", job_id=job_id, error=str(status_exc))
         if not is_reprocess:
-            supa.update_project_status(project_id, "erro")
+            try:
+                supa.update_project_status(project_id, "erro")
+            except Exception as proj_exc:
+                log.warning("update_project_status_failed_after_error", project_id=project_id, error=str(proj_exc))
         raise
 
     finally:
