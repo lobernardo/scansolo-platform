@@ -95,6 +95,15 @@ from parse_dzx import parse_dzx
 SCRIPT_VERSION    = "2.0.0"
 PIPELINE_VERSION  = SCRIPT_VERSION
 
+VELOCITY_POR_SOLO = {
+    "standard":  0.100,   # aterro urbano misto — εr 7–10 (USACE 1995, GuidelineGEO)
+    "arenoso":   0.130,   # areia seca/cascalho — εr 4–6  (Daniels 2004, CLU-IN)
+    "argiloso":  0.070,   # argila úmida       — εr 14–22 (Reynolds 1997)
+    "umido":     0.060,   # solo saturado       — εr 22–35 (USACE)
+    "pedregoso": 0.115,   # cascalho/rocha seca — εr 5–8   (EOAS UBC)
+}
+# Derivado de v = c/√εr, c = 0.3 m/ns (velocidade da luz no vácuo)
+
 
 # ---------------------------------------------------------------------------
 # LIMIARES SNR POR TIPO DE SOLO (S/sigma ratio, nao dB)
@@ -146,8 +155,8 @@ PRESETS = {
         # Analises fisicas (modulo separavel — False desativa completamente)
         # [CALIBRAR] com Amilson usando ~10 alvos de tipo conhecido antes de producao
         "fis_ativo":             True,
-        "fis_amp_metal_thr":     0.75,
-        "fis_amp_nao_metal_thr": 0.40,
+        "fis_amp_metal_thr":     0.65,   # metal/cabo: R→0.90–1.0 vs vazio≈0.50 (Fresnel, εr_solo=9)
+        "fis_amp_nao_metal_thr": 0.22,   # PVC/PE: R≈0.27, HDPE: R≈0.33 (Fresnel)
         # Entrada do detector — v2.0.0
         # raw: melhor CurveFit (82% nos PATIO) — default recomendado
         # raw_dewow_bandpass: alternativa conservadora (75% CF)
@@ -189,8 +198,8 @@ PRESETS = {
         "det_dt_max_diam_m": 1.50,
         "det_dt_conf_frac":  0.20,
         "fis_ativo":             True,
-        "fis_amp_metal_thr":     0.75,
-        "fis_amp_nao_metal_thr": 0.40,
+        "fis_amp_metal_thr":     0.65,   # metal/cabo: R→0.90–1.0 vs vazio≈0.50 (Fresnel, εr_solo=9)
+        "fis_amp_nao_metal_thr": 0.22,   # PVC/PE: R≈0.27, HDPE: R≈0.33 (Fresnel)
         "detector_input_mode":   "raw",
         "det_depth_min_m":       0.30,
         "velocidade_operador_ms": 1.2,
@@ -1502,10 +1511,13 @@ def main():
         preset["detector_input_mode"] = args.detector_input
 
     # Sobrescrever preset com config customizada (reprocessamento por perfil)
+    _velocity_customizada = False
     if args.filter_config:
         try:
             with open(args.filter_config, encoding="utf-8") as _fh:
                 _overrides = json.load(_fh)
+            if "velocity_mns" in _overrides:
+                _velocity_customizada = True
             preset.update(_overrides)
             if "det_depth_min_m" in _overrides:
                 preset["_det_depth_min_m_explicit"] = True
@@ -1513,6 +1525,15 @@ def main():
             logger_root.info(f"filter-config aplicado: {_overrides}")
         except Exception as _e:
             logging.getLogger().warning(f"filter-config ignorado ({_e})")
+
+    # A1 — Velocity adaptativa por tipo de solo (literatura GPR publicada)
+    # Só aplica se velocity_mns NÃO estiver explicitamente em filtros_customizados
+    _tipo_solo_v = tipo_solo or "standard"
+    if not _velocity_customizada:
+        preset["velocity_mns"] = VELOCITY_POR_SOLO.get(_tipo_solo_v, 0.100)
+        logging.getLogger().info(
+            f"[PRESET] velocity_mns={preset['velocity_mns']} m/ns (solo={_tipo_solo_v})"
+        )
 
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])
@@ -1528,6 +1549,8 @@ def main():
     logger.info(f"Preset       : {preset['descricao']}")
     logger.info(f"Config hash  : {config_hash}")
     logger.info(f"Solo         : {tipo_solo}")
+    logger.info(f"Velocity     : {preset['velocity_mns']} m/ns (solo={tipo_solo})")
+    logger.info(f"Thresholds   : fis_amp_metal={preset['fis_amp_metal_thr']} | fis_amp_nao_metal={preset['fis_amp_nao_metal_thr']}")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
     logger.info(f"Matrizes v2.0.0: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
