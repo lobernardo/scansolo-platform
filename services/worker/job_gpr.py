@@ -159,18 +159,37 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
 # ── Helpers de configuração ───────────────────────────────────────────────────
 
 def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | None:
-    """Lê processing_config do projeto (preset configurado na UI de nova entrada)."""
+    """Merge preset parameters + processing_config overrides (override wins)."""
     try:
         result = (
             supa._client.table("projects")
-            .select("processing_config")
+            .select("processing_config, preset_id")
             .eq("id", project_id)
             .single()
             .execute()
         )
-        cfg = (result.data or {}).get("processing_config")
-        if cfg and isinstance(cfg, dict):
-            return cfg
+        row = result.data or {}
+        project_config: dict = row.get("processing_config") or {}
+        preset_id: str | None = row.get("preset_id")
+
+        preset_params: dict = {}
+        if preset_id:
+            try:
+                pr = (
+                    supa._client.table("gpr_presets")
+                    .select("parameters")
+                    .eq("id", preset_id)
+                    .single()
+                    .execute()
+                )
+                preset_params = (pr.data or {}).get("parameters") or {}
+                log.info("pipeline_preset_loaded", preset_id=preset_id, keys=list(preset_params.keys()))
+            except Exception as exc:
+                log.warning("pipeline_preset_fetch_failed", preset_id=preset_id, error=str(exc))
+
+        # Preset is the base; processing_config overrides
+        merged = {**preset_params, **project_config}
+        return merged if merged else None
     except Exception:
         pass
     return None

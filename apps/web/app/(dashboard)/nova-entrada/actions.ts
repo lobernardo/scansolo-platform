@@ -31,12 +31,23 @@ export async function createProject(
   const tem_pipe_locator = formData.get("tem_pipe_locator") === "true";
   const auto_accept_ia = formData.get("auto_accept_ia") === "true";
   const skip_ia = formData.get("skip_ia") === "true";
-  const velocity_raw = formData.get("velocity_mns") as string;
-  const velocity_mns = velocity_raw && !isNaN(parseFloat(velocity_raw)) ? parseFloat(velocity_raw) : null;
+  const preset_id = (formData.get("preset_id") as string)?.trim() || null;
+  const param_overrides_raw = formData.get("param_overrides") as string;
+  let param_overrides: Record<string, unknown> = {};
+  if (param_overrides_raw) {
+    try { param_overrides = JSON.parse(param_overrides_raw); } catch { /* ignore */ }
+  }
 
   if (!nome || !cliente || !estado || !data_levantamento) {
     return { error: "Preencha todos os campos obrigatórios (nome, cliente, estado, data)." };
   }
+  if (!preset_id) {
+    return { error: "Selecione um preset de processamento." };
+  }
+
+  const processing_config: Record<string, unknown> = {};
+  if (skip_ia) processing_config.skip_ia = true;
+  Object.assign(processing_config, param_overrides);
 
   const payload: ProjectInsert = {
     nome,
@@ -50,16 +61,14 @@ export async function createProject(
     antena_freq_mhz,
     tem_pipe_locator,
     auto_accept_ia,
-    processing_config: (skip_ia || velocity_mns)
-      ? { ...(skip_ia ? { skip_ia: true } : {}), ...(velocity_mns ? { velocity_mns } : {}) }
-      : null,
+    processing_config: Object.keys(processing_config).length > 0 ? processing_config : null,
     created_by: user.id,
     status: "aguardando_arquivos",
-  };
+  } as unknown as ProjectInsert;
 
   const { data, error } = await supabase
     .from("projects")
-    .insert(payload as unknown as never)
+    .insert({ ...payload, preset_id } as unknown as never)
     .select("id")
     .single();
 

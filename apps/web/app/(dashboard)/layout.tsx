@@ -50,6 +50,12 @@ export default async function DashboardLayout({
               >
                 + Nova entrada
               </Link>
+              <Link
+                href="/presets"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+              >
+                Presets
+              </Link>
               {isAdmin && (
                 <Link
                   href="/admin/qualidade"
