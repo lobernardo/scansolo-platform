@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + bandpass FIR triangular + bandpass sempre ativo + tab Interpretada IA + import_ground_truth + KB_ScansoloPlataform)
+> Última atualização: 2026-06-17 (sistema de presets + gpr_presets table + Nova Entrada refatorada + job_recalibrar_velocity + tab Interpretada IA + velocity Processada 2 corrigida + download_file retry + bandpass sempre ativo)
 
 ---
 
@@ -52,6 +52,7 @@
 | 9 | Workflow da imagem interpretada (Amilson aprova/regenera/anota manualmente) | ✅ |
 | 10 | Preview RADAN 5m (`_radargrama_preview_radan_5m.png`) + job `ia_p2` (anotações sobre P2) + delete projeto + `skip_ia` flag | ✅ |
 | 11 | Loop de aprendizado: `pipeline_metrics.json` + `gpr_ground_truth` + `job_recalibrar` + dashboard qualidade + `parse_dzx.py` + GPT-4o contexto do projeto + campos revisão (`confianca_revisao`, `e_referencia`, `profundidade_real_m`) | ✅ |
+| 12 | Sistema de presets: `gpr_presets` table + 6 presets científicos seedados + `/presets` UI + Nova Entrada com selector + `job_gpr` fetch+merge preset → project config | ✅ |
 
 ---
 
@@ -84,7 +85,7 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
 
 1. Leitura via GPRPy → `_bruta.png` + `raw.npy`
 2. **SNR gate raw** → decide modo: `minimo` / `padrao` / `agressivo`
-3. **Dewow + Bandpass** → `arr_dewow_bp` (bifurcação dos fluxos)
+3. **Dewow + Bandpass** → `arr_dewow_bp` (bifurcação dos fluxos) — bandpass sempre aplicado independente do modo
 4. **Fluxo Científico:** `arr_dewow_bp` → tpow manual → `arr_cientifico` → `_radargrama_cientifico.png` + SNR cientifico
 5. **Fluxo Relatório:** `arr_dewow_bp` → bgremoval → tpow → `arr_sem_agc` → SNR relatorio → AGC → `_radargrama_relatorio.png` + `_processada.png` (alias)
 6. **Seleção detector** via `detector_input_mode` → `arr_detector`
@@ -93,7 +94,7 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
 9. **Detector:** Hough → CurveFit → DeltaT + física — entrada = `arr_detector`; filtro `det_depth_min_m=0.30m`
 10. **Score filter** ≥30; anotações desenhadas sobre `arr_cientifico` (não sobre arr_proc)
 11. **Velocity** por semblance; **Espectro** por alvo
-12. **Preview RADAN 5m**: `arr_dewow_bp` (cópia independente) → AGC(window=80) → PNG com footer laranja de aviso; velocity calculada dinamicamente `(2 × 5.0) / twtt_max_ns`; campos `preview_depth_m` + `preview_velocity_mns` adicionados ao `index_projeto.csv`
+12. **Preview RADAN 5m**: `arr_dewow_bp` (cópia independente) → AGC(window=80) → PNG com footer laranja de aviso; velocity = `preset["velocity_mns"]` (direto do preset, não mais calculado de forma invertida); profundidade derivada de `twtt_max_ns × velocity / 2`; campos `preview_depth_m` + `preview_velocity_mns` adicionados ao `index_projeto.csv`
 13. `_anotada_completa.png` + `_anotada_alta_confianca.png` + `_radargrama_preview_radan_5m.png` + `_alvos.csv` + `index_projeto.csv` + `config_used.json`
 
 ### Matrizes numpy — finalidades separadas
@@ -130,7 +131,7 @@ A1 em `main()`: aplica `VELOCITY_POR_SOLO[tipo_solo]` antes dos filtros_customiz
 | `270mhz_concrete` | v=0.107, det_h_max=0.50, dewow=3 | Laje/piso de concreto |
 | `default` | preset genérico (standalone, não herdado) | Fallback |
 
-Os 5 derivados são criados via `{**PRESETS["270mhz"], **overrides}` em nível de módulo.
+Os 5 derivados são criados via `{**PRESETS["270mhz"], **overrides}` em nível de módulo. Os mesmos 6 presets estão seedados em `gpr_presets` (banco) para uso pela UI.
 
 ### Bandpass — dois modos disponíveis
 
@@ -187,7 +188,7 @@ Presets com `"triangular"` por default: `270mhz_void`, `270mhz_concrete`.
 | pedregoso | 35.0 | 6.0 |
 
 Comportamento por modo:
-- `minimo` — bandpass pulado, tpow×0.6, AGC janela×2
+- `minimo` — tpow×0.6, AGC janela×2 (bandpass sempre aplicado — DZTs com SNR alto têm onda direta forte, precisam do filtro)
 - `padrao` — preset base (todos os 4 DZTs PATIO ficam aqui com os limiares atuais)
 - `agressivo` — tpow×1.5, AGC janela÷2
 
@@ -243,6 +244,7 @@ Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5
 | `inferencias` | `job_gpr.handle_inferencias_job` | Relatório `.txt` sob demanda (não altera status) |
 | `interpretada` | `job_interpretada.handle_interpretada_job` | Imagem interpretada com alvos aprovados |
 | `recalibrar` | `job_recalibrar.handle_recalibrar_job` | Otimiza thresholds via `gpr_ground_truth` (min 20 amostras) → salva candidato JSON em `gpr-tabelas/recalibracao/` |
+| `recalibrar_velocity` | `job_recalibrar_velocity.handle_recalibrar_velocity_job` | Recalcula profundidades de perfis com nova velocity; atualiza `gpr_profiles` + `projects.processing_config` |
 
 ### job_gpr.py
 
@@ -254,6 +256,12 @@ Dois fluxos:
 
 **`--sem-ia-imagem` sempre ativo:** flag passada em toda execução do worker (job completo e reprocessamento) — `gpt-image-1` nunca roda via worker, independente de `processing_config`.
 
+**Integração de presets (Fase 12):** `_get_processing_config` busca `projects.preset_id` → carrega `gpr_presets.parameters` → merge com `projects.processing_config` (projeto override ganha). O `--preset 270mhz` é passado como base ao subprocess; o merged dict é passado via `--filter-config` sobrescrevendo todos os campos do preset carregado do banco.
+
+### supabase_client.py — download_file retry
+
+`download_file(bucket, path)` faz até 3 tentativas com backoff exponencial (1s, 2s, 4s). Loga cada retry via structlog (`download_file_retry`). Levanta a última exceção se todas as tentativas falharem.
+
 ### job_ia.py
 
 1. Interpreta cada alvo via GPT-4o (prompt em inglês, resposta JSON com 10 campos)
@@ -264,7 +272,7 @@ Dois fluxos:
 
 **Categorias de tipo IA (prompt):** tubulacao_agua, tubulacao_gas, tubulacao_esgoto, cabo_eletrico, cabo_telecom, galeria_concreto, vazio_ar, rocha, inconclusivo
 
-**Observação de calibração (2026-06-09):** testes com 13 imagens RADAN do Amilson (HELPAVPA) mostraram forte viés do GPT-4o para `galeria_concreto` (~80% dos alvos). Provável causa: sem contexto do projeto (solo, cliente, tipo de obra), o modelo escolhe a categoria de maior diâmetro como "segura". Mitigação futura: incluir contexto do projeto no prompt (tipo de obra, cliente, histórico de alvos do mesmo projeto).
+**Observação de calibração (2026-06-09):** testes com 13 imagens RADAN do Amilson (HELPAVPA) mostraram forte viés do GPT-4o para `galeria_concreto` (~80% dos alvos). Provável causa: sem contexto do projeto (solo, cliente, tipo de obra), o modelo escolhe a categoria de maior diâmetro como "segura". Mitigação: `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (tipo_obra, area_m2, antena_freq_mhz). Validar em produção se viés reduziu.
 
 ### job_cartografia.py
 
@@ -329,6 +337,16 @@ Disparado manualmente via INSERT em `processing_jobs` (`job_type='recalibrar'`) 
 6. Salva candidato JSON em `gpr-tabelas/recalibracao/candidato_<ts>.json` com `aprovado: false`
 7. **NÃO aplica thresholds automaticamente** — requer revisão manual
 
+### job_recalibrar_velocity.py (Fase 12)
+
+Disparado via painel "Calibrar velocity do solo" em `/projetos/[id]`.
+
+1. Valida payload (`project_id`, `velocity_mns` obrigatórios; range 0.04–0.35)
+2. Busca run mais recente do projeto; itera sobre perfis do run
+3. Para cada perfil: reconstrói `twtt_max_ns = prof_antiga × 2 / velocity_antiga`; calcula `nova_profundidade = twtt_max_ns × nova_velocity / 2`; atualiza `gpr_profiles`
+4. Atualiza `projects.processing_config` com nova velocity
+5. Erros por perfil são logados e pulados — não aborta o job
+
 ### job_interpretada.py — ground truth feeding (Fase 11)
 
 Após `ia_training_examples`, faz upsert de cada alvo revisado em `gpr_ground_truth`:
@@ -350,7 +368,7 @@ Após processamento de cada DZT, faz upload de `{stem}_pipeline_metrics.json` pa
 - `codigo_projeto`, `tipo_obra` (mapeado via `TIPO_OBRA_EN` para inglês), `area_m2`, `antena_freq_mhz`, `contato_nome`
 - Reduz viés `galeria_concreto` ao dar contexto de tipo de obra ao modelo
 
-### import_ground_truth.py (Fase 12)
+### import_ground_truth.py (Fase 11)
 
 `services/worker/scripts/import_ground_truth.py` — importação batch de CSV para `gpr_ground_truth`.
 
@@ -465,14 +483,20 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/login` | `login/page.tsx` | Auth Supabase |
 | `/dashboard` | `dashboard/page.tsx` | Visão geral de projetos |
 | `/projetos` | `projetos/page.tsx` + `ProjetosTable.tsx` | Lista de projetos |
-| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto + upload DZT (UI 2-step) |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) |
+| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto: selector de preset (obrigatório) + summary dos parâmetros-chave + accordion "Personalizar" com overrides → `preset_id` + `processing_config` salvos no projeto |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / **Interpretada IA** / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) + painel "Calibrar velocity do solo" |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional de DZTs |
 | `/projetos/[id]/revisao` | `ReviewClient.tsx` | Revisão técnica por alvo |
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
 | `/projetos/[id]/cartografia` | `CartografiaClient.tsx` | Download DXF/KML/GeoJSON |
 | `/projetos/[id]/relatorio` | `RelatorioClient.tsx` | Gerar e baixar relatório + inferências |
+| `/presets` | `PresetsClient.tsx` | Cards de presets (sistema + personalizados), expand parâmetros, modal criar/editar/duplicar (admin/socio apenas) |
 | `/admin/qualidade` | `QualidadeClient.tsx` | Dashboard de qualidade — ground truth, F1, candidatos de recalibração, botão disparar job (visível apenas para `socio`/`admin`) |
+| `/api/presets` | `route.ts` (GET) | Retorna presets ativos para o selector client-side da Nova Entrada |
+
+### Server actions — `apps/web/app/actions/preset-actions.ts`
+
+`getPresets`, `getPresetById`, `createPreset`, `updatePreset`, `deletePreset` (soft delete via `is_active=false`), `duplicatePreset`. Apenas `admin`/`socio` podem criar/editar/deletar.
 
 ### Fluxo de status do projeto
 
@@ -504,13 +528,33 @@ aguardando_arquivos
 | Campo | Tipo | Uso |
 |---|---|---|
 | `status` | enum | Fluxo do pipeline |
-| `processing_config` | JSONB | Filtros GPR configurados na UI (override do preset) |
+| `preset_id` | uuid FK | Preset selecionado na Nova Entrada (referência a `gpr_presets.id`) |
+| `processing_config` | JSONB | Overrides sobre o preset (campos específicos do projeto) |
 | `auto_accept_ia` | boolean | Auto-aprovação sem revisão manual |
 | `codigo_projeto` | text | Ex: PT-GPR-SOL-036 |
 | `contato_nome` | text | A/C do cliente |
 | `area_m2` | float | Área levantada |
 | `antena_freq_mhz` | int | 270 (hardcoded por ora) |
 | `tem_pipe_locator` | boolean | — |
+
+### `gpr_presets`
+
+| Campo | Tipo | Uso |
+|---|---|---|
+| `id` | uuid PK | — |
+| `name` | text | Nome legível (ex: `270mhz_clay`) |
+| `description` | text | Descrição de uso |
+| `scientific_basis` | text | Referência bibliográfica |
+| `target_scenario` | text | Cenário de aplicação |
+| `antenna_freq_mhz` | int | Frequência de antena alvo (270 por padrão) |
+| `is_system` | boolean | Presets do sistema são read-only — sem editar/deletar pela UI |
+| `is_active` | boolean | Soft delete |
+| `created_by` | uuid FK | Autor (null para presets do sistema) |
+| `parameters` | JSONB | Todos os parâmetros do pipeline (mesmo formato do PRESETS dict em pipeline_v1.py) |
+
+**RLS:** leitura pública (autenticado); insert/update/delete apenas para `is_system=false` por `admin`/`socio`.
+
+**Presets seedados (is_system=true):** `270mhz`, `270mhz_clay`, `270mhz_sandy`, `270mhz_deep`, `270mhz_void`, `270mhz_concrete`
 
 ### `gpr_profiles`
 
@@ -546,7 +590,7 @@ Decisões de revisão por alvo: `vai_para_planta`, `vai_para_relatorio`, `tipo_c
 
 | Campo | Tipo | Uso |
 |---|---|---|
-| `job_type` | enum | gpr / ia / ia_p2 / cartografia / relatorio / inferencias / interpretada |
+| `job_type` | enum | gpr / ia / ia_p2 / cartografia / relatorio / inferencias / interpretada / recalibrar / recalibrar_velocity |
 | `status` | enum | aguardando / processando / concluido / erro |
 | `payload` | JSONB | Parâmetros opcionais (ex: `profile_id` para reprocessamento) |
 | `error_message` | text | Mensagem de erro se status=erro |
@@ -563,29 +607,32 @@ Alvos aprovados pelo Amilson salvos para futura melhoria do modelo. Campos: `pro
 |---|---|---|
 | `gpr-uploads` | DZTs brutos | Privado |
 | `gpr-images` | PNGs (bruta / processada / anotada / interpretada / migrada / preview_radan_5m / anotada_p2) | Público |
-| `gpr-tabelas` | CSVs, DXF, KML, GeoJSON, DOCX, PDF, inferencias.txt | Privado |
+| `gpr-tabelas` | CSVs, DXF, KML, GeoJSON, DOCX, PDF, inferencias.txt, pipeline_metrics.json, candidatos de recalibração | Privado |
 
 ---
 
-## Migrations aplicadas (remoto sincronizado em 2026-06-09; novas locais em 2026-06-15)
+## Migrations aplicadas
 
-| Arquivo | Conteúdo |
-|---|---|
-| 20260527000001 | Schema inicial (11 tabelas + enums + índices) |
-| 20260527000002 | RLS completo por perfil |
-| 20260528000001 | Storage buckets |
-| 20260529000001 | Campos de detecção (cartography) |
-| 20260529000002 | MIME types gpr-tabelas (fase 4+5) |
-| 20260530000001 | report_project_fields (docx_storage_url, approved_at, codigo_projeto etc.) |
-| 20260602000001 | processing_config JSONB em projects |
-| 20260602000002 | auto_accept_ia BOOLEAN + imagem_interpretada_url em gpr_profiles |
-| 20260603000001 | imagem_interpretada_status + imagem_interpretada_manual_data + ia_training_examples; enum extensions |
-| 20260606000001 | fix constraint confidence_label_relatorio — adiciona 'media' aos valores aceitos |
-| 20260608000001 | SNR gate: snr_imagem_db, snr_imagem_ratio, modo_processamento, tipo_solo em gpr_profiles |
-| 20260615000001 | `imagem_preview_radan_5m_url` em gpr_profiles (Preview RADAN 5m) |
-| 20260615000002 | `ia_p2` no enum job_type + `imagem_interpretada_ia_p2_url` em gpr_profiles |
+| Arquivo | Conteúdo | Status remoto |
+|---|---|---|
+| 20260527000001 | Schema inicial (11 tabelas + enums + índices) | ✅ |
+| 20260527000002 | RLS completo por perfil | ✅ |
+| 20260528000001 | Storage buckets | ✅ |
+| 20260529000001 | Campos de detecção (cartography) | ✅ |
+| 20260529000002 | MIME types gpr-tabelas (fase 4+5) | ✅ |
+| 20260530000001 | report_project_fields (docx_storage_url, approved_at, codigo_projeto etc.) | ✅ |
+| 20260602000001 | processing_config JSONB em projects | ✅ |
+| 20260602000002 | auto_accept_ia BOOLEAN + imagem_interpretada_url em gpr_profiles | ✅ |
+| 20260603000001 | imagem_interpretada_status + imagem_interpretada_manual_data + ia_training_examples; enum extensions | ✅ |
+| 20260606000001 | fix constraint confidence_label_relatorio — adiciona 'media' aos valores aceitos | ✅ |
+| 20260608000001 | SNR gate: snr_imagem_db, snr_imagem_ratio, modo_processamento, tipo_solo em gpr_profiles | ✅ |
+| 20260615000001 | `imagem_preview_radan_5m_url` em gpr_profiles (Preview RADAN 5m) | ✅ |
+| 20260615000002 | `ia_p2` no enum job_type + `imagem_interpretada_ia_p2_url` em gpr_profiles | ✅ |
+| 20260617000001 | `recalibrar_velocity` no enum job_type | pendente push |
+| 20260617000002 | `gpr_presets` table + RLS + `preset_id` FK em projects | pendente push |
+| 20260617000003 | Seed dos 6 presets científicos do sistema em `gpr_presets` | pendente push |
 
-Banco remoto sincronizado: `supabase migration list` confirma Local = Remote para todas as 13 migrations (verificado 2026-06-15).
+As 3 migrations 20260617 foram aplicadas ao banco remoto via MCP Supabase na sessão de 2026-06-17. Confirmar com `supabase migration list`.
 
 ---
 
@@ -617,7 +664,7 @@ supabase db push --password <DB_PASSWORD>
 | P4 | IA de imagem (`gpt-image-1`) off por padrão | Melhoria potencial das imagens processadas | Avaliar custo/benefício com Amilson em projeto real |
 | P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 |
 | P6 | `fis_amp_metal_thr` revisado para 0.65 e `fis_amp_nao_metal_thr` para 0.22 via Fresnel; valores aguardam validação com alvos reais | Classificação metal/não-metal ainda não validada em campo | Usar `KB_ScansoloPlataform/GROUND_TRUTH/` + `import_ground_truth.py` para acumular ≥20 amostras e disparar `job_recalibrar` |
-| P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (tipo_obra, area_m2, antena_freq_mhz) no system message (commit 91e5f9c) |
+| P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (commit 91e5f9c) |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
 | P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
 | P10 | ~~Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado)~~ | ~~232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta~~ | ✅ **Resolvido** — bandpass nunca mais pulado em modo MINIMO (2026-06-17); monitorar se `det_depth_min_m=0.50m` é suficiente em DZTs HELPER futuros |
@@ -625,6 +672,7 @@ supabase db push --password <DB_PASSWORD>
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
 | P14 | ~~`job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by`~~ | ~~Campos ficam null no ground truth (silencioso — não aborta job)~~ | ✅ **Resolvido** — commit bab0ef1 |
+| P15 | `gpr_presets.parameters` no banco ainda não tem `bandpass_tipo` nos presets seedados | Presets `270mhz_void` e `270mhz_concrete` não usarão FIR triangular via UI | Adicionar `"bandpass_tipo": "triangular"` no JSON dos dois presets afetados via migration ou UPDATE direto |
 
 ---
 
@@ -636,7 +684,8 @@ supabase db push --password <DB_PASSWORD>
 4. **Velocity** — `VELOCITY_POR_SOLO` derivada de literatura; validar com DZT de alvos de profundidade conhecida (`GROUND_TRUTH/CALIBRACAO/`)
 5. **Qualidade visual** — comparar `_radargrama_relatorio.png` do pipeline v2.0.0 vs. output RADAN para o mesmo DZT lado a lado
 6. **Prompt GPT-4o** — ~~adicionar contexto do projeto~~ ✅ resolvido (commit 91e5f9c); validar se viés `galeria_concreto` reduziu com projetos reais
-7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso.
-8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade de 5m e a velocity dinâmica são adequados para cada projeto.
-9. **Pileup 0.30m em DZTs HELPER** (SNR ratio 720–1125, modo MINIMO) — confirmar se 232 alvos em 0.30m são falsos positivos antes de ajustar `det_depth_min_m`. Benchmarks em `pipeline/benchmark_real/04_benchmarks_detector/HELPER/` e `06_docs/AUDITORIA_UI_PREVIEW_RADAN_5M_LOCAL.md`.
+7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso usando os novos presets `270mhz_clay`, `270mhz_sandy` etc.
+8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade derivada da velocity do preset é adequada.
+9. **Pileup 0.30m em DZTs HELPER** — confirmar se 232 alvos em 0.30m eram falsos positivos (onda direta). Agora que o bandpass nunca é pulado, monitorar nova taxa de pileup nos próximos processamentos.
 10. **Candidato de recalibração** — após acumular ≥20 amostras validadas no `gpr_ground_truth`, usar dashboard `/admin/qualidade` para disparar `job_recalibrar` e revisar o candidato JSON antes de aplicar ao preset de produção.
+11. **Presets seedados** — validar que os 6 presets do sistema têm parâmetros adequados para cada tipo de projeto antes de usar em produção. Amilson deve revisar `det_h_max_m`, `det_depth_min_m` e `velocity_mns` de cada preset.
