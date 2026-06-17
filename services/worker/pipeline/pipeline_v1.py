@@ -132,6 +132,7 @@ PRESETS = {
         "bandpass_low_mhz":  80,
         "bandpass_high_mhz": 500,
         "bandpass_order":    5,
+        "bandpass_tipo":     "butterworth",   # "butterworth" (SOS) ou "triangular" (FIR firwin2)
         "bgremoval_traces":  30,
         "tpow_power":        0.5,
         "agc_window":        150,
@@ -205,8 +206,10 @@ PRESETS["270mhz_void"] = {
     "descricao":         "270 MHz — Detecção de vazios e galerias",
     # Vazios têm R≈0.50 (Fresnel ar/solo) — acima do threshold não-metal, abaixo do metal
     # Rebalancear thresholds para priorizar vazio > PVC/PE
+    # FIR triangular: vazio gera reflexão larga — Butterworth pode criar ringing que simula alvo extra
     "fis_amp_metal_thr":     0.30,
     "fis_amp_nao_metal_thr": 0.45,
+    "bandpass_tipo":         "triangular",
 }
 PRESETS["270mhz_concrete"] = {
     **PRESETS["270mhz"],
@@ -214,9 +217,11 @@ PRESETS["270mhz_concrete"] = {
     # Concreto εr≈8 → v≈0.107 m/ns (próximo ao padrão)
     # det_h_max_m reduzido: objetos em laje raramente > 0.5m de profundidade
     # dewow_window menor: pulso mais curto em concreto seco
+    # FIR triangular: concreto armado tem múltiplas reflexões — ringing do Butterworth confunde detector
     "velocity_mns":      0.107,
     "det_h_max_m":       0.50,
     "dewow_window":      3,
+    "bandpass_tipo":     "triangular",
 }
 
 _PRESET_DEFAULT = {
@@ -266,9 +271,9 @@ PASTAS = {
 # ---------------------------------------------------------------------------
 # BANDPASS — scipy SOS (GPRPy nao tem nativo)
 # ---------------------------------------------------------------------------
-def aplicar_bandpass(prof, low_mhz, high_mhz, order):
+def aplicar_bandpass(prof, low_mhz, high_mhz, order, bandpass_tipo="butterworth"):
     """
-    Filtro Butterworth bandpass via scipy SOS.
+    Filtro bandpass — Butterworth SOS (default) ou FIR triangular.
     CRITICO: converte np.matrix -> ndarray antes de filtrar.
     prof.data e np.matrix: indexacao de coluna retorna (n,1) em vez de (n,)
     quebrando scipy.signal.sosfiltfilt. np.asarray() corrige isso.
@@ -277,17 +282,38 @@ def aplicar_bandpass(prof, low_mhz, high_mhz, order):
     n       = data.shape[0]
     dt_ns   = prof.twtt[-1] / (n - 1)
     fs_mhz  = 1000.0 / dt_ns
+    fs_hz   = fs_mhz * 1e6
     nyq_mhz = fs_mhz / 2.0
-    low_n   = max(low_mhz  / nyq_mhz, 0.001)
-    high_n  = min(high_mhz / nyq_mhz, 0.999)
-    sos     = sp_signal.butter(order, [low_n, high_n], btype="band", output="sos")
-    out     = np.zeros_like(data, dtype=float)
-    for i in range(data.shape[1]):
-        out[:, i] = sp_signal.sosfiltfilt(sos, data[:, i].astype(float))
-    prof.data = np.matrix(out.astype(np.float64))
-    prof.history.append(
-        f"# bandpass scipy sos: {low_mhz}-{high_mhz} MHz order={order} fs={fs_mhz:.0f}MHz"
-    )
+
+    if bandpass_tipo == "triangular":
+        # FIR triangular — menos ringing que Butterworth, bordas mais suaves
+        # Referência: firwin2 com resposta em frequência triangular fl→fc→fh
+        nyq     = fs_hz / 2.0
+        fl      = low_mhz  * 1e6
+        fh      = high_mhz * 1e6
+        fc      = (fl + fh) / 2.0
+        # numtaps ímpar, mínimo 101 ou ceil(fs/fl)*3 se maior
+        numtaps = max(101, int(np.ceil(fs_hz / fl) * 3) | 1)
+        freqs   = [0,   fl,   fc,   fh,   nyq]
+        gains   = [0.0, 0.0,  1.0,  0.0,  0.0]
+        b       = sp_signal.firwin2(numtaps, freqs, gains, fs=fs_hz)
+        out     = sp_signal.filtfilt(b, [1.0], data.astype(float), axis=0)
+        prof.data = np.matrix(out.astype(np.float64))
+        prof.history.append(
+            f"# bandpass FIR triangular: {low_mhz}-{high_mhz} MHz ntaps={numtaps} fs={fs_mhz:.0f}MHz"
+        )
+    else:
+        # Butterworth SOS — caminho original
+        low_n   = max(low_mhz  / nyq_mhz, 0.001)
+        high_n  = min(high_mhz / nyq_mhz, 0.999)
+        sos     = sp_signal.butter(order, [low_n, high_n], btype="band", output="sos")
+        out     = np.zeros_like(data, dtype=float)
+        for i in range(data.shape[1]):
+            out[:, i] = sp_signal.sosfiltfilt(sos, data[:, i].astype(float))
+        prof.data = np.matrix(out.astype(np.float64))
+        prof.history.append(
+            f"# bandpass scipy sos: {low_mhz}-{high_mhz} MHz order={order} fs={fs_mhz:.0f}MHz"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1196,7 +1222,8 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     elif preset.get("bandpass_low_mhz", 0) > 0:
         try:
             aplicar_bandpass(prof, preset["bandpass_low_mhz"],
-                             preset["bandpass_high_mhz"], preset["bandpass_order"])
+                             preset["bandpass_high_mhz"], preset["bandpass_order"],
+                             preset.get("bandpass_tipo", "butterworth"))
             logger.debug(f"  bandpass {preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']}MHz")
         except Exception as e:
             logger.warning(f"  Bandpass falhou (continuando): {e}")
@@ -1603,6 +1630,7 @@ def main():
     logger.info(f"Solo         : {tipo_solo}")
     logger.info(f"Velocity     : {preset['velocity_mns']} m/ns (solo={tipo_solo})")
     logger.info(f"Thresholds   : fis_amp_metal={preset['fis_amp_metal_thr']} | fis_amp_nao_metal={preset['fis_amp_nao_metal_thr']}")
+    logger.info(f"Bandpass     : {preset.get('bandpass_tipo','butterworth')} ({preset['bandpass_low_mhz']}–{preset['bandpass_high_mhz']} MHz)")
     logger.info(f"Detector     : {'ativo (Hough + CurveFit + DeltaT)' if usar_detector and DETECTOR_DISPONIVEL else 'desativado'}")
     logger.info(f"Fisica       : {'ativa (sem AGC — amplitude/fase/SNR/score)' if usar_fisica and usar_detector else 'desativada'}")
     logger.info(f"Matrizes v2.0.0: raw.npy | sem_agc.npy | visual.npy | processado.npy (compat)")
