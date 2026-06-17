@@ -14,6 +14,14 @@ export default async function DashboardLayout({
 
   if (!user) redirect("/login");
 
+  const { data: profileRaw } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const role = (profileRaw as { role?: string } | null)?.role ?? "operador_campo";
+  const isAdmin = role === "socio" || role === "admin";
+
   return (
     <div className="min-h-screen bg-slate-950">
       <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
@@ -42,6 +50,14 @@ export default async function DashboardLayout({
               >
                 + Nova entrada
               </Link>
+              {isAdmin && (
+                <Link
+                  href="/admin/qualidade"
+                  className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+                >
+                  Qualidade
+                </Link>
+              )}
             </div>
           </div>
           <span className="text-xs text-slate-500 font-mono">{user.email}</span>
