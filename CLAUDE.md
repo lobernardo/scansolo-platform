@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (módulo de treinamento ground truth: wizard /treinamento + gpr_training_sessions + extensão gpr_ground_truth + training-actions.ts + upload_file retry + job_recalibrar usa e_verdadeiro_positivo)
+> Última atualização: 2026-06-17 (C1-C5: logs visuais do pipeline — getPipelineMetrics + PipelineLog.tsx + Pipeline Log por perfil + diff reprocessamento + tooltips Nova Entrada)
 
 ---
 
@@ -54,6 +54,7 @@
 | 11 | Loop de aprendizado: `pipeline_metrics.json` + `gpr_ground_truth` + `job_recalibrar` + dashboard qualidade + `parse_dzx.py` + GPT-4o contexto do projeto + campos revisão (`confianca_revisao`, `e_referencia`, `profundidade_real_m`) | ✅ |
 | 12 | Sistema de presets: `gpr_presets` table + 6 presets científicos seedados + `/presets` UI + Nova Entrada com selector + `job_gpr` fetch+merge preset → project config | ✅ |
 | 13 | Módulo de treinamento ground truth: `gpr_training_sessions` + extensão de `gpr_ground_truth` (18 novas colunas + nullable legacy) + wizard `/treinamento` (4 passos) + `training-actions.ts` + modal recalibração | ✅ |
+| 14 | Logs visuais do pipeline: `getPipelineMetrics` server action + `PipelineLog.tsx` (timeline 8 estágios + compact + MetricsDiff) + Pipeline Log colapsável por perfil + diff reprocessamento no painel "Ajustar filtros" + tooltips ⓘ e mini pipeline visual em Nova Entrada | ✅ |
 
 ---
 
@@ -510,6 +511,34 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 `triggerRecalibracao()` — insere job `recalibrar` em `processing_jobs`.  
 `getTrainingSessions()` / `getRecalibracaoResults()` / `getRecalibracaoContent(signedUrl)` — histórico e candidatos.  
 `applyRecalibracao(thresholds)` — importa `createPreset` e cria preset de usuário com thresholds do candidato.
+
+### Server actions — `apps/web/app/actions/gpr-actions.ts` (Fase 14)
+
+`getPipelineMetrics(profileId)` → `PipelineMetrics | null`
+
+Fluxo:
+1. Busca `metricas_pipeline_url` + campos de SNR/modo/traços/imagens de `gpr_profiles`
+2. Busca contagens de `detected_targets` (n_alta, n_media, n_baixa, n_score_30)
+3. Fetch do JSON do Storage (`pipeline_metrics.json` — URL signed de 10 anos)
+4. Merge: campos do JSON + campos do perfil + contagens → objeto `PipelineMetrics` enriquecido
+
+`PipelineMetrics` contém: `dzt_filename`, `preset_name`, `modo_processamento`, `snr_stages_db` (dict raw/dewow/bp/bgremoval/tpow/agc em dB), `snr_raw_db`, `snr_raw_ratio`, `n_tracos`, `dist_total_m`, `profundidade_max_m`, `filtros_customizados`, `det_depth_min_m_usado`, `imagem_*_ok`, `n_alvos_*`, `pipeline_version`.
+
+### Componente `apps/web/components/PipelineLog.tsx` (Fase 14)
+
+Props: `metrics: PipelineMetrics | null`, `compact?: boolean`
+
+- **compact=true**: linha horizontal com modo (badge colorido), SNR ratio e contagem "alvos ≥30 (N alta, N média)"
+- **compact=false**: timeline vertical com 8 seções: Leitura do DZT / SNR Gate / Filtros de Sinal / SNR Pós-Filtros / Migração F-K / Detector / Imagens Geradas; ícones ✓/⚠/✗/— por disponibilidade do dado
+- **MetricsDiff**: componente exportado para diff antes→depois de reprocessamento; verde=melhoria de contagem, vermelho=regressão
+
+**Uso em ProjectDetailClient (C3/C4):**
+- Seção "Pipeline Log" colapsável (fechado por padrão) abaixo das thumbnails de cada perfil; carga lazy ao expandir
+- No painel "Ajustar filtros": compact PipelineLog com label "Estado atual" (carregado ao abrir o painel); após reprocessamento concluir → re-fetch automático → MetricsDiff exibido
+
+**Uso em Nova Entrada (C5):**
+- Mini pipeline visual `Filtros → SNR Gate → Detector → Imagens` no topo do accordion "Personalizar parâmetros"
+- `ParamTooltip` (CSS-only, hover:visible) em 12 parâmetros com texto: o que faz, consequência de aumentar/diminuir, range recomendado
 
 ### Fluxo de status do projeto
 
