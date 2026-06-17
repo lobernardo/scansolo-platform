@@ -13,6 +13,9 @@ export type ReviewTargetParams = {
   vaiParaPlanta: boolean;
   vaiParaRelatorio: boolean;
   observacao?: string | null;
+  confiancaRevisao?: "alta" | "media" | "baixa" | null;
+  profundidadeReal?: number | null;
+  eReferencia?: boolean;
 };
 
 export async function reviewTarget(
@@ -33,6 +36,9 @@ export async function reviewTarget(
     vai_para_planta: params.vaiParaPlanta,
     vai_para_relatorio: params.vaiParaRelatorio,
     observacao: params.observacao ?? null,
+    confianca_revisao: params.confiancaRevisao ?? "alta",
+    profundidade_real_m: params.profundidadeReal ?? null,
+    e_referencia: params.eReferencia ?? false,
     reviewed_by: user.id,
     reviewed_at: new Date().toISOString(),
   };

@@ -26,6 +26,9 @@ type AdjustForm = {
   vaiParaPlanta: boolean;
   vaiParaRelatorio: boolean;
   observacao: string;
+  confiancaRevisao: "alta" | "media" | "baixa";
+  profundidadeReal: string;
+  eReferencia: boolean;
 };
 
 const TIPOS = [
@@ -120,11 +123,16 @@ export function ReviewClient({
     if (forms[targetId]) return forms[targetId];
     const existing = existingReviews[targetId];
     const ai = aiByTargetId[targetId];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ex = existing as any;
     return {
       tipoFinal: existing?.tipo_final ?? ai?.ia_tipo_sugerido ?? "desconhecido",
       vaiParaPlanta: existing?.vai_para_planta ?? ai?.vai_para_planta_sugerido ?? false,
       vaiParaRelatorio: existing?.vai_para_relatorio ?? ai?.vai_para_relatorio_sugerido ?? true,
       observacao: existing?.observacao ?? "",
+      confiancaRevisao: (ex?.confianca_revisao ?? "alta") as "alta" | "media" | "baixa",
+      profundidadeReal: ex?.profundidade_real_m != null ? String(ex.profundidade_real_m) : "",
+      eReferencia: ex?.e_referencia ?? false,
     };
   }
 
@@ -197,6 +205,11 @@ export function ReviewClient({
       vaiParaPlanta: form.vaiParaPlanta,
       vaiParaRelatorio: form.vaiParaRelatorio,
       observacao: form.observacao || null,
+      confiancaRevisao: form.vaiParaRelatorio ? form.confiancaRevisao : null,
+      profundidadeReal: form.eReferencia && form.profundidadeReal !== ""
+        ? parseFloat(form.profundidadeReal)
+        : null,
+      eReferencia: form.eReferencia,
     });
 
     stopSaving(targetId);
@@ -482,6 +495,60 @@ export function ReviewClient({
                               className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 w-52 focus:outline-none focus:ring-1 focus:ring-cyan-500 placeholder:text-slate-500"
                             />
                           </div>
+
+                          {form.vaiParaRelatorio && (
+                            <div>
+                              <label className="block text-xs font-medium text-slate-400 mb-1">
+                                Confiança
+                              </label>
+                              <select
+                                value={form.confiancaRevisao}
+                                onChange={(e) =>
+                                  updateForm(t.id, {
+                                    confiancaRevisao: e.target.value as "alta" | "media" | "baixa",
+                                  })
+                                }
+                                className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                              >
+                                <option value="alta">Alta</option>
+                                <option value="media">Média</option>
+                                <option value="baixa">Baixa</option>
+                              </select>
+                            </div>
+                          )}
+
+                          <label
+                            className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer self-end pb-1.5"
+                            title="Marque se a profundidade real deste alvo foi medida em campo. Usado para calibrar a velocity."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={form.eReferencia}
+                              onChange={(e) => updateForm(t.id, { eReferencia: e.target.checked })}
+                              className="rounded border-slate-600 bg-slate-800"
+                            />
+                            Alvo de referência (depth known)
+                          </label>
+
+                          {form.eReferencia && (
+                            <div>
+                              <label className="block text-xs font-medium text-slate-400 mb-1">
+                                Prof. medida in-field
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max="10"
+                                value={form.profundidadeReal}
+                                onChange={(e) =>
+                                  updateForm(t.id, { profundidadeReal: e.target.value })
+                                }
+                                placeholder="Prof. real (m)"
+                                className="text-xs bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 w-32 focus:outline-none focus:ring-1 focus:ring-cyan-500 placeholder:text-slate-500"
+                              />
+                            </div>
+                          )}
 
                           <div className="flex gap-2">
                             <button
