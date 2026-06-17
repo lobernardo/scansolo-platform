@@ -74,7 +74,7 @@ import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 import gprpy.gprpy as gp
 
-# Importa modulo de deteccao (mesmo diretorio)
+# Importa modulos do mesmo diretorio
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from detector_hiperboles import (
@@ -85,6 +85,8 @@ try:
 except ImportError as _e:
     DETECTOR_DISPONIVEL = False
     _import_erro = str(_e)
+
+from parse_dzx import parse_dzx
 
 
 # ---------------------------------------------------------------------------
@@ -960,6 +962,14 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     dzt_sha256 = calcular_sha256_dzt(str(arquivo_dzt))
     logger.info(f"  SHA256 {arquivo_dzt.name}: {dzt_sha256[:16]}...")
 
+    # ── DZX — metadados e GPS marks complementares ───────────────────────────
+    _dzx_path = arquivo_dzt.with_suffix(".DZX")
+    if not _dzx_path.exists():
+        _dzx_path = arquivo_dzt.with_suffix(".dzx")
+    dzx_data = parse_dzx(_dzx_path)
+    if dzx_data.get("dzx_n_marks", 0) > 0:
+        logger.info(f"DZX: {dzx_data['dzx_n_marks']} GPS marks encontrados")
+
     try:
         prof = gp.gprpyProfile(str(arquivo_dzt))
     except Exception as e:
@@ -1336,6 +1346,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             "n_amostras_final":      arr_raw.shape[0],
             "n_tracos":              arr_raw.shape[1],
             "dist_total_m":          dist_total_m_coleta,
+            "dzx":                   dzx_data,   # inclui dzx_marks completo
         }
         metrics_path = caminhos["processadas"] / f"{nome}_pipeline_metrics.json"
         with open(str(metrics_path), "w", encoding="utf-8") as _mf:
@@ -1429,6 +1440,14 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "config_hash":             config_hash or "",
         "dzt_sha256":              dzt_sha256,
         "metrics_path":            str(metrics_path) if metrics_path else "",
+        # DZX — GPS e metadados do survey (dzx_marks excluido — vai só para metrics.json)
+        "dzx_disponivel":          dzx_data.get("dzx_disponivel", False),
+        "dzx_n_marks":             dzx_data.get("dzx_n_marks", 0),
+        "dzx_start_lat":           dzx_data.get("dzx_start_lat"),
+        "dzx_start_lon":           dzx_data.get("dzx_start_lon"),
+        "dzx_end_lat":             dzx_data.get("dzx_end_lat"),
+        "dzx_end_lon":             dzx_data.get("dzx_end_lon"),
+        "dzx_survey_length_m":     dzx_data.get("dzx_survey_length_m"),
         # Metadata
         "status":                  "processado",
         "tempo_processamento_s":   tempo_s,
