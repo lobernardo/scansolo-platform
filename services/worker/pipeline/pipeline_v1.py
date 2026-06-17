@@ -695,7 +695,7 @@ def calcular_depth_min_adaptativo(modo_processamento: str, preset_val: float) ->
     """
     Ajusta det_depth_min_m com base no modo de processamento SNR.
 
-    minimo   : bandpass pulado -> mais ruido superficial -> margem maior (0.50m)
+    minimo   : snr_ratio alto (onda direta forte) -> margem maior (0.50m) por segurança
     padrao   : comportamento original do preset, sem mudanca
     agressivo: aceitar candidatos mais rasos -> max(0.20, preset_val * 0.67)
     """
@@ -1216,10 +1216,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     )
 
     bandpass_aplicado = f"{preset['bandpass_low_mhz']}-{preset['bandpass_high_mhz']} MHz"
-    if modo == "minimo" and preset.get("bandpass_low_mhz", 0) > 0:
-        bandpass_aplicado = "pulado"
-        logger.info("  Bandpass: pulado (modo minimo — dado ja limpo, evitar artefatos)")
-    elif preset.get("bandpass_low_mhz", 0) > 0:
+    if preset.get("bandpass_low_mhz", 0) > 0:
         try:
             aplicar_bandpass(prof, preset["bandpass_low_mhz"],
                              preset["bandpass_high_mhz"], preset["bandpass_order"],
@@ -1234,10 +1231,7 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     # Este array vai para: detector (raw_dewow_bandpass), base do radargrama_cientifico
     arr_dewow_bp = np.asarray(prof.data).astype(np.float32).copy()
     logger.debug(f"  arr_dewow_bp capturado shape={arr_dewow_bp.shape}")
-    snr_metrics["bp"] = (
-        None if bandpass_aplicado == "pulado"
-        else calcular_snr_hilbert(arr_dewow_bp, "bp")
-    )
+    snr_metrics["bp"] = calcular_snr_hilbert(arr_dewow_bp, "bp")
 
     # ── 3. FLUXO CIENTIFICO — dewow + bp + tpow, SEM bgremoval, SEM AGC ────────
     tpow_base = preset.get("tpow_power", 0.5)
