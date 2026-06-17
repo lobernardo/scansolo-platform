@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (job_recalibrar + dashboard qualidade + parse_dzx + GPT-4o contexto + campos revisão)
+> Última atualização: 2026-06-17 (VELOCITY_POR_SOLO + thresholds Fresnel + 6 presets + import_ground_truth + KB_ScansoloPlataform)
 
 ---
 
@@ -105,7 +105,33 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
 | `processado_visual.npy` | Com AGC completo | Backward compat |
 | `processado.npy` | Alias de `processado_visual.npy` | Backward compat |
 
-### Preset padrão `270mhz`
+### VELOCITY_POR_SOLO (v2.0.0 — derivado de v = c/√εr)
+
+| Tipo de solo | velocity_mns | εr ref | Fonte |
+|---|---|---|---|
+| `standard` | 0.100 | 7–10 | USACE 1995, GuidelineGEO |
+| `arenoso` | 0.130 | 4–6 | Daniels 2004, CLU-IN |
+| `argiloso` | 0.070 | 14–22 | Reynolds 1997 |
+| `umido` | 0.060 | 22–35 | USACE |
+| `pedregoso` | 0.115 | 5–8 | EOAS UBC |
+
+A1 em `main()`: aplica `VELOCITY_POR_SOLO[tipo_solo]` antes dos filtros_customizados. Se `velocity_mns` estiver explicitamente em `filtros_customizados`, prevalece.
+
+### Presets disponíveis (`--preset`)
+
+| Nome | Diferenças do base | Uso típico |
+|---|---|---|
+| `270mhz` | — (base) | PATIO padrão, solo misto |
+| `270mhz_clay` | v=0.07, bgremoval=20, tpow=0.70 | Solo argiloso/úmido |
+| `270mhz_sandy` | v=0.13, agc_window=200 | Solo arenoso/seco |
+| `270mhz_deep` | tpow=0.80, agc=100, det_h_max=5.0 | Alvos 3–5 m |
+| `270mhz_void` | fis_amp_metal=0.30, fis_amp_nao_metal=0.45 | Vazios e galerias |
+| `270mhz_concrete` | v=0.107, det_h_max=0.50, dewow=3 | Laje/piso de concreto |
+| `default` | preset genérico (standalone, não herdado) | Fallback |
+
+Os 5 derivados são criados via `{**PRESETS["270mhz"], **overrides}` em nível de módulo.
+
+### Preset base `270mhz`
 
 ```python
 {
@@ -116,7 +142,7 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
     "bgremoval_traces":      30,
     "tpow_power":            0.5,
     "agc_window":            150,
-    "velocity_mns":          0.1,
+    "velocity_mns":          0.1,   # sobrescrito por A1 via VELOCITY_POR_SOLO
     "contrast":              2.5,
     "colormap":              "gray",
     "dpi":                   150,
@@ -127,10 +153,10 @@ vs. v1.2.0 que usava `arr_proc+AGC` (24% CurveFit, 46% falsos positivos).
     "det_min_score_csv":     30,
     "det_min_score_plot":    40,
     "fis_ativo":             True,
-    "fis_amp_metal_thr":     0.75,        # [CALIBRAR] com Amilson
-    "fis_amp_nao_metal_thr": 0.40,        # [CALIBRAR] com Amilson
-    "detector_input_mode":   "raw",       # v2.0.0 — melhor CurveFit (82%)
-    "det_depth_min_m":       0.30,        # v2.0.0 — elimina airwave
+    "fis_amp_metal_thr":     0.65,   # metal/cabo: R→0.90–1.0 vs vazio≈0.50 (Fresnel, εr_solo=9)
+    "fis_amp_nao_metal_thr": 0.22,   # PVC/PE: R≈0.27, HDPE: R≈0.33 (Fresnel)
+    "detector_input_mode":   "raw",  # v2.0.0 — melhor CurveFit (82%)
+    "det_depth_min_m":       0.30,   # v2.0.0 — elimina airwave
 }
 ```
 
@@ -169,7 +195,7 @@ Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5
 --sem-migracao          pula migração Kirchhoff
 --filter-config <json>  override de parâmetros do preset em JSON
 --solo {standard,arenoso,argiloso,umido,pedregoso}
---preset {270mhz,default}
+--preset {270mhz,270mhz_clay,270mhz_sandy,270mhz_deep,270mhz_void,270mhz_concrete,default}
 --detector-input {raw,raw_dewow_bandpass,sem_agc,proc_agc_atual}  [v2.0.0]
 ```
 
@@ -309,6 +335,16 @@ Após processamento de cada DZT, faz upload de `{stem}_pipeline_metrics.json` pa
 - `codigo_projeto`, `tipo_obra` (mapeado via `TIPO_OBRA_EN` para inglês), `area_m2`, `antena_freq_mhz`, `contato_nome`
 - Reduz viés `galeria_concreto` ao dar contexto de tipo de obra ao modelo
 
+### import_ground_truth.py (Fase 12)
+
+`services/worker/scripts/import_ground_truth.py` — importação batch de CSV para `gpr_ground_truth`.
+
+- Lê CSV com colunas: `profile_id`, `target_rank`, `e_falso_positivo`, `depth_m`, `amplitude_relativa_max`, `confianca_revisao`, `notas`
+- `confianca_revisao` aceita `certa/provavel/duvidosa` ou `alta/media/baixa` (normalizado automaticamente)
+- Upsert em `(profile_id, target_rank)` — idempotente
+- Uso: `python scripts/import_ground_truth.py --csv <arquivo.csv> --project <project_id>`
+- Template em `KB_ScansoloPlataform/GROUND_TRUTH/template_validacao.csv`
+
 ### parse_dzx.py (Fase 11)
 
 `services/worker/pipeline/parse_dzx.py` — parser stdlib-only para arquivos `.DZX` (GSSI).
@@ -319,6 +355,21 @@ Após processamento de cada DZT, faz upload de `{stem}_pipeline_metrics.json` pa
 - Deduplicação por `TraceNumber`
 - `haversine_m()` para distância entre primeiro e último mark GPS
 - Campos escalares → `index_projeto.csv`; `dzx_marks` lista completa → `pipeline_metrics.json` apenas
+
+---
+
+## KB_ScansoloPlataform — Base de conhecimento GPR
+
+Diretório raiz: `KB_ScansoloPlataform/` (commitado; benchmark_real/ e PDFs excluídos via `.gitignore`)
+
+| Arquivo/Pasta | Conteúdo |
+|---|---|
+| `KB_MASTER.md` | Referência consolidada: literatura GPR, εr por material, coeficientes Fresnel, velocity vs. solo |
+| `GROUND_TRUTH/README_AMILSON.md` | Instruções para Amilson preencher validações manuais |
+| `GROUND_TRUTH/template_validacao.csv` | Template CSV para importação via `import_ground_truth.py` |
+| `GROUND_TRUTH/PATIO/` | Validações do dataset PATIO (vazio — aguarda preenchimento) |
+| `GROUND_TRUTH/HELPER/` | Validações do dataset HELPER (vazio — aguarda preenchimento) |
+| `GROUND_TRUTH/CALIBRACAO/` | Alvos de profundidade conhecida para calibrar velocity (vazio) |
 
 ---
 
@@ -550,7 +601,7 @@ supabase db push --password <DB_PASSWORD>
 | P3 | `fkMigration` do GPRPy requer `irlib` não instalado — usa Kirchhoff numpy próprio | Qualidade da migração vs. GPRPy nativo | Avaliar com Amilson se qualidade atual é suficiente |
 | P4 | IA de imagem (`gpt-image-1`) off por padrão | Melhoria potencial das imagens processadas | Avaliar custo/benefício com Amilson em projeto real |
 | P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 |
-| P6 | `fis_amp_metal_thr=0.75` e `fis_amp_nao_metal_thr=0.40` não calibrados | Classificação metal/não-metal imprecisa | Calibrar com ~10 alvos de tipo conhecido (Amilson) |
+| P6 | `fis_amp_metal_thr` revisado para 0.65 e `fis_amp_nao_metal_thr` para 0.22 via Fresnel; valores aguardam validação com alvos reais | Classificação metal/não-metal ainda não validada em campo | Usar `KB_ScansoloPlataform/GROUND_TRUTH/` + `import_ground_truth.py` para acumular ≥20 amostras e disparar `job_recalibrar` |
 | P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (tipo_obra, area_m2, antena_freq_mhz) no system message (commit 91e5f9c) |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
 | P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
@@ -566,10 +617,10 @@ supabase db push --password <DB_PASSWORD>
 
 1. **Radargrama científico vs. relatório** — validar visualmente se `_radargrama_cientifico.png` (sem AGC) é adequado para revisão técnica
 2. **Candidatos RAW** — confirmar que top-50 de cada PATIO são hipérboles reais (não artefatos) via `_classificador_candidatos.py`
-3. **Parâmetros físicos do detector** (`fis_amp_metal_thr`, `fis_amp_nao_metal_thr`) — usar ~10 alvos de tipo conhecido
-4. **Velocity** — DZT com alvos de profundidade conhecida para validar `velocity_estimada_mns`
+3. **Parâmetros físicos do detector** — thresholds revisados com Fresnel (0.65/0.22); validar com ~10 alvos de tipo conhecido via `GROUND_TRUTH/` + `import_ground_truth.py`
+4. **Velocity** — `VELOCITY_POR_SOLO` derivada de literatura; validar com DZT de alvos de profundidade conhecida (`GROUND_TRUTH/CALIBRACAO/`)
 5. **Qualidade visual** — comparar `_radargrama_relatorio.png` do pipeline v2.0.0 vs. output RADAN para o mesmo DZT lado a lado
-6. **Prompt GPT-4o** — adicionar contexto do projeto para reduzir viés `galeria_concreto`
+6. **Prompt GPT-4o** — ~~adicionar contexto do projeto~~ ✅ resolvido (commit 91e5f9c); validar se viés `galeria_concreto` reduziu com projetos reais
 7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso.
 8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade de 5m e a velocity dinâmica são adequados para cada projeto.
 9. **Pileup 0.30m em DZTs HELPER** (SNR ratio 720–1125, modo MINIMO) — confirmar se 232 alvos em 0.30m são falsos positivos antes de ajustar `det_depth_min_m`. Benchmarks em `pipeline/benchmark_real/04_benchmarks_detector/HELPER/` e `06_docs/AUDITORIA_UI_PREVIEW_RADAN_5M_LOCAL.md`.
