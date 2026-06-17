@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-16 (polling reprocess + sem-ia-imagem sempre ativo + P13 resolvido)
+> Última atualização: 2026-06-17 (job_recalibrar + dashboard qualidade + parse_dzx + GPT-4o contexto + campos revisão)
 
 ---
 
@@ -50,6 +50,7 @@
 | 8 | Relatório de inferências sob demanda (job `inferencias` → `.txt` para Amilson) | ✅ |
 | 9 | Workflow da imagem interpretada (Amilson aprova/regenera/anota manualmente) | ✅ |
 | 10 | Preview RADAN 5m (`_radargrama_preview_radan_5m.png`) + job `ia_p2` (anotações sobre P2) + delete projeto + `skip_ia` flag | ✅ |
+| 11 | Loop de aprendizado: `pipeline_metrics.json` + `gpr_ground_truth` + `job_recalibrar` + dashboard qualidade + `parse_dzx.py` + GPT-4o contexto do projeto + campos revisão (`confianca_revisao`, `e_referencia`, `profundidade_real_m`) | ✅ |
 
 ---
 
@@ -200,6 +201,7 @@ Valores SNR raw (Hilbert per-trace) calibrados: PATIO_001=20.6dB, PATIO_002=17.5
 | `relatorio` | `job_relatorio.handle_relatorio_job` | DOCX + PDF via LibreOffice |
 | `inferencias` | `job_gpr.handle_inferencias_job` | Relatório `.txt` sob demanda (não altera status) |
 | `interpretada` | `job_interpretada.handle_interpretada_job` | Imagem interpretada com alvos aprovados |
+| `recalibrar` | `job_recalibrar.handle_recalibrar_job` | Otimiza thresholds via `gpr_ground_truth` (min 20 amostras) → salva candidato JSON em `gpr-tabelas/recalibracao/` |
 
 ### job_gpr.py
 
@@ -273,6 +275,50 @@ Disparado por `finalizeReview` → job `interpretada` em `processing_jobs`
 - Inclui legenda técnica e avisos de calibração de velocity no rodapé
 - Upload para `gpr-tabelas/{project_id}/inferencias.txt` (upsert)
 - **Não altera `project.status`** — job independente
+
+### job_recalibrar.py (Fase 11)
+
+Disparado manualmente via INSERT em `processing_jobs` (`job_type='recalibrar'`) ou pelo botão no dashboard de qualidade.
+
+1. Busca todos os rows de `gpr_ground_truth` (mínimo 20 amostras)
+2. Inverte `e_falso_positivo` → `e_verdadeiro_positivo` para cálculos
+3. **Score threshold (F1):** varre 10–90 (step=5), maximiza F1 = 2TP/(2TP+FP+FN)
+4. **det_amp_threshold:** mediana(`amplitude_relativa_max` dos VP) − 0.1×IQR; requer ≥5 amostras com esse campo
+5. **det_depth_min_m:** se >5 FP com `depth_m < 0.5m` → mediana + 0.05m; senão mantém 0.30
+6. Salva candidato JSON em `gpr-tabelas/recalibracao/candidato_<ts>.json` com `aprovado: false`
+7. **NÃO aplica thresholds automaticamente** — requer revisão manual
+
+### job_interpretada.py — ground truth feeding (Fase 11)
+
+Após `ia_training_examples`, faz upsert de cada alvo revisado em `gpr_ground_truth`:
+- `e_falso_positivo = not vai_para_relatorio`
+- `confianca_revisao` normalizada: `alta/media/baixa → certa/provavel/duvidosa` (constraint do banco)
+- Upsert em `(profile_id, target_rank)` — idempotente
+- Bloco em try/except — nunca aborta o job se a tabela não existir
+
+### job_gpr.py — pipeline metrics upload (Fase 11)
+
+Após processamento de cada DZT, faz upload de `{stem}_pipeline_metrics.json` para `gpr-tabelas/{project_id}/{run_id}/{profile_id[:8]}/`:
+- URL signed (10 anos) salva em `gpr_profiles.metricas_pipeline_url`
+- `dzt_sha256` logado (não salvo em coluna separada ainda)
+- Bloco em try/except — nunca aborta o job
+
+### job_ia.py — GPT-4o com contexto do projeto (Fase 11)
+
+`_build_system_prompt(project: dict)` injeta bloco PROJECT CONTEXT entre a explicação do radargrama e a lista de categorias:
+- `codigo_projeto`, `tipo_obra` (mapeado via `TIPO_OBRA_EN` para inglês), `area_m2`, `antena_freq_mhz`, `contato_nome`
+- Reduz viés `galeria_concreto` ao dar contexto de tipo de obra ao modelo
+
+### parse_dzx.py (Fase 11)
+
+`services/worker/pipeline/parse_dzx.py` — parser stdlib-only para arquivos `.DZX` (GSSI).
+
+- `parse_dzx(path) -> dict` — nunca levanta exceção
+- Suporta variantes de tag SIR-4000/SIR-30 (ex: `Latitude|LAT|lat|Y`)
+- Containers suportados: `<Marks>`, `<GPS>`, `<GpsData>`, raiz
+- Deduplicação por `TraceNumber`
+- `haversine_m()` para distância entre primeiro e último mark GPS
+- Campos escalares → `index_projeto.csv`; `dzx_marks` lista completa → `pipeline_metrics.json` apenas
 
 ---
 
@@ -360,6 +406,7 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
 | `/projetos/[id]/cartografia` | `CartografiaClient.tsx` | Download DXF/KML/GeoJSON |
 | `/projetos/[id]/relatorio` | `RelatorioClient.tsx` | Gerar e baixar relatório + inferências |
+| `/admin/qualidade` | `QualidadeClient.tsx` | Dashboard de qualidade — ground truth, F1, candidatos de recalibração, botão disparar job (visível apenas para `socio`/`admin`) |
 
 ### Fluxo de status do projeto
 
@@ -419,6 +466,7 @@ aguardando_arquivos
 | `modo_processamento` | text | minimo / padrao / agressivo |
 | `tipo_solo` | text | solo usado no SNR gate |
 | `filtros_customizados` | JSONB | Override de filtros no reprocessamento |
+| `metricas_pipeline_url` | text | URL signed (10 anos) para `{stem}_pipeline_metrics.json` em `gpr-tabelas` |
 
 ### `detected_targets`
 
@@ -503,13 +551,14 @@ supabase db push --password <DB_PASSWORD>
 | P4 | IA de imagem (`gpt-image-1`) off por padrão | Melhoria potencial das imagens processadas | Avaliar custo/benefício com Amilson em projeto real |
 | P5 | ~~constraint `media` rejeitada pelo schema antigo~~ | ~~Alvos média não persistiam~~ | ✅ **Resolvido** — migration 20260606000001 |
 | P6 | `fis_amp_metal_thr=0.75` e `fis_amp_nao_metal_thr=0.40` não calibrados | Classificação metal/não-metal imprecisa | Calibrar com ~10 alvos de tipo conhecido (Amilson) |
-| P7 | GPT-4o tem viés para `galeria_concreto` sem contexto do projeto | Interpretações automáticas pouco diferenciadas | Adicionar contexto do projeto no prompt |
+| P7 | ~~GPT-4o tem viés para `galeria_concreto` sem contexto do projeto~~ | ~~Interpretações automáticas pouco diferenciadas~~ | ✅ **Resolvido** — `_build_system_prompt(project)` injeta bloco PROJECT CONTEXT (tipo_obra, area_m2, antena_freq_mhz) no system message (commit 91e5f9c) |
 | P8 | `testar_imagem_externa.py` rodou em 13/126 imagens do dataset HELPAVPA | Validação parcial do detector em imagens RADAN | Rodar nas 113 restantes após Amilson validar |
 | P9 | ~~`job_gpr.py` usa `--preset 270mhz` via subprocess — `detector_input_mode=raw` já está no preset padrão~~ | — | ✅ Resolvido — preset contém default correto |
 | P10 | Pileup em `det_depth_min_m=0.30m` com DZTs de alto SNR (modo MINIMO, bandpass pulado) | 232/341 alvos em 0.30m exato em teste com 126 DZTs HELPER — falsos positivos de airwave/onda direta | Avaliar elevar `det_depth_min_m` para 0.50m em modo MINIMO, ou forçar bandpass quando SNR_ratio > 100 |
 | P11 | Banner "Matrizes V1.2" no log do `pipeline_v1.py` (linha ~1222) | Confunde auditorias — pipeline é v2.0.0 | Atualizar texto de impressão para "v2.0" |
 | P12 | Delete projeto remove apenas registros do DB — arquivos no Storage (DZTs, PNGs, CSVs) não são deletados | Acúmulo de arquivos órfãos no Supabase Storage | Adicionar limpeza de Storage na server action `deleteProject` quando for prioritário |
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
+| P14 | `job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by` | Campos ficam null no ground truth (silencioso — não aborta job) | Corrigir nomes das colunas no SELECT do `detected_targets` join `technical_reviews` |
 
 ---
 
@@ -524,3 +573,4 @@ supabase db push --password <DB_PASSWORD>
 7. **Preset de filtros por tipo de solo** — limiares SNR calibrados só para PATIO. Validar com solo argiloso, úmido e pedregoso.
 8. **Preview RADAN 5m vs. RADAN real** — comparar `_radargrama_preview_radan_5m.png` com o output visual do RADAN para os mesmos DZTs. Confirmar se a profundidade de 5m e a velocity dinâmica são adequados para cada projeto.
 9. **Pileup 0.30m em DZTs HELPER** (SNR ratio 720–1125, modo MINIMO) — confirmar se 232 alvos em 0.30m são falsos positivos antes de ajustar `det_depth_min_m`. Benchmarks em `pipeline/benchmark_real/04_benchmarks_detector/HELPER/` e `06_docs/AUDITORIA_UI_PREVIEW_RADAN_5M_LOCAL.md`.
+10. **Candidato de recalibração** — após acumular ≥20 amostras validadas no `gpr_ground_truth`, usar dashboard `/admin/qualidade` para disparar `job_recalibrar` e revisar o candidato JSON antes de aplicar ao preset de produção.
