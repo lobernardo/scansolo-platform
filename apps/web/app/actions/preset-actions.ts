@@ -57,7 +57,7 @@ export async function getPresetById(id: string): Promise<GprPreset | null> {
     .select("*")
     .eq("id", id)
     .single();
-  return (data as GprPreset) ?? null;
+  return (data as unknown as GprPreset) ?? null;
 }
 
 export async function createPreset(

@@ -20,7 +20,7 @@ export async function dispararRecalibracao(): Promise<{ ok: boolean; error?: str
     job_type: "recalibrar",
     status: "aguardando",
     payload: {},
-    ...(proj ? { project_id: proj.id } : {}),
+    ...(proj ? { project_id: (proj as { id: string }).id } : {}),
   } as unknown as never);
 
   if (error) return { ok: false, error: error.message };
