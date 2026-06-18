@@ -193,6 +193,11 @@ def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | No
         # sinalizar para o pipeline não usar o valor adaptativo do SNR gate
         if "det_depth_min_m" in project_config:
             merged["_det_depth_min_m_explicit"] = True
+        # Sinalizar origem da velocity para rastreabilidade no pipeline_metrics.json
+        if "velocity_mns" in project_config:
+            merged["_velocity_fonte_hint"] = "filtros_customizados"
+        elif "velocity_mns" in preset_params:
+            merged["_velocity_fonte_hint"] = "preset"
         return merged if merged else None
     except Exception:
         pass

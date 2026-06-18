@@ -176,7 +176,20 @@ function FullLog({ m }: { m: PipelineMetrics }) {
             value={`${m.profundidade_max_m.toFixed(2)} m`}
           />
         )}
-        {(filtros.velocity_mns as number | undefined) != null && (
+      </div>
+
+      {/* ESCALA E PROFUNDIDADE */}
+      <SectionHead title="Escala e Profundidade" />
+      <div className="pl-2 space-y-0.5">
+        {m.velocity_mns != null ? (
+          <Row
+            s="ok"
+            label="Velocity"
+            value={`${m.velocity_mns.toFixed(4)} m/ns (εr ≈ ${Math.round(
+              Math.pow(0.3 / m.velocity_mns, 2)
+            )})`}
+          />
+        ) : (filtros.velocity_mns as number | undefined) != null ? (
           <Row
             s="ok"
             label="Velocity"
@@ -184,6 +197,15 @@ function FullLog({ m }: { m: PipelineMetrics }) {
               Math.pow(0.3 / Number(filtros.velocity_mns), 2)
             )})`}
           />
+        ) : null}
+        {m.velocity_fonte != null && (
+          <div className="text-[10px] text-slate-600 pl-4">fonte: {m.velocity_fonte}</div>
+        )}
+        {m.depth_tecnica_m != null && (
+          <Row s="ok" label="Prof. técnica" value={`${m.depth_tecnica_m.toFixed(2)} m`} />
+        )}
+        {m.profundidade_max_m == null && m.depth_tecnica_m == null && (
+          <Row s="na" label="Velocity" value={ND} />
         )}
       </div>
 

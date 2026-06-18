@@ -1441,6 +1441,10 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             "bandpass_order_usado":    preset.get("bandpass_order", 5),
             "bandpass_tipo_usado":     preset.get("bandpass_tipo", "butterworth"),
             "detector_input_mode":    detector_input_mode,
+            # Velocity e profundidade técnica
+            "velocity_mns":           round(preset.get("velocity_mns", 0.1), 4),
+            "velocity_fonte":         _velocity_fonte,
+            "depth_tecnica_m":        round(depth_max, 2),
             # Preview RADAN 5m — rastreabilidade da profundidade visual
             "preview_depth_m":                   preview_meta.get("depth_preview_m", ""),
             "preview_depth_real_m":              preview_meta.get("depth_real_m", ""),
@@ -1629,9 +1633,12 @@ def main():
     _tipo_solo_v = tipo_solo or "standard"
     if not _velocity_customizada:
         preset["velocity_mns"] = VELOCITY_POR_SOLO.get(_tipo_solo_v, 0.100)
+        _velocity_fonte = f"VELOCITY_POR_SOLO[{_tipo_solo_v}]"
         logging.getLogger().info(
             f"[PRESET] velocity_mns={preset['velocity_mns']} m/ns (solo={_tipo_solo_v})"
         )
+    else:
+        _velocity_fonte = preset.get("_velocity_fonte_hint", "filtros_customizados")
 
     caminhos = criar_estrutura(pasta_saida)
     logger   = configurar_log(caminhos["logs"])

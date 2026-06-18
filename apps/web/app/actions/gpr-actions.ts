@@ -31,6 +31,10 @@ export type PipelineMetrics = {
   bandpass_high_mhz_usado?: number;
   bandpass_order_usado?: number;
   bandpass_tipo_usado?: string;
+  // Velocity e profundidade técnica
+  velocity_mns?: number;             // velocity usada (m/ns)
+  velocity_fonte?: string;           // "preset" | "filtros_customizados" | "VELOCITY_POR_SOLO[tipo]"
+  depth_tecnica_m?: number;          // profundidade real: twtt_max_ns × velocity / 2 (m)
   // Flags de imagens geradas
   imagem_bruta_ok?: boolean;
   imagem_relatorio_ok?: boolean;
@@ -116,6 +120,9 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     bandpass_high_mhz_usado: metricsJson.bandpass_high_mhz_usado as number | undefined,
     bandpass_order_usado: metricsJson.bandpass_order_usado as number | undefined,
     bandpass_tipo_usado: metricsJson.bandpass_tipo_usado as string | undefined,
+    velocity_mns: metricsJson.velocity_mns as number | undefined,
+    velocity_fonte: metricsJson.velocity_fonte as string | undefined,
+    depth_tecnica_m: metricsJson.depth_tecnica_m as number | undefined,
     imagem_bruta_ok: !!(p.imagem_bruta_url as string),
     imagem_relatorio_ok: !!(p.imagem_processada_url as string),
     imagem_anotada_ok: !!(p.imagem_anotada_url as string),
