@@ -92,3 +92,11 @@ services/worker/baixar_imagens.py
 KB_ScansoloPlataform/benchmark_real/
 KB_ScansoloPlataform/*.pdf
 KB_ScansoloPlataform/**/*.pdf
+
+# Local/client GPR benchmark data
+services/worker/pipeline/benchmark_real/
+samples/gssi/
+*.DZT
+*.DZG
+*.DZX
+
