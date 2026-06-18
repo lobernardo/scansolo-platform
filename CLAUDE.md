@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-18 (Fase 15 — controle explícito de bandpass + split documental)
+> Última atualização: 2026-06-18 (Estabilização: fix Pipeline Log + velocity UX + criar preset inline + manual)
 > Este arquivo é o índice operacional. Detalhes técnicos estão nos docs/ linkados abaixo.
 
 ---
@@ -8,11 +8,12 @@
 
 | Doc | Conteúdo |
 |---|---|
+| [docs/MANUAL_USO_SISTEMA.md](docs/MANUAL_USO_SISTEMA.md) | Manual operacional: 5 imagens, presets, velocity/prof, filtros, detector, IA, FAQ |
 | [docs/technical/GPR_PIPELINE.md](docs/technical/GPR_PIPELINE.md) | Pipeline v2.0.0 — sequência 13 passos, matrizes numpy, VELOCITY_POR_SOLO, presets, bandpass, SNR gate, flags CLI, CSV alvos |
 | [docs/technical/WORKER_JOBS.md](docs/technical/WORKER_JOBS.md) | Todos os job handlers: job_gpr (2 fluxos + Fase 15 fixes), job_ia, job_ia_p2, job_interpretada, job_recalibrar, job_recalibrar_velocity, supabase retry, metrics upload |
 | [docs/technical/FRONTEND.md](docs/technical/FRONTEND.md) | Rotas, server actions (preset-actions, training-actions, gpr-actions), PipelineLog component, PipelineMetrics type, fluxo de status |
 | [docs/technical/DETECTOR.md](docs/technical/DETECTOR.md) | Detector de hipérboles (DEFAULT_PARAMS, fluxo Hough→CurveFit→DeltaT) + testar_imagem_externa.py |
-| [docs/technical/DATABASE.md](docs/technical/DATABASE.md) | Schema completo: todas as tabelas, Storage buckets, migrations (até 20260617000004) |
+| [docs/technical/DATABASE.md](docs/technical/DATABASE.md) | Schema completo: todas as tabelas, Storage buckets, migrations (até 20260618000003) |
 | [docs/history/FASES_0_14.md](docs/history/FASES_0_14.md) | Histórico e contexto das Fases 0–14 |
 | [docs/history/FASES_15_PLUS.md](docs/history/FASES_15_PLUS.md) | Fase 15 detalhada + pendências para Fase A |
 | [docs/known_issues.md](docs/known_issues.md) | Pendências P1–P19 completas (Item + Impacto + Ação) + itens a calibrar com Amilson |
@@ -73,6 +74,10 @@
 | 13 | Módulo de treinamento ground truth: `gpr_training_sessions` + wizard `/treinamento` (4 passos) + modal recalibração | ✅ |
 | 14 | Logs visuais do pipeline: `getPipelineMetrics` + `PipelineLog.tsx` (timeline + compact + MetricsDiff) | ✅ |
 | 15 | Controle explícito de bandpass: toggle ON/OFF em Nova Entrada + presets + fixes velocity_mns / det_depth_min_m + rastreabilidade bandpass no `pipeline_metrics.json` | ✅ |
+| B | Aba "Técnica" (`_radargrama_cientifico.png`) + renomear Processada→Relatório + Processada 2→Visual | ✅ |
+| C | Campos `depth_preview_m` / `agc_window_preview` em Nova Entrada + rastreio `velocity_fonte` no pipeline e PipelineLog | ✅ |
+| D | Preset versionamento: 8 colunas em `gpr_presets` + "Salvar como preset" em Ajustar Filtros + badge validado | ✅ |
+| E | Fix Pipeline Log (`imagem_migrada_url` migration) + PipelineLog preview fields + velocity UX + criar preset inline em Nova Entrada + manual | ✅ |
 
 ---
 
@@ -122,7 +127,7 @@ DZT → raw → dewow+bp → [bifurcação]
 
 | Rota | Componente | Função |
 |---|---|---|
-| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass ON/OFF |
+| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "+ Salvar como novo preset" inline |
 | `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros + Pipeline Log |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional; com `preset_id` usa `startProcessingDirect` |
 | `/presets` | `PresetsClient.tsx` | Cards + modal criar/editar (com toggle Bandpass ON/OFF) |
@@ -139,7 +144,7 @@ DZT → raw → dewow+bp → [bifurcação]
 |---|---|
 | `projects` | `status`, `preset_id`, `processing_config` JSONB, `auto_accept_ia` |
 | `gpr_presets` | `name`, `parameters` JSONB, `is_system`, `is_active` |
-| `gpr_profiles` | `run_id`, imagens URLs, `filtros_customizados` JSONB, `metricas_pipeline_url` |
+| `gpr_profiles` | `run_id`, imagens URLs (incl. `imagem_cientifica_url`, `imagem_migrada_url`), `filtros_customizados` JSONB, `metricas_pipeline_url` |
 | `detected_targets` | `rank`, `depth_m`, `confidence_score_0_100`, `confidence_label_relatorio` |
 | `processing_jobs` | `job_type`, `status`, `payload` JSONB, `error_message` |
 | `gpr_ground_truth` | 12 cols legadas (Fase 11) + 18 cols wizard (Fase 13) |
@@ -163,6 +168,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | P8 | testar_imagem_externa.py rodou em 13/126 imagens HELPAVPA | Aberto |
 | P12 | Delete projeto não limpa Storage | Aberto |
 | P19 | UploadClient.tsx caminho legado não mapeia bandpass OFF | Aberto |
+| P20 | `imagem_migrada_url` nunca populada pelo worker (Fase 7 incompleta) — migration adicionada, job_gpr precisa salvar a URL | Aberto |
 
 ---
 
