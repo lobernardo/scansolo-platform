@@ -33,12 +33,29 @@ export default function NovaEntradaPage() {
   const [showCustom, setShowCustom] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
 
-  // Create preset inline modal
-  const [showCreatePreset, setShowCreatePreset] = useState(false);
+  // Create preset modal — dois modos:
+  // "scratch": criado direto do dropdown (seleciona base no modal)
+  // "selection": criado a partir do preset + overrides ativos (botão no accordion)
+  const [createMode, setCreateMode] = useState<"scratch" | "selection" | null>(null);
+  const [scratchBase, setScratchBase] = useState("");
   const [newPresetName, setNewPresetName] = useState("");
   const [newPresetDesc, setNewPresetDesc] = useState("");
+  const [newPresetNotes, setNewPresetNotes] = useState("");
+  const [newPresetDataset, setNewPresetDataset] = useState("");
   const [createStatus, setCreateStatus] = useState<"idle" | "saving" | "error">("idle");
   const [createError, setCreateError] = useState("");
+
+  function openCreateModal(mode: "scratch" | "selection") {
+    setCreateMode(mode);
+    setScratchBase(selectedPresetId);
+    setNewPresetName("");
+    setNewPresetDesc("");
+    setNewPresetNotes("");
+    setNewPresetDataset("");
+    setCreateStatus("idle");
+    setCreateError("");
+  }
+  function closeCreateModal() { setCreateMode(null); }
 
   const selectedPreset = presets.find((p) => p.id === selectedPresetId) ?? null;
   const baseParams = selectedPreset?.parameters ?? {};
@@ -67,6 +84,10 @@ export default function NovaEntradaPage() {
 
   // When preset changes, reset overrides
   function handlePresetChange(id: string) {
+    if (id === "__new__") {
+      openCreateModal("scratch");
+      return; // não muda selectedPresetId
+    }
     setSelectedPresetId(id);
     setOverrides({});
     setShowCustom(false);
@@ -159,78 +180,63 @@ export default function NovaEntradaPage() {
                 ))}
               </optgroup>
             )}
+            <option value="__new__">＋ Criar novo preset...</option>
           </select>
 
-          {/* Criar preset a partir das configurações atuais */}
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => { setShowCreatePreset(true); setCreateStatus("idle"); setNewPresetName(""); setNewPresetDesc(""); }}
-              className="text-xs text-cyan-400 hover:text-cyan-300 underline disabled:opacity-40"
-              disabled={!selectedPresetId}
-              title={!selectedPresetId ? "Selecione um preset base primeiro" : "Salvar configuração atual como novo preset"}
-            >
-              + Salvar como novo preset
-            </button>
-          </div>
-
-          {/* Modal inline de criação de preset */}
-          {showCreatePreset && (
-            <div className="rounded-lg border border-cyan-700 bg-slate-900 p-3 space-y-2">
-              <p className="text-xs font-semibold text-cyan-300">Novo preset — baseado em &ldquo;{selectedPreset?.name}&rdquo;</p>
-              <p className="text-xs text-slate-500">Parâmetros atuais (base + personalizações) serão salvos.</p>
-              <input
-                type="text"
-                placeholder="Nome do preset *"
-                value={newPresetName}
-                onChange={(e) => setNewPresetName(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                autoFocus
-              />
-              <input
-                type="text"
-                placeholder="Descrição (opcional)"
-                value={newPresetDesc}
-                onChange={(e) => setNewPresetDesc(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
-              />
-              {createStatus === "error" && (
-                <p className="text-xs text-red-400">{createError}</p>
-              )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={!newPresetName.trim() || createStatus === "saving"}
-                  onClick={async () => {
-                    setCreateStatus("saving");
-                    const mergedParams = { ...(selectedPreset?.parameters ?? {}), ...overrides };
-                    const res = await createPreset({
-                      name: newPresetName.trim(),
-                      description: newPresetDesc.trim() || undefined,
-                      parameters: mergedParams,
-                    });
-                    if (res.ok && res.id) {
-                      addPreset({ id: res.id, name: newPresetName.trim(), description: newPresetDesc.trim() || null, is_system: false, parameters: mergedParams });
-                      handlePresetChange(res.id);
-                      setShowCreatePreset(false);
-                    } else {
-                      setCreateStatus("error");
-                      setCreateError(res.error ?? "Erro ao criar preset.");
-                    }
-                  }}
-                  className="rounded bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
-                >
-                  {createStatus === "saving" ? "Salvando…" : "Salvar preset"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreatePreset(false)}
-                  className="rounded bg-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-600 transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
+          {/* Modal unificado de criação de preset */}
+          {createMode !== null && (
+            <CreatePresetModal
+              mode={createMode}
+              presets={presets}
+              selectedPreset={selectedPreset}
+              scratchBase={scratchBase}
+              setScratchBase={setScratchBase}
+              overrides={overrides}
+              name={newPresetName}
+              setName={setNewPresetName}
+              desc={newPresetDesc}
+              setDesc={setNewPresetDesc}
+              notes={newPresetNotes}
+              setNotes={setNewPresetNotes}
+              dataset={newPresetDataset}
+              setDataset={setNewPresetDataset}
+              status={createStatus}
+              error={createError}
+              onSave={async () => {
+                setCreateStatus("saving");
+                const baseId = createMode === "scratch" ? scratchBase : selectedPresetId;
+                const basePreset = presets.find((p) => p.id === baseId);
+                const baseParams = basePreset?.parameters ?? {};
+                const mergedParams =
+                  createMode === "scratch"
+                    ? baseParams
+                    : { ...baseParams, ...overrides };
+                const res = await createPreset({
+                  name: newPresetName.trim(),
+                  description: newPresetDesc.trim() || undefined,
+                  notes: newPresetNotes.trim() || undefined,
+                  dataset_validation: newPresetDataset.trim() || undefined,
+                  parameters: mergedParams,
+                });
+                if (res.ok && res.id) {
+                  addPreset({
+                    id: res.id,
+                    name: newPresetName.trim(),
+                    description: newPresetDesc.trim() || null,
+                    is_system: false,
+                    parameters: mergedParams,
+                  });
+                  setSelectedPresetId(res.id);
+                  setOverrides({});
+                  setShowCustom(false);
+                  closeCreateModal();
+                } else {
+                  setCreateStatus("error");
+                  setCreateError(res.error ?? "Erro ao criar preset.");
+                }
+              }}
+              onCancel={closeCreateModal}
+            />
           )}
 
           {selectedPreset && (
@@ -345,6 +351,17 @@ export default function NovaEntradaPage() {
                     <CFloat label="det_depth_min_m" value={Number(getParam("det_depth_min_m", 0.30))} min={0.10} max={1.00} step={0.05} onChange={(v) => setOverride("det_depth_min_m", v)}
                       tooltip="Alvos acima deste limiar são descartados. Elimina reflexão de superfície (airwave). Aumentar em modo MINIMO se houver muitos falsos positivos rasos. Recomendado: 0.30–0.50m." />
                   </CustomGroup>
+
+                  {/* Salvar como preset após personalizar */}
+                  <div className="pt-2 border-t border-slate-700 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => openCreateModal("selection")}
+                      className="rounded-md border border-cyan-600 px-3 py-1.5 text-xs font-semibold text-cyan-400 hover:bg-cyan-600/15 transition-colors"
+                    >
+                      Salvar configuração como novo preset
+                    </button>
+                  </div>
                 </div>
               )}
             </>
@@ -397,6 +414,143 @@ export default function NovaEntradaPage() {
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+// ── CreatePresetModal ─────────────────────────────────────────────────────────
+
+function CreatePresetModal({
+  mode,
+  presets,
+  selectedPreset,
+  scratchBase,
+  setScratchBase,
+  overrides,
+  name,
+  setName,
+  desc,
+  setDesc,
+  notes,
+  setNotes,
+  dataset,
+  setDataset,
+  status,
+  error,
+  onSave,
+  onCancel,
+}: {
+  mode: "scratch" | "selection";
+  presets: PresetSummary[];
+  selectedPreset: PresetSummary | null;
+  scratchBase: string;
+  setScratchBase: (v: string) => void;
+  overrides: Record<string, unknown>;
+  name: string;
+  setName: (v: string) => void;
+  desc: string;
+  setDesc: (v: string) => void;
+  notes: string;
+  setNotes: (v: string) => void;
+  dataset: string;
+  setDataset: (v: string) => void;
+  status: "idle" | "saving" | "error";
+  error: string;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const hasOverrides = Object.keys(overrides).length > 0;
+  const baseLabel =
+    mode === "scratch"
+      ? presets.find((p) => p.id === scratchBase)?.name ?? "—"
+      : selectedPreset?.name ?? "—";
+
+  return (
+    <div className="rounded-lg border border-cyan-700/60 bg-slate-900 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-cyan-300">
+          {mode === "scratch" ? "Criar novo preset" : "Salvar configuração como preset"}
+        </p>
+        <button type="button" onClick={onCancel} className="text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+      </div>
+
+      {mode === "scratch" ? (
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">Preset base *</label>
+          <select
+            value={scratchBase}
+            onChange={(e) => setScratchBase(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+          >
+            <option value="">— Escolha um preset base —</option>
+            {presets.filter((p) => p.id !== "__new__").map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.is_system ? " (sistema)" : ""}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-slate-600 mt-1">O preset criado terá todos os parâmetros do preset base.</p>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-500">
+          Base: <span className="text-slate-300">&ldquo;{baseLabel}&rdquo;</span>
+          {hasOverrides && (
+            <span className="ml-1 text-cyan-400/80">+ {Object.keys(overrides).length} personalização(ões) ativas</span>
+          )}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <input
+          type="text"
+          placeholder="Nome do preset *"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+          className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+        <input
+          type="text"
+          placeholder="Descrição (opcional)"
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+        <input
+          type="text"
+          placeholder="Notas técnicas (opcional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+        <input
+          type="text"
+          placeholder="Dataset de validação (opcional, ex: PATIO-001)"
+          value={dataset}
+          onChange={(e) => setDataset(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+      </div>
+
+      {status === "error" && (
+        <p className="text-xs text-red-400 rounded bg-red-900/20 border border-red-700/40 px-2 py-1">{error}</p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={!name.trim() || (mode === "scratch" && !scratchBase) || status === "saving"}
+          onClick={onSave}
+          className="rounded-md bg-cyan-500 px-4 py-1.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+        >
+          {status === "saving" ? "Salvando…" : "Salvar preset"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md bg-slate-700 px-4 py-1.5 text-sm text-slate-300 hover:bg-slate-600 transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
     </div>
   );
 }

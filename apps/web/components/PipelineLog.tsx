@@ -115,8 +115,8 @@ function FullLog({ m }: { m: PipelineMetrics }) {
   const modo = m.modo_processamento;
   const filtros = m.filtros_customizados ?? {};
 
-  // Parâmetros de filtro: filtros_customizados (reprocessamento) ou pipeline_metrics.json (primeiro processamento)
-  const dewowW = filtros.dewow_window;
+  // Parâmetros de filtro: filtros_customizados (reprocessamento) > pipeline_metrics.json (primeiro processamento)
+  const dewowW = (filtros.dewow_window as number | undefined) ?? m.dewow_window;
   // bandpass: checa JSON primeiro (cobre primeiro processamento), depois filtros_customizados (reprocessamento)
   const bandpassDesativado =
     m.bandpass_aplicado === "desativado" ||
@@ -129,9 +129,9 @@ function FullLog({ m }: { m: PipelineMetrics }) {
     filtros.bandpass_high_mhz ??
     (m.bandpass_high_mhz_usado != null && m.bandpass_high_mhz_usado > 0 ? m.bandpass_high_mhz_usado : null);
   const bpOrder = filtros.bandpass_order ?? m.bandpass_order_usado;
-  const bgTraces = filtros.bgremoval_traces;
-  const tpowPow = filtros.tpow_power;
-  const agcW = filtros.agc_window;
+  const bgTraces = (filtros.bgremoval_traces as number | undefined) ?? m.bgremoval_traces;
+  const tpowPow = (filtros.tpow_power as number | undefined) ?? m.tpow_power;
+  const agcW = (filtros.agc_window as number | undefined) ?? m.agc_window;
 
   // SNR pós-filtros (aproximações via snr_stages_db)
   const snrBp = snr.bp != null && snr.bp > -998 ? snr.bp : null;   // ≈ científico (dewow+bp)
@@ -216,6 +216,13 @@ function FullLog({ m }: { m: PipelineMetrics }) {
         )}
         {m.preview_depth_real_m != null && (
           <Row s="ok" label="Visual — prof. física" value={`${m.preview_depth_real_m.toFixed(2)} m`} />
+        )}
+        {(m.agc_window_preview ?? (filtros.agc_window_preview as number | undefined)) != null && (
+          <Row
+            s="ok"
+            label="Visual — AGC window"
+            value={`window=${m.agc_window_preview ?? (filtros.agc_window_preview as number)}`}
+          />
         )}
         {m.profundidade_max_m == null && m.depth_tecnica_m == null && (
           <Row s="na" label="Velocity" value={ND} />

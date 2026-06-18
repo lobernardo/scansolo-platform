@@ -35,6 +35,12 @@ export type PipelineMetrics = {
   velocity_mns?: number;             // velocity usada (m/ns)
   velocity_fonte?: string;           // "preset" | "filtros_customizados" | "VELOCITY_POR_SOLO[tipo]"
   depth_tecnica_m?: number;          // profundidade real: twtt_max_ns × velocity / 2 (m)
+  // Parâmetros de filtros efetivos (do pipeline_metrics.json — primeiro processamento)
+  dewow_window?: number;
+  bgremoval_traces?: number;
+  tpow_power?: number;
+  agc_window?: number;
+  agc_window_preview?: number;
   // Preview RADAN visual (Visual)
   depth_preview_m?: number;          // profundidade visual configurada (eixo Y da imagem Visual)
   preview_depth_real_m?: number;     // profundidade física da imagem Visual: twtt × velocity / 2
@@ -128,6 +134,11 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     velocity_mns: metricsJson.velocity_mns as number | undefined,
     velocity_fonte: metricsJson.velocity_fonte as string | undefined,
     depth_tecnica_m: metricsJson.depth_tecnica_m as number | undefined,
+    dewow_window: metricsJson.dewow_window as number | undefined,
+    bgremoval_traces: metricsJson.bgremoval_traces as number | undefined,
+    tpow_power: metricsJson.tpow_power as number | undefined,
+    agc_window: metricsJson.agc_window as number | undefined,
+    agc_window_preview: metricsJson.agc_window_preview as number | undefined,
     depth_preview_m: metricsJson.depth_preview_m as number | undefined,
     preview_depth_real_m: metricsJson.preview_depth_real_m as number | undefined,
     preview_visual_depth_configurado: metricsJson.preview_visual_depth_configurado as boolean | undefined,
