@@ -115,11 +115,20 @@ function FullLog({ m }: { m: PipelineMetrics }) {
   const modo = m.modo_processamento;
   const filtros = m.filtros_customizados ?? {};
 
-  // Parâmetros de filtro disponíveis em filtros_customizados (reprocessamentos)
+  // Parâmetros de filtro: filtros_customizados (reprocessamento) ou pipeline_metrics.json (primeiro processamento)
   const dewowW = filtros.dewow_window;
-  const bpLow = filtros.bandpass_low_mhz;
-  const bpHigh = filtros.bandpass_high_mhz;
-  const bpOrder = filtros.bandpass_order;
+  // bandpass: checa JSON primeiro (cobre primeiro processamento), depois filtros_customizados (reprocessamento)
+  const bandpassDesativado =
+    m.bandpass_aplicado === "desativado" ||
+    m.bandpass_low_mhz_usado === 0 ||
+    filtros.bandpass === false;
+  const bpLow =
+    filtros.bandpass_low_mhz ??
+    (m.bandpass_low_mhz_usado != null && m.bandpass_low_mhz_usado > 0 ? m.bandpass_low_mhz_usado : null);
+  const bpHigh =
+    filtros.bandpass_high_mhz ??
+    (m.bandpass_high_mhz_usado != null && m.bandpass_high_mhz_usado > 0 ? m.bandpass_high_mhz_usado : null);
+  const bpOrder = filtros.bandpass_order ?? m.bandpass_order_usado;
   const bgTraces = filtros.bgremoval_traces;
   const tpowPow = filtros.tpow_power;
   const agcW = filtros.agc_window;
@@ -212,10 +221,10 @@ function FullLog({ m }: { m: PipelineMetrics }) {
           }
         />
         <Row
-          s={filtros.bandpass === false ? "skip" : snr.bp != null && snr.bp > -998 ? "ok" : "na"}
+          s={bandpassDesativado ? "skip" : snr.bp != null && snr.bp > -998 ? "ok" : "na"}
           label="Bandpass"
           value={
-            filtros.bandpass === false
+            bandpassDesativado
               ? "desativado"
               : bpLow != null && bpHigh != null
               ? `${bpLow}–${bpHigh} MHz, ordem ${bpOrder ?? "?"}`

@@ -1423,6 +1423,12 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             "n_amostras_final":      arr_raw.shape[0],
             "n_tracos":              arr_raw.shape[1],
             "dist_total_m":          dist_total_m_coleta,
+            "bandpass_aplicado":      bandpass_aplicado,
+            "bandpass_low_mhz_usado":  preset.get("bandpass_low_mhz", 0),
+            "bandpass_high_mhz_usado": preset.get("bandpass_high_mhz", 500),
+            "bandpass_order_usado":    preset.get("bandpass_order", 5),
+            "bandpass_tipo_usado":     preset.get("bandpass_tipo", "butterworth"),
+            "detector_input_mode":    detector_input_mode,
             "dzx":                   dzx_data,   # inclui dzx_marks completo
         }
         metrics_path = caminhos["processadas"] / f"{nome}_pipeline_metrics.json"

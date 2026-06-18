@@ -25,6 +25,12 @@ export type PipelineMetrics = {
   profundidade_max_m?: number | null;
   // Parâmetros de filtro: de filtros_customizados (reprocessamento) ou n/d
   filtros_customizados?: Record<string, unknown> | null;
+  // Bandpass efetivo — lidos do pipeline_metrics.json (cobre primeiro processamento e reprocessamento)
+  bandpass_aplicado?: string;        // "desativado" | "80-500 MHz"
+  bandpass_low_mhz_usado?: number;   // 0 se desativado
+  bandpass_high_mhz_usado?: number;
+  bandpass_order_usado?: number;
+  bandpass_tipo_usado?: string;
   // Flags de imagens geradas
   imagem_bruta_ok?: boolean;
   imagem_relatorio_ok?: boolean;
@@ -105,6 +111,11 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     distancia_max_m: p.distancia_max_m as number | null,
     profundidade_max_m: p.profundidade_max_m as number | null,
     filtros_customizados: p.filtros_customizados as Record<string, unknown> | null,
+    bandpass_aplicado: metricsJson.bandpass_aplicado as string | undefined,
+    bandpass_low_mhz_usado: metricsJson.bandpass_low_mhz_usado as number | undefined,
+    bandpass_high_mhz_usado: metricsJson.bandpass_high_mhz_usado as number | undefined,
+    bandpass_order_usado: metricsJson.bandpass_order_usado as number | undefined,
+    bandpass_tipo_usado: metricsJson.bandpass_tipo_usado as string | undefined,
     imagem_bruta_ok: !!(p.imagem_bruta_url as string),
     imagem_relatorio_ok: !!(p.imagem_processada_url as string),
     imagem_anotada_ok: !!(p.imagem_anotada_url as string),
