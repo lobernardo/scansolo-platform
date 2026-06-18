@@ -40,6 +40,20 @@ export default function NovaEntradaPage() {
     setOverrides((prev) => ({ ...prev, [key]: value }));
   }
 
+  const bandpassEnabled = Number(getParam("bandpass_low_mhz", 80)) > 0;
+
+  function toggleBandpass(enabled: boolean) {
+    if (!enabled) {
+      setOverride("bandpass_low_mhz", 0);
+    } else {
+      setOverrides((prev) => {
+        const next = { ...prev };
+        if (next.bandpass_low_mhz === 0) delete next.bandpass_low_mhz;
+        return next;
+      });
+    }
+  }
+
   // When preset changes, reset overrides
   function handlePresetChange(id: string) {
     setSelectedPresetId(id);
@@ -143,8 +157,12 @@ export default function NovaEntradaPage() {
               )}
               {/* Key params summary */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <SumRow label="Velocity" value={`${baseParams.velocity_mns ?? "—"} m/ns`} />
-                <SumRow label="Bandpass" value={`${baseParams.bandpass_low_mhz ?? "—"}–${baseParams.bandpass_high_mhz ?? "—"} MHz`} />
+                <SumRow label="Velocity" value={`${getParam("velocity_mns", baseParams.velocity_mns ?? "—")} m/ns`} />
+                <SumRow label="Bandpass" value={
+                  bandpassEnabled
+                    ? `${getParam("bandpass_low_mhz", 80)}–${getParam("bandpass_high_mhz", 500)} MHz`
+                    : "desativado"
+                } />
                 <SumRow label="Solo" value={String(baseParams.tipo_solo ?? "—")} />
                 <SumRow label="Prof. máx." value={`${baseParams.det_h_max_m ?? "—"} m`} />
                 <SumRow label="Análise física" value={(baseParams.fis_ativo as boolean) ? "sim" : "não"} />
@@ -186,10 +204,32 @@ export default function NovaEntradaPage() {
                   <CustomGroup label="Filtragem de Sinal">
                     <CInt label="dewow_window" value={Number(getParam("dewow_window", 5))} min={3} max={15} onChange={(v) => setOverride("dewow_window", v)}
                       tooltip="Filtra deriva de baixa frequência (saturação do receptor). Raramente precisa ser alterado. Recomendado: 3–7." />
-                    <CInt label="bandpass_low_mhz" value={Number(getParam("bandpass_low_mhz", 80))} min={30} max={200} onChange={(v) => setOverride("bandpass_low_mhz", v)}
-                      tooltip="Frequência de corte inferior do filtro passa-banda. Elimina componentes DC e ruído abaixo do espectro da antena. Recomendado: 60–100 MHz para antena 270 MHz." />
-                    <CInt label="bandpass_high_mhz" value={Number(getParam("bandpass_high_mhz", 500))} min={200} max={900} onChange={(v) => setOverride("bandpass_high_mhz", v)}
-                      tooltip="Frequência de corte superior do filtro passa-banda. Elimina ruído de alta frequência. Recomendado: 400–600 MHz para antena 270 MHz." />
+                    <div className="col-span-2">
+                      <div className="flex items-center gap-2 py-1 border-t border-slate-800 mt-1">
+                        <input
+                          type="checkbox"
+                          id="nova_bandpass_enabled"
+                          checked={bandpassEnabled}
+                          onChange={(e) => toggleBandpass(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-cyan-500"
+                        />
+                        <label htmlFor="nova_bandpass_enabled" className="text-[10px] text-slate-300 flex items-center gap-0.5">
+                          Bandpass ligado
+                          <ParamTooltip text="Filtro passa-banda. Desligar melhora imagens em dados com SNR muito alto (onda direta forte, como HELPER). O bandpass pode distorcer hipérboles quando o sinal já está limpo. Use 'desligado' com cautela — DZTs ruidosos precisam do filtro." />
+                        </label>
+                        {!bandpassEnabled && (
+                          <span className="ml-1 text-[10px] text-amber-400 font-semibold">DESATIVADO — bandpass_low_mhz=0</span>
+                        )}
+                      </div>
+                    </div>
+                    {bandpassEnabled && (
+                      <>
+                        <CInt label="bandpass_low_mhz" value={Number(getParam("bandpass_low_mhz", 80))} min={30} max={200} onChange={(v) => setOverride("bandpass_low_mhz", v)}
+                          tooltip="Frequência de corte inferior do filtro passa-banda. Elimina componentes DC e ruído abaixo do espectro da antena. Recomendado: 60–100 MHz para antena 270 MHz." />
+                        <CInt label="bandpass_high_mhz" value={Number(getParam("bandpass_high_mhz", 500))} min={200} max={900} onChange={(v) => setOverride("bandpass_high_mhz", v)}
+                          tooltip="Frequência de corte superior do filtro passa-banda. Elimina ruído de alta frequência. Recomendado: 400–600 MHz para antena 270 MHz." />
+                      </>
+                    )}
                     <CInt label="bgremoval_traces" value={Number(getParam("bgremoval_traces", 30))} min={5} max={60} onChange={(v) => setOverride("bgremoval_traces", v)}
                       tooltip="Remove padrões horizontais (solo homogêneo, interferências). Maior = remoção mais agressiva. Muito alto apaga hipérboles rasas. Recomendado: 15–40 traços." />
                   </CustomGroup>

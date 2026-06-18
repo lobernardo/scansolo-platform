@@ -79,3 +79,28 @@ export async function startProcessingWithConfig(
 
   redirect(`/projetos/${projectId}`);
 }
+
+/**
+ * Inicia o processamento SEM alterar processing_config.
+ * Usado quando o projeto já tem preset_id configurado via Nova Entrada.
+ */
+export async function startProcessingDirect(projectId: string): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  await supabase
+    .from("projects")
+    .update({ status: "aguardando_processamento" } as unknown as never)
+    .eq("id", projectId);
+
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({ project_id: projectId, job_type: "gpr", status: "aguardando" } as unknown as never);
+
+  if (error) throw new Error(error.message);
+
+  redirect(`/projetos/${projectId}`);
+}

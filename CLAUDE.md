@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-17 (C1-C5: logs visuais do pipeline — getPipelineMetrics + PipelineLog.tsx + Pipeline Log por perfil + diff reprocessamento + tooltips Nova Entrada)
+> Última atualização: 2026-06-18 (Fase 15: controle explícito de bandpass — toggle ON/OFF em Nova Entrada + modal de presets + fix velocity_mns em reprocessamento + fix det_depth_min_m override em modo MINIMO)
 
 ---
 
@@ -22,7 +22,8 @@
 - RLS obrigatório em todas as tabelas com dados de projeto
 - Arquivos brutos `.DZT` nunca apagados — só versionados
 - Reprocessamento gera novo `run_id` — nunca sobrescreve
-- `Bandpass nunca pulado` — modo minimo ajusta tpow e AGC mas NÃO pula o bandpass; DZTs com SNR alto (onda direta forte) precisam mais do filtro, não menos
+- `Bandpass é decisão explícita do geofísico` — não existe regra automática "solo X = bandpass OFF". O controle está em Nova Entrada (toggle), modal de presets, e "Ajustar filtros". `bandpass_low_mhz=0` é a convenção para desativar no pipeline (linha 1220 pipeline_v1.py). Modo MINIMO nunca pula bandpass automaticamente (desde 2026-06-17).
+- `Bandpass OFF não é padrão` — use apenas quando SNR muito alto distorce hipérboles. DZTs ruidosos precisam do filtro.
 
 ---
 
@@ -55,6 +56,7 @@
 | 12 | Sistema de presets: `gpr_presets` table + 6 presets científicos seedados + `/presets` UI + Nova Entrada com selector + `job_gpr` fetch+merge preset → project config | ✅ |
 | 13 | Módulo de treinamento ground truth: `gpr_training_sessions` + extensão de `gpr_ground_truth` (18 novas colunas + nullable legacy) + wizard `/treinamento` (4 passos) + `training-actions.ts` + modal recalibração | ✅ |
 | 14 | Logs visuais do pipeline: `getPipelineMetrics` server action + `PipelineLog.tsx` (timeline 8 estágios + compact + MetricsDiff) + Pipeline Log colapsável por perfil + diff reprocessamento no painel "Ajustar filtros" + tooltips ⓘ e mini pipeline visual em Nova Entrada | ✅ |
+| 15 | Controle explícito de bandpass: toggle ON/OFF em Nova Entrada (accordion "Personalizar") + modal de presets + fix velocity_mns em reprocessamento (`_filtros_to_pipeline_config`) + fix `det_depth_min_m` override via `_det_depth_min_m_explicit` + PipelineLog mostra "desativado" quando `filtros.bandpass=false` | ✅ |
 
 ---
 
@@ -259,6 +261,14 @@ Dois fluxos:
 **`--sem-ia-imagem` sempre ativo:** flag passada em toda execução do worker (job completo e reprocessamento) — `gpt-image-1` nunca roda via worker, independente de `processing_config`.
 
 **Integração de presets (Fase 12):** `_get_processing_config` busca `projects.preset_id` → carrega `gpr_presets.parameters` → merge com `projects.processing_config` (projeto override ganha). O `--preset 270mhz` é passado como base ao subprocess; o merged dict é passado via `--filter-config` sobrescrevendo todos os campos do preset carregado do banco.
+
+**`_filtros_to_pipeline_config` (Fase 15 — fixes):**
+- `velocity_mns` em `filtros_customizados` agora é mapeado para `cfg["velocity_mns"]` — tem precedência sobre a config do projeto
+- `det_depth_min_m` em `filtros_customizados` agora seta `cfg["_det_depth_min_m_explicit"] = True` — impede o pipeline de usar o valor adaptativo do SNR gate
+- `bandpass_low_mhz=0` continua sendo a convenção para bandpass OFF (mapeado por `filtros.bandpass = false`)
+
+**`_get_processing_config` (Fase 15 — fix):**
+- Se `det_depth_min_m` estiver em `project_config` (configurado via Nova Entrada accordion), seta `merged["_det_depth_min_m_explicit"] = True` automaticamente
 
 ### supabase_client.py — retry com backoff exponencial
 
@@ -485,14 +495,14 @@ python pipeline/testar_imagem_externa.py <imagem.jpg> \
 | `/login` | `login/page.tsx` | Auth Supabase |
 | `/dashboard` | `dashboard/page.tsx` | Visão geral de projetos |
 | `/projetos` | `projetos/page.tsx` + `ProjetosTable.tsx` | Lista de projetos |
-| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto: selector de preset (obrigatório) + summary dos parâmetros-chave + accordion "Personalizar" com overrides → `preset_id` + `processing_config` salvos no projeto |
+| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto: selector de preset (obrigatório) + summary dos parâmetros-chave + accordion "Personalizar" com overrides → `preset_id` + `processing_config` salvos no projeto. Accordion inclui toggle **Bandpass ON/OFF** — quando OFF, salva `bandpass_low_mhz=0` em `processing_config` e o pipeline pula o bandpass. |
 | `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + timeline + tabs de imagem (Bruta / Processada / Anotada IA / **Interpretada IA** / Processada 2 / Anotada P2) + botão deletar + painel "Ajustar Filtros" por perfil (reprocessamento individual com polling automático 5s + `router.refresh()` ao concluir) + painel "Calibrar velocity do solo" + seção "Pipeline Log" colapsável por perfil |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional de DZTs |
 | `/projetos/[id]/revisao` | `ReviewClient.tsx` | Revisão técnica por alvo |
 | `/projetos/[id]/interpretada` | `InterpretadaClient.tsx` | Aprovação/regeneração da imagem interpretada |
 | `/projetos/[id]/cartografia` | `CartografiaClient.tsx` | Download DXF/KML/GeoJSON |
 | `/projetos/[id]/relatorio` | `RelatorioClient.tsx` | Gerar e baixar relatório + inferências |
-| `/presets` | `PresetsClient.tsx` | Cards de presets (sistema + personalizados), expand parâmetros, modal criar/editar/duplicar (admin/socio apenas) |
+| `/presets` | `PresetsClient.tsx` | Cards de presets (sistema + personalizados), expand parâmetros, modal criar/editar/duplicar (admin/socio apenas). Modal inclui toggle **Bandpass ON/OFF** — quando OFF, salva `bandpass_low_mhz=0` em `parameters`. Chip BP exibe "desativado" quando `bandpass_low_mhz=0`. |
 | `/treinamento` | `TreinamentoClient.tsx` | Wizard de validação manual (4 passos: idle→select→metadata→validate), stats/F1, histórico de sessões, modal recalibração com comparação atual vs. sugerido + botão "Aplicar ao preset" |
 | `/admin/qualidade` | `QualidadeClient.tsx` | Dashboard de qualidade — ground truth, F1, candidatos de recalibração, botão disparar job (visível apenas para `socio`/`admin`) |
 | `/api/presets` | `route.ts` (GET) | Retorna presets ativos para o selector client-side da Nova Entrada |
@@ -742,6 +752,9 @@ supabase db push --password <DB_PASSWORD>
 | P13 | ~~Reprocessamento individual não atualizava imagem na UI — página nunca recarregava após job concluir~~ | ~~Usuário via imagem antiga independente dos filtros aplicados~~ | ✅ **Resolvido** — `getJobStatus` + polling 5s + `router.refresh()` (commit a5c636a, 2026-06-16) |
 | P14 | ~~`job_interpretada.py` ground truth: query usa `observacoes` e `revisado_por` mas colunas reais são `observacao` e `reviewed_by`~~ | ~~Campos ficam null no ground truth (silencioso — não aborta job)~~ | ✅ **Resolvido** — commit bab0ef1 |
 | P15 | ~~`gpr_presets.parameters` no banco ainda não tem `bandpass_tipo` nos presets seedados~~ | ~~Presets `270mhz_void` e `270mhz_concrete` não usarão FIR triangular via UI~~ | ✅ **Resolvido** — UPDATE direto nos dois presets no banco remoto (2026-06-17) |
+| P16 | ~~Bandpass não podia ser desativado antes do primeiro processamento — trava `min=30` na UI impedia `bandpass_low_mhz=0`~~ | ~~DZTs de alto SNR (ex: HELPER) tinham imagens ruins no primeiro processamento — só corrigível via "Ajustar filtros" pós-fato~~ | ✅ **Resolvido** (2026-06-18) — toggle Bandpass ON/OFF em Nova Entrada + modal de presets; convenção `bandpass_low_mhz=0` já existia no pipeline |
+| P17 | ~~`velocity_mns` alterado em "Ajustar filtros" não era aplicado no reprocessamento~~ | ~~`_filtros_to_pipeline_config` não mapeava o campo; worker usava velocity do projeto original~~ | ✅ **Resolvido** (2026-06-18) — campo mapeado em `_filtros_to_pipeline_config` |
+| P18 | ~~`det_depth_min_m` configurado na Nova Entrada era ignorado em modo MINIMO~~ | ~~Pipeline usava adaptativo (`calcular_depth_min_adaptativo`) sem respeitar override do usuário~~ | ✅ **Resolvido** (2026-06-18) — `_det_depth_min_m_explicit=True` setado em `_get_processing_config` e `_filtros_to_pipeline_config` quando campo presente |
 
 ---
 

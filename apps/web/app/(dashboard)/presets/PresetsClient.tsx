@@ -219,7 +219,11 @@ function PresetCard({
             {/* Key params summary */}
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <ParamChip label="v" value={`${p.velocity_mns} m/ns`} />
-              <ParamChip label="BP" value={`${p.bandpass_low_mhz}–${p.bandpass_high_mhz} MHz`} />
+              <ParamChip label="BP" value={
+                Number(p.bandpass_low_mhz ?? 80) > 0
+                  ? `${p.bandpass_low_mhz}–${p.bandpass_high_mhz} MHz`
+                  : "desativado"
+              } />
               <ParamChip label="solo" value={String(p.tipo_solo ?? "standard")} />
               <ParamChip label="prof." value={`até ${p.det_h_max_m}m`} />
               {p.fis_ativo === false && (
@@ -340,6 +344,7 @@ function ParamGroup({ label, params }: { label: string; params: [string, unknown
 // ── Preset modal (create / edit) ──────────────────────────────────────────────
 
 type ParamForm = {
+  bandpass_enabled: boolean;
   dewow_window: number;
   bandpass_low_mhz: number;
   bandpass_high_mhz: number;
@@ -365,6 +370,7 @@ type ParamForm = {
 
 function paramsToForm(p: Record<string, unknown>): ParamForm {
   return {
+    bandpass_enabled:   Number(p.bandpass_low_mhz ?? 80) > 0,
     dewow_window:        Number(p.dewow_window ?? 5),
     bandpass_low_mhz:   Number(p.bandpass_low_mhz ?? 80),
     bandpass_high_mhz:  Number(p.bandpass_high_mhz ?? 500),
@@ -423,13 +429,15 @@ function PresetModal({
     setSaving(true);
     setError(null);
 
+    // bandpass_enabled is a UI helper — excluded from saved parameters
+    const { bandpass_enabled: _ignored, ...paramData } = params;
     const data: PresetUpsertData = {
       name: name.trim(),
       description: description.trim() || undefined,
       target_scenario: targetScenario.trim() || undefined,
       scientific_basis: scientificBasis.trim() || undefined,
       antenna_freq_mhz: antennaFreq || undefined,
-      parameters: { ...params },
+      parameters: { ...paramData },
     };
 
     let result: { ok: boolean; error?: string };
@@ -475,12 +483,43 @@ function PresetModal({
           <ParamSection label="Filtragem de Sinal">
             <IntField label="dewow_window (3–15)" hint="Janela de remoção de deriva DC (samples)"
               value={params.dewow_window} min={3} max={15} onChange={(v) => setP("dewow_window", v)} />
-            <IntField label="bandpass_low_mhz (30–200)" hint="Frequência de corte inferior (MHz)"
-              value={params.bandpass_low_mhz} min={30} max={200} onChange={(v) => setP("bandpass_low_mhz", v)} />
-            <IntField label="bandpass_high_mhz (200–900)" hint="Frequência de corte superior (MHz)"
-              value={params.bandpass_high_mhz} min={200} max={900} onChange={(v) => setP("bandpass_high_mhz", v)} />
-            <IntField label="bandpass_order (2–8)" hint="Ordem do filtro Butterworth (curva de corte)"
-              value={params.bandpass_order} min={2} max={8} onChange={(v) => setP("bandpass_order", v)} />
+            <div className="col-span-2 border-t border-slate-800 pt-2">
+              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={params.bandpass_enabled}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setP("bandpass_enabled", on);
+                    if (!on) {
+                      setP("bandpass_low_mhz", 0);
+                    } else if (params.bandpass_low_mhz === 0) {
+                      setP("bandpass_low_mhz", 80);
+                    }
+                  }}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500"
+                />
+                <span className="text-xs text-slate-300">
+                  Bandpass ligado
+                  {!params.bandpass_enabled && (
+                    <span className="ml-2 text-amber-400 font-semibold">— desativado (bandpass_low_mhz=0)</span>
+                  )}
+                </span>
+              </label>
+              <p className="text-[10px] text-slate-600 mb-2">
+                Desativar melhora imagens em dados com SNR muito alto (onda direta forte). Usar com cautela — DZTs ruidosos precisam do filtro.
+              </p>
+            </div>
+            {params.bandpass_enabled && (
+              <>
+                <IntField label="bandpass_low_mhz (30–200)" hint="Frequência de corte inferior (MHz)"
+                  value={params.bandpass_low_mhz} min={30} max={200} onChange={(v) => setP("bandpass_low_mhz", v)} />
+                <IntField label="bandpass_high_mhz (200–900)" hint="Frequência de corte superior (MHz)"
+                  value={params.bandpass_high_mhz} min={200} max={900} onChange={(v) => setP("bandpass_high_mhz", v)} />
+                <IntField label="bandpass_order (2–8)" hint="Ordem do filtro Butterworth (curva de corte)"
+                  value={params.bandpass_order} min={2} max={8} onChange={(v) => setP("bandpass_order", v)} />
+              </>
+            )}
             <IntField label="bgremoval_traces (5–60)" hint="Traços para remoção de fundo horizontal"
               value={params.bgremoval_traces} min={5} max={60} onChange={(v) => setP("bgremoval_traces", v)} />
           </ParamSection>

@@ -212,13 +212,15 @@ function FullLog({ m }: { m: PipelineMetrics }) {
           }
         />
         <Row
-          s={snr.bp != null && snr.bp > -998 ? "ok" : "na"}
+          s={filtros.bandpass === false ? "skip" : snr.bp != null && snr.bp > -998 ? "ok" : "na"}
           label="Bandpass"
           value={
-            bpLow != null && bpHigh != null
+            filtros.bandpass === false
+              ? "desativado"
+              : bpLow != null && bpHigh != null
               ? `${bpLow}–${bpHigh} MHz, ordem ${bpOrder ?? "?"}`
               : snr.bp != null && snr.bp > -998
-              ? "aplicado (sempre ativo)"
+              ? "aplicado"
               : ND
           }
         />

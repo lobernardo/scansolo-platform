@@ -189,6 +189,10 @@ def _get_processing_config(supa: "SupabaseClient", project_id: str) -> dict | No
 
         # Preset is the base; processing_config overrides
         merged = {**preset_params, **project_config}
+        # Se det_depth_min_m foi configurado explicitamente na Nova Entrada,
+        # sinalizar para o pipeline não usar o valor adaptativo do SNR gate
+        if "det_depth_min_m" in project_config:
+            merged["_det_depth_min_m_explicit"] = True
         return merged if merged else None
     except Exception:
         pass
@@ -273,6 +277,15 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
         cfg["depth_preview_m"] = float(filtros["depth_preview_m"])
     if "agc_window_preview" in filtros:
         cfg["agc_window_preview"] = int(filtros["agc_window_preview"])
+
+    # Velocity — filtros customizados têm precedência sobre config do projeto
+    if "velocity_mns" in filtros:
+        cfg["velocity_mns"] = float(filtros["velocity_mns"])
+
+    # det_depth_min_m — se explícito no filtros, sinalizar para o pipeline não usar o adaptativo
+    if "det_depth_min_m" in filtros:
+        cfg["det_depth_min_m"] = float(filtros["det_depth_min_m"])
+        cfg["_det_depth_min_m_explicit"] = True
 
     return cfg
 

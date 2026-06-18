@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { registerUploadedFiles, startProcessingWithConfig } from "./actions";
+import { registerUploadedFiles, startProcessingWithConfig, startProcessingDirect } from "./actions";
 import type { FilterConfig, UploadedFileMeta } from "./actions";
 
 // ── Presets de configuração ───────────────────────────────────────────────────
@@ -41,9 +41,9 @@ const UPLOAD_BATCH_SIZE = 5;
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-type Step = "upload" | "configure";
+type Step = "upload" | "configure" | "ready";
 
-export function UploadClient({ projectId }: { projectId: string }) {
+export function UploadClient({ projectId, presetId }: { projectId: string; presetId: string | null }) {
   const [step, setStep]       = useState<Step>("upload");
   const [files, setFiles]     = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -109,7 +109,8 @@ export function UploadClient({ projectId }: { projectId: string }) {
         return;
       }
 
-      setStep("configure");
+      // Se projeto já tem preset configurado via Nova Entrada, pula configuração manual
+      setStep(presetId ? "ready" : "configure");
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Erro inesperado no upload");
     } finally {
@@ -140,6 +141,49 @@ export function UploadClient({ projectId }: { projectId: string }) {
       ...prev,
       filtros_ativos: { ...prev.filtros_ativos, [key]: !prev.filtros_ativos[key] },
     }));
+  }
+
+  // ── Render: step ready (projeto com preset — dispara direto) ─────────────
+
+  if (step === "ready") {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-8 space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">Upload concluído</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            {dztFiles.length} arquivo{dztFiles.length !== 1 ? "s" : ""} enviado{dztFiles.length !== 1 ? "s" : ""} com sucesso.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4 space-y-1">
+          <p className="text-sm font-medium text-cyan-300">Preset configurado via Nova Entrada</p>
+          <p className="text-xs text-slate-400">
+            Os parâmetros de processamento foram definidos ao criar o projeto. Clique em Iniciar para usar essa configuração.
+          </p>
+        </div>
+
+        {errorMsg && (
+          <p className="text-sm text-red-400 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">{errorMsg}</p>
+        )}
+
+        <button
+          onClick={async () => {
+            setStarting(true);
+            setErrorMsg("");
+            try {
+              await startProcessingDirect(projectId);
+            } catch (err: unknown) {
+              setStarting(false);
+              setErrorMsg(err instanceof Error ? err.message : "Erro ao iniciar processamento");
+            }
+          }}
+          disabled={starting}
+          className="w-full rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
+        >
+          {starting ? "Iniciando…" : "Iniciar processamento com preset selecionado"}
+        </button>
+      </div>
+    );
   }
 
   // ── Render: step configure ────────────────────────────────────────────────
