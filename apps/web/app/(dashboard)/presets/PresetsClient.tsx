@@ -8,6 +8,7 @@ import {
   updatePreset,
   deletePreset,
   duplicatePreset,
+  validatePreset,
 } from "@/app/actions/preset-actions";
 
 // ── Default parameter values for new presets ──────────────────────────────────
@@ -75,6 +76,17 @@ export function PresetsClient({
     setModal({ mode: "create", preset });
   }
 
+  async function handleValidate(id: string, name: string) {
+    const dataset = prompt(`Marcar "${name}" como validado.\nDescreva o dataset de validação (DZTs / projeto / data):`);
+    if (dataset == null) return;
+    const result = await validatePreset(id, dataset);
+    if (result.ok) {
+      startTransition(() => router.refresh());
+    } else {
+      alert(`Erro: ${result.error}`);
+    }
+  }
+
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Desativar o preset "${name}"? Esta ação pode ser revertida pelo suporte.`)) return;
     const result = await deletePreset(id);
@@ -123,7 +135,7 @@ export function PresetsClient({
               onDuplicate={() => openDuplicate(p)}
               onEdit={() => {}}
               onDelete={() => {}}
-              isSystem
+              isSystem={true}
             />
           ))}
         </div>
@@ -151,6 +163,7 @@ export function PresetsClient({
                   onDuplicate={() => openDuplicate(p)}
                   onEdit={() => openEdit(p)}
                   onDelete={() => handleDelete(p.id, p.name)}
+                  onValidate={() => handleValidate(p.id, p.name)}
                   isSystem={false}
                 />
               ))}
@@ -185,6 +198,7 @@ function PresetCard({
   onDuplicate,
   onEdit,
   onDelete,
+  onValidate,
   isSystem,
 }: {
   preset: GprPreset;
@@ -194,6 +208,7 @@ function PresetCard({
   onDuplicate: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onValidate?: () => void;
   isSystem: boolean;
 }) {
   const p = preset.parameters;
@@ -204,9 +219,18 @@ function PresetCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-slate-100 text-sm">{preset.name}</span>
-              {isSystem && (
+              {isSystem ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30">
                   Sistema
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  Cliente v{preset.version ?? 1}
+                </span>
+              )}
+              {!isSystem && preset.validated_at && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  ✓ validado
                 </span>
               )}
             </div>
@@ -256,6 +280,14 @@ function PresetCard({
                     >
                       Editar
                     </button>
+                    {!preset.validated_at && onValidate && (
+                      <button
+                        onClick={onValidate}
+                        className="px-2 py-1 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-slate-700 rounded transition-colors"
+                      >
+                        Validar
+                      </button>
+                    )}
                     <button
                       onClick={onDelete}
                       className="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-slate-700 rounded transition-colors"
@@ -278,6 +310,23 @@ function PresetCard({
                 Base científica
               </span>
               <p className="text-xs text-slate-400 mt-0.5">{preset.scientific_basis}</p>
+            </div>
+          )}
+          {!isSystem && (preset.notes || preset.dataset_validation || preset.validated_at || preset.parent_id) && (
+            <div className="space-y-1.5 text-xs">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Rastreabilidade</span>
+              {preset.notes && (
+                <p className="text-slate-400 mt-0.5"><span className="text-slate-600">Notas:</span> {preset.notes}</p>
+              )}
+              {preset.dataset_validation && (
+                <p className="text-slate-400"><span className="text-slate-600">Dataset validado:</span> {preset.dataset_validation}</p>
+              )}
+              {preset.validated_at && (
+                <p className="text-slate-400"><span className="text-slate-600">Validado em:</span> {new Date(preset.validated_at).toLocaleDateString("pt-BR")}</p>
+              )}
+              {preset.parent_id && (
+                <p className="text-slate-600 font-mono text-[10px]">Fork de: {preset.parent_id.slice(0, 8)}…</p>
+              )}
             </div>
           )}
           <ParamGroup label="Filtragem de Sinal" params={[
@@ -414,6 +463,8 @@ function PresetModal({
   const [targetScenario, setTargetScenario] = useState(base?.target_scenario ?? "");
   const [scientificBasis, setScientificBasis] = useState(base?.scientific_basis ?? "");
   const [antennaFreq, setAntennaFreq] = useState(base?.antenna_freq_mhz ?? 270);
+  const [notes, setNotes] = useState(isEdit ? (base?.notes ?? "") : "");
+  const [datasetValidation, setDatasetValidation] = useState(isEdit ? (base?.dataset_validation ?? "") : "");
   const [params, setParams] = useState<ParamForm>(
     paramsToForm(base?.parameters ?? DEFAULT_PARAMS)
   );
@@ -437,6 +488,8 @@ function PresetModal({
       target_scenario: targetScenario.trim() || undefined,
       scientific_basis: scientificBasis.trim() || undefined,
       antenna_freq_mhz: antennaFreq || undefined,
+      notes: notes.trim() || undefined,
+      dataset_validation: datasetValidation.trim() || undefined,
       parameters: { ...paramData },
     };
 
@@ -469,6 +522,8 @@ function PresetModal({
           <ModalTextarea label="Descrição" value={description} onChange={setDescription} placeholder="Uso recomendado…" />
           <ModalInput label="Cenário alvo" value={targetScenario} onChange={setTargetScenario} placeholder="Detecção de utilidades em solo argiloso…" />
           <ModalTextarea label="Referência científica" value={scientificBasis} onChange={setScientificBasis} placeholder="Cassidy (2009) GPR Theory…" rows={2} />
+          <ModalTextarea label="Notas internas" value={notes} onChange={setNotes} placeholder="Contexto de uso, limitações conhecidas…" rows={2} />
+          <ModalInput label="Dataset de validação" value={datasetValidation} onChange={setDatasetValidation} placeholder="Ex: PATIO_270MHz_10DZTs_jun2026" />
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Frequência da antena (MHz)</label>
             <input

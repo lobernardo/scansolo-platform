@@ -491,43 +491,67 @@ export type Database = {
           antenna_freq_mhz: number | null
           created_at: string | null
           created_by: string | null
+          dataset_validation: string | null
           description: string | null
           id: string
           is_active: boolean | null
+          is_hidden_for_client: boolean
           is_system: boolean | null
           name: string
+          notes: string | null
           parameters: Json
+          parent_id: string | null
+          priority_order: number | null
           scientific_basis: string | null
           target_scenario: string | null
           updated_at: string | null
+          validated_at: string | null
+          validated_by: string | null
+          version: number
         }
         Insert: {
           antenna_freq_mhz?: number | null
           created_at?: string | null
           created_by?: string | null
+          dataset_validation?: string | null
           description?: string | null
           id?: string
           is_active?: boolean | null
+          is_hidden_for_client?: boolean
           is_system?: boolean | null
           name: string
+          notes?: string | null
           parameters: Json
+          parent_id?: string | null
+          priority_order?: number | null
           scientific_basis?: string | null
           target_scenario?: string | null
           updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          version?: number
         }
         Update: {
           antenna_freq_mhz?: number | null
           created_at?: string | null
           created_by?: string | null
+          dataset_validation?: string | null
           description?: string | null
           id?: string
           is_active?: boolean | null
+          is_hidden_for_client?: boolean
           is_system?: boolean | null
           name?: string
+          notes?: string | null
           parameters?: Json
+          parent_id?: string | null
+          priority_order?: number | null
           scientific_basis?: string | null
           target_scenario?: string | null
           updated_at?: string | null
+          validated_at?: string | null
+          validated_by?: string | null
+          version?: number
         }
         Relationships: []
       }

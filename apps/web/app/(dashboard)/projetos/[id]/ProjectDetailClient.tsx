@@ -7,6 +7,7 @@ import { reprocessProfile, requestIaP2, getJobStatus, requestRecalibrarVelocity 
 import type { FilterState } from "./actions";
 import { getPipelineMetrics, type PipelineMetrics } from "@/app/actions/gpr-actions";
 import { PipelineLog, MetricsDiff } from "@/components/PipelineLog";
+import { saveCurrentFiltersAsPreset } from "@/app/actions/preset-actions";
 
 type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
@@ -256,6 +257,15 @@ export function ProjectDetailClient({
     }
   }
 
+  async function handleSaveAsPreset(profileId: string, name: string) {
+    const result = await saveCurrentFiltersAsPreset(profileId, name);
+    if (result.ok) {
+      alert(`Preset "${name}" criado com sucesso. Visualize em /presets.`);
+    } else {
+      alert(`Erro ao criar preset: ${result.error}`);
+    }
+  }
+
   async function handleIaP2(profileId: string) {
     setIaP2Status((prev) => ({ ...prev, [profileId]: "loading" }));
     try {
@@ -489,6 +499,7 @@ export function ProjectDetailClient({
 
                     {expanded && (
                       <FilterPanel
+                        profileId={profile.id}
                         filters={getFilters(profile.id)}
                         filterTarget={filterTargets[profile.id] ?? "processada"}
                         onTargetChange={(t) =>
@@ -497,6 +508,7 @@ export function ProjectDetailClient({
                         onChange={(patch) => updateFilter(profile.id, patch)}
                         onReprocess={() => handleReprocess(profile.id)}
                         onReset={() => resetFilters(profile.id)}
+                        onSaveAsPreset={handleSaveAsPreset}
                         status={rpStatus}
                         currentMetrics={pipelineLogs[profile.id] ?? null}
                         prevMetrics={prevLogs[profile.id] ?? null}
@@ -839,23 +851,27 @@ export function ProjectDetailClient({
 // ── Filter panel sub-components ───────────────────────────────────────────────
 
 function FilterPanel({
+  profileId,
   filters,
   filterTarget,
   onTargetChange,
   onChange,
   onReprocess,
   onReset,
+  onSaveAsPreset,
   status,
   currentMetrics,
   prevMetrics,
   metricsLoading,
 }: {
+  profileId: string;
   filters: FilterState;
   filterTarget: "processada" | "processada2";
   onTargetChange: (t: "processada" | "processada2") => void;
   onChange: (patch: Partial<FilterState>) => void;
   onReprocess: () => void;
   onReset: () => void;
+  onSaveAsPreset: (profileId: string, name: string) => void;
   status: "idle" | "loading" | "queued" | "error";
   currentMetrics?: PipelineMetrics | null;
   prevMetrics?: PipelineMetrics | null;
@@ -1023,7 +1039,7 @@ function FilterPanel({
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2 pt-1 flex-wrap">
         <button
           onClick={onReprocess}
           disabled={status === "loading"}
@@ -1036,6 +1052,15 @@ function FilterPanel({
           className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
         >
           Restaurar preset
+        </button>
+        <button
+          onClick={() => {
+            const name = prompt("Nome do novo preset:");
+            if (name?.trim()) onSaveAsPreset(profileId, name.trim());
+          }}
+          className="rounded-md border border-purple-600/50 bg-slate-800 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 hover:bg-slate-700 transition-colors"
+        >
+          Salvar como preset
         </button>
       </div>
 
