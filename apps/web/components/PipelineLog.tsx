@@ -204,6 +204,19 @@ function FullLog({ m }: { m: PipelineMetrics }) {
         {m.depth_tecnica_m != null && (
           <Row s="ok" label="Prof. técnica" value={`${m.depth_tecnica_m.toFixed(2)} m`} />
         )}
+        {m.depth_preview_m != null && (
+          <Row
+            s="ok"
+            label="Visual — eixo Y"
+            value={`${m.depth_preview_m.toFixed(2)} m${m.preview_visual_depth_configurado ? " (configurado)" : " (padrão 5 m)"}`}
+          />
+        )}
+        {m.preview_velocity_mns != null && m.preview_velocity_mns !== m.velocity_mns && (
+          <Row s="ok" label="Visual — velocity" value={`${m.preview_velocity_mns.toFixed(4)} m/ns`} />
+        )}
+        {m.preview_depth_real_m != null && (
+          <Row s="ok" label="Visual — prof. física" value={`${m.preview_depth_real_m.toFixed(2)} m`} />
+        )}
         {m.profundidade_max_m == null && m.depth_tecnica_m == null && (
           <Row s="na" label="Velocity" value={ND} />
         )}
@@ -476,7 +489,7 @@ export function PipelineLog({
   if (!metrics) {
     return (
       <p className="text-xs text-slate-500">
-        Log não disponível — perfil não encontrado.
+        Log não disponível — perfil sem métricas ou processado antes da Fase 11.
       </p>
     );
   }

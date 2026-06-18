@@ -35,6 +35,11 @@ export type PipelineMetrics = {
   velocity_mns?: number;             // velocity usada (m/ns)
   velocity_fonte?: string;           // "preset" | "filtros_customizados" | "VELOCITY_POR_SOLO[tipo]"
   depth_tecnica_m?: number;          // profundidade real: twtt_max_ns × velocity / 2 (m)
+  // Preview RADAN visual (Visual)
+  depth_preview_m?: number;          // profundidade visual configurada (eixo Y da imagem Visual)
+  preview_depth_real_m?: number;     // profundidade física da imagem Visual: twtt × velocity / 2
+  preview_visual_depth_configurado?: boolean; // true = depth_preview_m veio do usuário (não default)
+  preview_velocity_mns?: number;     // velocity usada para renderizar o preview
   // Flags de imagens geradas
   imagem_bruta_ok?: boolean;
   imagem_relatorio_ok?: boolean;
@@ -123,6 +128,10 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     velocity_mns: metricsJson.velocity_mns as number | undefined,
     velocity_fonte: metricsJson.velocity_fonte as string | undefined,
     depth_tecnica_m: metricsJson.depth_tecnica_m as number | undefined,
+    depth_preview_m: metricsJson.depth_preview_m as number | undefined,
+    preview_depth_real_m: metricsJson.preview_depth_real_m as number | undefined,
+    preview_visual_depth_configurado: metricsJson.preview_visual_depth_configurado as boolean | undefined,
+    preview_velocity_mns: metricsJson.preview_velocity_mns as number | undefined,
     imagem_bruta_ok: !!(p.imagem_bruta_url as string),
     imagem_relatorio_ok: !!(p.imagem_processada_url as string),
     imagem_anotada_ok: !!(p.imagem_anotada_url as string),

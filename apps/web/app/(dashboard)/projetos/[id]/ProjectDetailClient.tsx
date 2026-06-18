@@ -799,9 +799,12 @@ export function ProjectDetailClient({
       {/* ── Calibrar velocity do solo (painel por projeto) ── */}
       {profiles.length > 0 && (
         <section className="rounded-xl border border-slate-700 bg-slate-800/30 p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-slate-200">Calibrar velocity do solo</h3>
+          <h3 className="text-sm font-semibold text-slate-200">Atualizar velocity do projeto</h3>
           <p className="text-xs text-slate-500">
-            Altera a escala de profundidade de todas as imagens do projeto. As imagens PNG serão redesenhadas no próximo processamento completo.
+            Recalcula e salva a profundidade máxima (m) nos metadados de todos os perfis e atualiza a velocity padrão do projeto para novos processamentos.
+          </p>
+          <p className="text-xs text-amber-400/80">
+            As imagens existentes (Técnica, Relatório, Visual) não são alteradas por esta ação. Para regenerar as imagens com a nova escala, use &ldquo;Ajustar filtros&rdquo; em cada perfil.
           </p>
           <div className="flex items-center gap-3">
             <label className="text-xs text-slate-400 shrink-0">Velocity (m/ns)</label>
@@ -830,11 +833,11 @@ export function ProjectDetailClient({
               }}
               className="rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
             >
-              {velocityStatus === "loading" ? "Aguardando…" : "Recalibrar imagens"}
+              {velocityStatus === "loading" ? "Aguardando…" : "Atualizar velocity"}
             </button>
           </div>
           {velocityStatus === "concluido" && (
-            <p className="text-xs text-emerald-400">✓ Recalibração concluída. Página recarregada.</p>
+            <p className="text-xs text-emerald-400">✓ Metadados atualizados. Use &ldquo;Ajustar filtros&rdquo; por perfil para regenerar as imagens.</p>
           )}
           {velocityStatus === "error" && (
             <p className="text-xs text-red-400">Erro ao criar job. Tente novamente.</p>

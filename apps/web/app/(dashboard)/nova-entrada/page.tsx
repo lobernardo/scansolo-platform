@@ -2,6 +2,7 @@
 
 import { Fragment, useActionState, useState, useEffect } from "react";
 import { createProject, type CreateProjectState } from "./actions";
+import { createPreset } from "@/app/actions/preset-actions";
 import type { GprPreset } from "@/app/actions/preset-actions";
 
 type PresetSummary = Pick<GprPreset, "id" | "name" | "description" | "is_system" | "parameters">;
@@ -15,7 +16,10 @@ function usePresets() {
       .then((data) => Array.isArray(data) ? setPresets(data) : setPresets([]))
       .catch(() => setPresets([]));
   }, []);
-  return presets;
+  function addPreset(p: PresetSummary) {
+    setPresets((prev) => [...prev, p]);
+  }
+  return { presets, addPreset };
 }
 
 export default function NovaEntradaPage() {
@@ -23,11 +27,18 @@ export default function NovaEntradaPage() {
     createProject,
     null
   );
-  const presets = usePresets();
+  const { presets, addPreset } = usePresets();
 
   const [selectedPresetId, setSelectedPresetId] = useState<string>("");
   const [showCustom, setShowCustom] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+
+  // Create preset inline modal
+  const [showCreatePreset, setShowCreatePreset] = useState(false);
+  const [newPresetName, setNewPresetName] = useState("");
+  const [newPresetDesc, setNewPresetDesc] = useState("");
+  const [createStatus, setCreateStatus] = useState<"idle" | "saving" | "error">("idle");
+  const [createError, setCreateError] = useState("");
 
   const selectedPreset = presets.find((p) => p.id === selectedPresetId) ?? null;
   const baseParams = selectedPreset?.parameters ?? {};
@@ -149,6 +160,78 @@ export default function NovaEntradaPage() {
               </optgroup>
             )}
           </select>
+
+          {/* Criar preset a partir das configurações atuais */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => { setShowCreatePreset(true); setCreateStatus("idle"); setNewPresetName(""); setNewPresetDesc(""); }}
+              className="text-xs text-cyan-400 hover:text-cyan-300 underline disabled:opacity-40"
+              disabled={!selectedPresetId}
+              title={!selectedPresetId ? "Selecione um preset base primeiro" : "Salvar configuração atual como novo preset"}
+            >
+              + Salvar como novo preset
+            </button>
+          </div>
+
+          {/* Modal inline de criação de preset */}
+          {showCreatePreset && (
+            <div className="rounded-lg border border-cyan-700 bg-slate-900 p-3 space-y-2">
+              <p className="text-xs font-semibold text-cyan-300">Novo preset — baseado em &ldquo;{selectedPreset?.name}&rdquo;</p>
+              <p className="text-xs text-slate-500">Parâmetros atuais (base + personalizações) serão salvos.</p>
+              <input
+                type="text"
+                placeholder="Nome do preset *"
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                autoFocus
+              />
+              <input
+                type="text"
+                placeholder="Descrição (opcional)"
+                value={newPresetDesc}
+                onChange={(e) => setNewPresetDesc(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              />
+              {createStatus === "error" && (
+                <p className="text-xs text-red-400">{createError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!newPresetName.trim() || createStatus === "saving"}
+                  onClick={async () => {
+                    setCreateStatus("saving");
+                    const mergedParams = { ...(selectedPreset?.parameters ?? {}), ...overrides };
+                    const res = await createPreset({
+                      name: newPresetName.trim(),
+                      description: newPresetDesc.trim() || undefined,
+                      parameters: mergedParams,
+                    });
+                    if (res.ok && res.id) {
+                      addPreset({ id: res.id, name: newPresetName.trim(), description: newPresetDesc.trim() || null, is_system: false, parameters: mergedParams });
+                      handlePresetChange(res.id);
+                      setShowCreatePreset(false);
+                    } else {
+                      setCreateStatus("error");
+                      setCreateError(res.error ?? "Erro ao criar preset.");
+                    }
+                  }}
+                  className="rounded bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+                >
+                  {createStatus === "saving" ? "Salvando…" : "Salvar preset"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePreset(false)}
+                  className="rounded bg-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-600 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
           {selectedPreset && (
             <>
