@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-18 (Estabilização: fix Pipeline Log + velocity UX + criar preset inline + manual)
+> Última atualização: 2026-06-18 (Estabilização F: fix campos n/d Pipeline Log + criar preset redesign Nova Entrada)
 > Este arquivo é o índice operacional. Detalhes técnicos estão nos docs/ linkados abaixo.
 
 ---
@@ -78,6 +78,7 @@
 | C | Campos `depth_preview_m` / `agc_window_preview` em Nova Entrada + rastreio `velocity_fonte` no pipeline e PipelineLog | ✅ |
 | D | Preset versionamento: 8 colunas em `gpr_presets` + "Salvar como preset" em Ajustar Filtros + badge validado | ✅ |
 | E | Fix Pipeline Log (`imagem_migrada_url` migration) + PipelineLog preview fields + velocity UX + criar preset inline em Nova Entrada + manual | ✅ |
+| F | Fix campos n/d Pipeline Log (dewow/bgremoval/tpow/agc mapeados do pipeline_metrics.json) + Nova Entrada criar preset redesign (opção `__new__` no dropdown + modal unificado scratch/selection + botão no accordion + campos notas/dataset) | ✅ |
 
 ---
 
@@ -127,7 +128,7 @@ DZT → raw → dewow+bp → [bifurcação]
 
 | Rota | Componente | Função |
 |---|---|---|
-| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "+ Salvar como novo preset" inline |
+| `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "＋ Criar novo preset..." no dropdown + "Salvar configuração como preset" no accordion |
 | `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros + Pipeline Log |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional; com `preset_id` usa `startProcessingDirect` |
 | `/presets` | `PresetsClient.tsx` | Cards + modal criar/editar (com toggle Bandpass ON/OFF) |
