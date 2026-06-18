@@ -509,9 +509,13 @@ def salvar_imagem_preview_radan_5m(
 
     Retorna dict com parametros de rastreabilidade para log e index_projeto.csv.
     """
-    # Velocity e profundidade derivadas do preset — mesma calibração do pipeline oficial
+    # Velocity e profundidade REAL — derivadas do preset, identicas ao pipeline oficial
     velocity_preview_mns = round(preset.get("velocity_mns", 0.1), 6)
-    depth_preview_m = round(twtt_max_ns * velocity_preview_mns / 2.0, 2) if twtt_max_ns > 0 else 0.0
+    depth_real_m = round(twtt_max_ns * velocity_preview_mns / 2.0, 2) if twtt_max_ns > 0 else 0.0
+
+    # Profundidade VISUAL do eixo: usa depth_preview_m se > 0; cai na real caso contrario
+    depth_visual_m = round(depth_preview_m if depth_preview_m > 0 else depth_real_m, 2)
+    visual_depth_configurado = depth_preview_m > 0
 
     # AGC visual — aplicado sobre copia, nao modifica arr_dewow_bp
     arr = arr_dewow_bp.astype(float).copy()
@@ -530,12 +534,12 @@ def salvar_imagem_preview_radan_5m(
     std = float(np.std(arr_agc)) + 1e-10
     vmin, vmax = -contrast * std, contrast * std
 
-    aviso = f"Processada 2 | AGC visual | v={velocity_preview_mns:.4f} m/ns | prof.={depth_preview_m:.2f}m"
+    aviso = f"Processada 2 | AGC visual | v={velocity_preview_mns:.4f} m/ns | eixo={depth_visual_m:.2f}m"
 
     fig, ax = plt.subplots(figsize=(14, 5))
     ax.imshow(
         arr_agc,
-        extent=[0, dist_m, depth_preview_m, 0],
+        extent=[0, dist_m, depth_visual_m, 0],
         aspect="auto",
         cmap=preset.get("colormap", "gray"),
         vmin=vmin,
@@ -545,7 +549,7 @@ def salvar_imagem_preview_radan_5m(
     ax.set_xlabel("Distancia (m)", fontsize=10)
     ax.set_ylabel("Profundidade (m)", fontsize=10)
     ax.set_xlim(0, dist_m)
-    ax.set_ylim(depth_preview_m, 0)
+    ax.set_ylim(depth_visual_m, 0)
     titulo = f"{nome_arquivo}  |  {datetime.now().strftime('%Y-%m-%d')}"
     ax.set_title(titulo, fontsize=9, color="#555555", pad=4)
     ax.text(
@@ -559,14 +563,15 @@ def salvar_imagem_preview_radan_5m(
     plt.close("all")
 
     return {
-        "twtt_max_ns":              round(twtt_max_ns, 3),
-        "velocity_mns_oficial":     preset.get("velocity_mns", 0.1),
-        "depth_max_oficial_m":      round(twtt_max_ns * preset.get("velocity_mns", 0.1) / 2.0, 3),
-        "depth_preview_m":          depth_preview_m,
-        "velocity_preview_mns":     velocity_preview_mns,
-        "agc_visual_preview":       True,
-        "agc_window_preview":       agc_window_preview,
-        "aviso":                    "Imagem comparativa; nao usar como profundidade oficial",
+        "twtt_max_ns":                  round(twtt_max_ns, 3),
+        "velocity_mns_oficial":         preset.get("velocity_mns", 0.1),
+        "depth_real_m":                 depth_real_m,
+        "depth_preview_m":              depth_visual_m,   # compat: chave mantida para log/CSV
+        "visual_depth_configurado":     visual_depth_configurado,
+        "velocity_preview_mns":         velocity_preview_mns,
+        "agc_visual_preview":           True,
+        "agc_window_preview":           agc_window_preview,
+        "aviso":                        "Imagem comparativa; nao usar como profundidade oficial",
     }
 
 
@@ -1328,10 +1333,17 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
     path_preview = caminhos["processadas"] / f"{nome}_radargrama_preview_radan_5m.png"
     preview_meta: dict = {}
     agc_win_preview = int(preset.get("agc_window_preview", 80))
+    # Prioridade: visual_depth_m > depth_preview_m > 5.0; 0/None = cai na profundidade real
+    _depth_preview = float(
+        preset.get("visual_depth_m") or
+        preset.get("depth_preview_m") or
+        5.0
+    )
     try:
         preview_meta = salvar_imagem_preview_radan_5m(
             arr_dewow_bp, twtt_max, dist_max, path_preview, preset,
             nome_arquivo=arquivo_dzt.name,
+            depth_preview_m=_depth_preview,
             agc_window_preview=agc_win_preview,
         )
         logger.info(
@@ -1429,6 +1441,11 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
             "bandpass_order_usado":    preset.get("bandpass_order", 5),
             "bandpass_tipo_usado":     preset.get("bandpass_tipo", "butterworth"),
             "detector_input_mode":    detector_input_mode,
+            # Preview RADAN 5m — rastreabilidade da profundidade visual
+            "preview_depth_m":                   preview_meta.get("depth_preview_m", ""),
+            "preview_depth_real_m":              preview_meta.get("depth_real_m", ""),
+            "preview_visual_depth_configurado":  preview_meta.get("visual_depth_configurado", False),
+            "preview_velocity_mns":              preview_meta.get("velocity_preview_mns", ""),
             "dzx":                   dzx_data,   # inclui dzx_marks completo
         }
         metrics_path = caminhos["processadas"] / f"{nome}_pipeline_metrics.json"
@@ -1469,9 +1486,11 @@ def processar_dzt(arquivo_dzt, caminhos, preset, logger,
         "imagem_anotada_alta":           png_alta or "",          # backward compat
         "imagem_anotada_alta_confianca": png_alta or "",
         # Preview RADAN 5m — saida comparativa, nao oficial
-        "imagem_preview_radan_5m":       path_preview.name if preview_meta else "",
-        "preview_depth_m":               preview_meta.get("depth_preview_m", ""),
-        "preview_velocity_mns":          preview_meta.get("velocity_preview_mns", ""),
+        "imagem_preview_radan_5m":           path_preview.name if preview_meta else "",
+        "preview_depth_m":                   preview_meta.get("depth_preview_m", ""),     # eixo visual
+        "preview_depth_real_m":              preview_meta.get("depth_real_m", ""),        # profundidade fisica real
+        "preview_visual_depth_configurado":  preview_meta.get("visual_depth_configurado", False),
+        "preview_velocity_mns":              preview_meta.get("velocity_preview_mns", ""),
         # Alvos — contagens
         "n_alvos_detectados":      n_alvos,
         "arquivo_alvos":           csv_alvos or "",
