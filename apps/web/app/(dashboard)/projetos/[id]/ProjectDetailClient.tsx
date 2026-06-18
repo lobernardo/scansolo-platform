@@ -167,11 +167,12 @@ export function ProjectDetailClient({
 
   function openLightbox(profile: GprProfileRow, startIndex: number) {
     const imgs: { url: string; label: string }[] = [
-      { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
-      { url: profile.imagem_processada_url ?? "", label: "Processada" },
-      { url: profile.imagem_anotada_url ?? "", label: "Anotada IA" },
-      { url: profile.imagem_interpretada_url ?? "", label: "Interpretada IA" },
-      { url: profile.imagem_preview_radan_5m_url ?? "", label: "Processada 2" },
+      { url: profile.imagem_bruta_url ?? "",            label: "Bruta" },
+      { url: profile.imagem_cientifica_url ?? "",        label: "Técnica" },
+      { url: profile.imagem_processada_url ?? "",       label: "Relatório" },
+      { url: profile.imagem_preview_radan_5m_url ?? "", label: "Visual" },
+      { url: profile.imagem_anotada_url ?? "",          label: "Anotada IA" },
+      { url: profile.imagem_interpretada_url ?? "",     label: "Interpretada IA" },
       { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "Anotada P2" },
     ].filter((i) => i.url);
     if (!imgs.length) return;
@@ -306,11 +307,12 @@ export function ProjectDetailClient({
                 (t) => t.confidence_label_relatorio === "baixa"
               ).length;
               const imgs = [
-                { url: profile.imagem_bruta_url, label: "Bruta" },
-                { url: profile.imagem_processada_url, label: "Processada" },
-                { url: profile.imagem_anotada_url, label: "Anotada IA" },
-                { url: profile.imagem_interpretada_url, label: "Interpretada IA" },
-                { url: profile.imagem_preview_radan_5m_url, label: "Processada 2" },
+                { url: profile.imagem_bruta_url,             label: "Bruta" },
+                { url: profile.imagem_cientifica_url,         label: "Técnica" },
+                { url: profile.imagem_processada_url,        label: "Relatório" },
+                { url: profile.imagem_preview_radan_5m_url,  label: "Visual" },
+                { url: profile.imagem_anotada_url,           label: "Anotada IA" },
+                { url: profile.imagem_interpretada_url,      label: "Interpretada IA" },
                 { url: profile.imagem_interpretada_ia_p2_url, label: "Anotada P2" },
               ].filter((i): i is { url: string; label: string } => !!i.url);
 
@@ -890,7 +892,7 @@ function FilterPanel({
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            {t === "processada" ? "Processada" : "Processada 2"}
+            {t === "processada" ? "Relatório" : "Visual"}
           </button>
         ))}
       </div>

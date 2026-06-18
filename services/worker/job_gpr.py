@@ -390,11 +390,12 @@ def _persist_outputs(
 
         img_updates: dict = {}
         for filename, col in [
-            (f"{stem}_bruta.png", "imagem_bruta_url"),
-            (f"{stem}_processada.png", "imagem_processada_url"),
-            (f"{stem}_anotada_completa.png", "imagem_anotada_url"),
-            (f"{stem}_anotada_alta_confianca.png", "imagem_alta_conf_url"),
-            (f"{stem}_radargrama_preview_radan_5m.png", "imagem_preview_radan_5m_url"),
+            (f"{stem}_bruta.png",                         "imagem_bruta_url"),
+            (f"{stem}_radargrama_cientifico.png",          "imagem_cientifica_url"),
+            (f"{stem}_processada.png",                    "imagem_processada_url"),
+            (f"{stem}_anotada_completa.png",              "imagem_anotada_url"),
+            (f"{stem}_anotada_alta_confianca.png",        "imagem_alta_conf_url"),
+            (f"{stem}_radargrama_preview_radan_5m.png",   "imagem_preview_radan_5m_url"),
         ]:
             src_dir = images_bruta_dir if "bruta" in filename else images_proc_dir
             url = _upload_image(supa, img_prefix, src_dir / filename)

@@ -544,6 +544,7 @@ export type Database = {
           imagem_alta_conf_url: string | null
           imagem_anotada_url: string | null
           imagem_bruta_url: string | null
+          imagem_cientifica_url: string | null
           imagem_interpretada_ia_p2_url: string | null
           imagem_interpretada_manual_data: Json | null
           imagem_interpretada_status: string
@@ -576,6 +577,7 @@ export type Database = {
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_cientifica_url?: string | null
           imagem_interpretada_ia_p2_url?: string | null
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string
@@ -608,6 +610,7 @@ export type Database = {
           imagem_alta_conf_url?: string | null
           imagem_anotada_url?: string | null
           imagem_bruta_url?: string | null
+          imagem_cientifica_url?: string | null
           imagem_interpretada_ia_p2_url?: string | null
           imagem_interpretada_manual_data?: Json | null
           imagem_interpretada_status?: string

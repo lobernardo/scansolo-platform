@@ -97,7 +97,7 @@ export function ReviewClient({
   function openLightbox(profile: ProfileSlim, startIndex: number) {
     const imgs: { url: string; label: string }[] = [
       { url: profile.imagem_bruta_url ?? "", label: "Bruta" },
-      { url: profile.imagem_processada_url ?? "", label: "Processada" },
+      { url: profile.imagem_processada_url ?? "", label: "Relatório" },
       { url: profile.imagem_anotada_url ?? "", label: "Anotada" },
     ].filter((i) => i.url);
     if (imgs.length === 0) return;
@@ -270,7 +270,7 @@ export function ReviewClient({
           {profiles.map((prof) => {
             const imgs = [
               { url: prof.imagem_bruta_url, label: "Bruta" },
-              { url: prof.imagem_processada_url, label: "Processada" },
+              { url: prof.imagem_processada_url, label: "Relatório" },
               { url: prof.imagem_anotada_url, label: "Anotada" },
             ].filter((i): i is { url: string; label: string } => !!i.url);
             if (imgs.length === 0) return null;
