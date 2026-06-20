@@ -1,0 +1,274 @@
+"""
+Orchestrador end-to-end do ScanSOLO GPR Engine.
+
+process_dzt() recebe um arquivo .DZT e um diretorio de saida e executa
+o pipeline completo, retornando ProcessResult com todos os outputs.
+
+Modulos usados (Fases 1-6):
+  reader  -- DZTReader: le o arquivo .DZT
+  snr     -- calcular_snr_*, detectar_modo_processamento, detectar_time_zero
+  flows   -- process_flows: tres fluxos de sinal (cientifico, relatorio, preview)
+  images  -- render_*: gera PNGs
+  arrays  -- save_engine_arrays: salva .npy
+  metrics -- build_pipeline_metrics, save_metrics_atomic: salva JSON
+
+Sem GPRPy. Sem Supabase.
+"""
+from __future__ import annotations
+
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+
+from gpr_engine._types import DZTData
+from gpr_engine.flows import FlowArrays, process_flows
+from gpr_engine.reader import DZTReader
+from gpr_engine.snr import (
+    calcular_snr_imagem_db,
+    calcular_snr_ratio,
+    detectar_modo_processamento,
+    detectar_time_zero,
+)
+from gpr_engine.images import (
+    render_raw_image,
+    render_scientific_image,
+    render_report_image,
+    render_radan_like_preview,
+)
+from gpr_engine.arrays import save_engine_arrays
+from gpr_engine.metrics import build_pipeline_metrics, save_metrics_atomic
+
+_ENGINE_VERSION = "0.1.0"
+_PIPELINE_VERSION = "2.0.0"
+_ENGINE_NAME = "readgssi_engine"
+
+_DEFAULTS: dict = {
+    "dewow_window":        5,
+    "bandpass_low_mhz":    80.0,
+    "bandpass_high_mhz":   500.0,
+    "bandpass_order":      5,
+    "bandpass_tipo":       "butterworth",
+    "bandpass_enabled":    True,
+    "bgremoval_traces":    30,
+    "tpow_power":          0.5,
+    "agc_window":          150,
+    "agc_window_preview":  80,
+    "velocity_mns":        0.10,
+    "contrast":            2.5,
+    "colormap":            "gray",
+    "dpi":                 150,
+    "depth_preview_m":     5.0,
+    "detector_input_mode": "raw",
+    "det_depth_min_m":     0.30,
+}
+
+
+@dataclass
+class ProcessResult:
+    """Resultado completo do processamento de um DZT pelo motor GPR."""
+
+    dzt_data: DZTData
+    """Metadados e array bruto lidos pelo DZTReader."""
+
+    flow_arrays: FlowArrays
+    """Arrays dos tres fluxos de sinal (cientifico, relatorio, preview)."""
+
+    image_paths: dict[str, Path]
+    """Caminhos das imagens PNG geradas.
+    Chaves: bruta, cientifica, relatorio, processada, preview_radan_5m."""
+
+    array_paths: dict[str, Path]
+    """Caminhos dos arrays .npy salvos.
+    Chaves: raw, radargrama_cientifico, processado_sem_agc, processado_visual, processado."""
+
+    metrics_path: Path
+    """Caminho do arquivo pipeline_metrics.json."""
+
+    metrics: dict
+    """Dict retornado por build_pipeline_metrics (compativel com PipelineLog.tsx)."""
+
+    output_dir: Path
+    """Diretorio onde todos os outputs foram salvos."""
+
+    index_row: dict
+    """Linha compativel com index_projeto.csv (campos minimos garantidos)."""
+
+
+def process_dzt(
+    dzt_path: str | Path,
+    output_dir: str | Path,
+    config: dict | None = None,
+    tipo_solo: str = "standard",
+    stem: str | None = None,
+    run_detector: bool = False,
+) -> ProcessResult:
+    """
+    Processa um arquivo .DZT completo com o motor GPR.
+
+    Fluxo interno:
+      1. Leitura do DZT (DZTReader)
+      2. SNR bruto + modo de processamento (minimo/padrao/agressivo)
+      3. Time-zero detectado e logado (crop adiado para fase futura)
+      4. Tres fluxos de sinal via process_flows()
+      5. SNR medido em 6 estagios (raw, dewow_bp, cientifico, sem_agc, relatorio, preview_radan)
+      6. Imagens PNG: bruta, cientifico, relatorio, processada (alias), preview RADAN
+      7. Arrays .npy (raw, cientifico, sem_agc, visual, processado alias)
+      8. pipeline_metrics.json (atomico)
+      9. index_row com campos minimos para index_projeto.csv
+
+    :param dzt_path:     Caminho para o arquivo .DZT
+    :param output_dir:   Diretorio de saida (criado automaticamente)
+    :param config:       Overrides sobre _DEFAULTS (usuario/preset)
+    :param tipo_solo:    "standard" | "arenoso" | "argiloso" | "umido" | "pedregoso"
+    :param stem:         Nome base dos arquivos de saida (default: dzt_path.stem)
+    :param run_detector: Nao implementado nesta fase
+    :returns:            ProcessResult com todos os outputs
+    :raises NotImplementedError: Se run_detector=True
+    """
+    if run_detector:
+        raise NotImplementedError(
+            "run_detector=True not implemented in this phase. "
+            "Hyperbola detector will be integrated in a future phase."
+        )
+
+    dzt_path = Path(dzt_path)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _stem = stem or dzt_path.stem
+
+    # 1. Leitura do DZT
+    reader = DZTReader()
+    dzt_data = reader.read(dzt_path)
+
+    # 2. Config final: defaults + overrides do usuario; samp_freq_hz sempre do header
+    final_config: dict = {**_DEFAULTS, **(config or {})}
+    final_config["samp_freq_hz"] = dzt_data.samp_freq_hz
+    final_config["tipo_solo"] = tipo_solo
+
+    # 3. SNR do dado bruto e modo de processamento
+    snr_raw_ratio = calcular_snr_ratio(dzt_data.arr_raw)
+    snr_raw_db = calcular_snr_imagem_db(dzt_data.arr_raw)
+    modo_processamento = detectar_modo_processamento(snr_raw_db, tipo_solo)
+
+    # 4. Time-zero detectado (logado no index_row; crop nao aplicado nesta fase)
+    timezero_detected = detectar_time_zero(dzt_data.arr_raw)
+
+    # 5. Profundidade maxima: twtt_max_ns x velocity / 2
+    velocity_mns = float(final_config["velocity_mns"])
+    depth_max_m = round(dzt_data.twtt_max_ns * velocity_mns / 2.0, 4)
+    depth_preview_m = float(final_config.get("depth_preview_m", 5.0))
+
+    # 6. Tres fluxos de sinal
+    flow_arrays = process_flows(dzt_data.arr_raw, final_config)
+
+    # 7. SNR em 6 estagios do pipeline
+    snr_stages_db = {
+        "raw":           snr_raw_db,
+        "dewow_bp":      calcular_snr_imagem_db(flow_arrays.arr_dewow_bp),
+        "cientifico":    calcular_snr_imagem_db(flow_arrays.arr_cientifico),
+        "sem_agc":       calcular_snr_imagem_db(flow_arrays.arr_sem_agc),
+        "relatorio":     calcular_snr_imagem_db(flow_arrays.arr_relatorio),
+        "preview_radan": calcular_snr_imagem_db(flow_arrays.arr_preview_radan),
+    }
+
+    # 8. Imagens PNG
+    dist_m = float(dzt_data.dist_total_m)
+    render_kw = {
+        "contrast": float(final_config.get("contrast", 2.5)),
+        "colormap": str(final_config.get("colormap", "gray")),
+        "dpi":      int(final_config.get("dpi", 150)),
+    }
+
+    p_bruta = render_raw_image(
+        dzt_data.arr_raw,
+        out_dir / f"{_stem}_bruta.png",
+        dist_m, depth_max_m,
+        **render_kw,
+    )
+    p_cientifica = render_scientific_image(
+        flow_arrays.arr_cientifico,
+        out_dir / f"{_stem}_radargrama_cientifico.png",
+        dist_m, depth_max_m,
+        **render_kw,
+    )
+    p_relatorio = render_report_image(
+        flow_arrays.arr_relatorio,
+        out_dir / f"{_stem}_radargrama_relatorio.png",
+        dist_m, depth_max_m,
+        **render_kw,
+    )
+    # _processada.png e alias de _radargrama_relatorio.png (backward compat)
+    p_processada = out_dir / f"{_stem}_processada.png"
+    shutil.copy2(p_relatorio, p_processada)
+
+    p_preview = render_radan_like_preview(
+        flow_arrays.arr_preview_radan,
+        out_dir / f"{_stem}_radargrama_preview_radan_5m.png",
+        dist_m, depth_preview_m,
+        footer_text="AVISO: preview RADAN 5m -- nao usar como radargrama cientifico",
+        **render_kw,
+    )
+
+    image_paths: dict[str, Path] = {
+        "bruta":             p_bruta,
+        "cientifica":        p_cientifica,
+        "relatorio":         p_relatorio,
+        "processada":        p_processada,
+        "preview_radan_5m":  p_preview,
+    }
+
+    # 9. Arrays .npy
+    array_paths = save_engine_arrays(
+        flow_arrays, out_dir, stem=_stem, arr_raw=dzt_data.arr_raw,
+    )
+
+    # 10. Pipeline metrics JSON
+    metrics = build_pipeline_metrics(
+        dzt_data=dzt_data,
+        flow_arrays=flow_arrays,
+        config=final_config,
+        modo_processamento=modo_processamento,
+        snr_raw_db=snr_raw_db,
+        snr_raw_ratio=snr_raw_ratio,
+        snr_stages_db=snr_stages_db,
+        image_paths=image_paths,
+        array_paths=array_paths,
+        engine_version=_ENGINE_VERSION,
+        pipeline_version=_PIPELINE_VERSION,
+        engine_name=_ENGINE_NAME,
+    )
+    metrics_path = save_metrics_atomic(
+        metrics, out_dir / f"{_stem}_pipeline_metrics.json",
+    )
+
+    # 11. index_row compativel com index_projeto.csv
+    index_row: dict = {
+        "arquivo":                 str(dzt_data.dzt_filename),
+        "n_tracos":                int(dzt_data.n_traces),
+        "distancia_max_m":         float(dzt_data.dist_total_m),
+        "profundidade_max_m":      depth_max_m,
+        "snr_raw_db":              snr_raw_db,
+        "snr_raw_ratio":           snr_raw_ratio,
+        "modo_processamento":      modo_processamento,
+        "tipo_solo":               tipo_solo,
+        "velocity_mns":            velocity_mns,
+        "timezero_detected":       timezero_detected,
+        "engine_name":             _ENGINE_NAME,
+        "pipeline_version":        _PIPELINE_VERSION,
+        "imagem_bruta":            str(p_bruta),
+        "imagem_cientifica":       str(p_cientifica),
+        "imagem_relatorio":        str(p_relatorio),
+        "imagem_preview_radan_5m": str(p_preview),
+        "metrics_path":            str(metrics_path),
+    }
+
+    return ProcessResult(
+        dzt_data=dzt_data,
+        flow_arrays=flow_arrays,
+        image_paths=image_paths,
+        array_paths=array_paths,
+        metrics_path=metrics_path,
+        metrics=metrics,
+        output_dir=out_dir,
+        index_row=index_row,
+    )
