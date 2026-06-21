@@ -95,6 +95,43 @@ def _calc_profundidade_max_m(dzt_data: DZTData, config: dict) -> float:
 # Construcao do dict de metricas
 # ---------------------------------------------------------------------------
 
+def _bandpass_descricao(config: dict) -> tuple[str, float, float]:
+    """
+    Retorna (descricao, low_mhz, high_mhz) do bandpass configurado.
+
+    descricao: "desativado" | "80-500 MHz" (ou faixa real do config)
+    low_mhz/high_mhz: 0.0/0.0 quando desativado
+    """
+    low_mhz = float(config.get("bandpass_low_mhz", 80.0))
+    high_mhz = float(config.get("bandpass_high_mhz", 500.0))
+    enabled = bool(config.get("bandpass_enabled", True)) and low_mhz > 0
+    if not enabled:
+        return "desativado", 0.0, 0.0
+    return f"{low_mhz:.0f}-{high_mhz:.0f} MHz", low_mhz, high_mhz
+
+
+def _render_profile_fields(config: dict) -> dict:
+    """
+    Campos de rastreabilidade do perfil de renderizacao (visual_profile).
+
+    Quando visual_profile="readgssi_reference":
+      renderer=readgssi_reference, normalization=SymLogNorm, background_removal=readgssi_bgr
+    Caso contrario (scientific/relatorio):
+      renderer=relatorio, normalization=linear_percentile99, background_removal=bgremoval_windowed
+    """
+    visual_profile = str(config.get("visual_profile", "scientific"))
+    is_readgssi = visual_profile == "readgssi_reference"
+    bgr_window_used = 0 if is_readgssi else int(config.get("bgremoval_traces", 30))
+    return {
+        "visual_profile":     visual_profile,
+        "renderer":           visual_profile if is_readgssi else "relatorio",
+        "normalization":      "SymLogNorm" if is_readgssi else "linear_percentile99",
+        "background_removal": "readgssi_bgr" if is_readgssi else "bgremoval_windowed",
+        "bgr_window":         bgr_window_used,
+        "gain":               float(config.get("gain", 1.0)),
+    }
+
+
 def build_pipeline_metrics(
     dzt_data: DZTData,
     flow_arrays: FlowArrays | None,
@@ -117,6 +154,12 @@ def build_pipeline_metrics(
     save_metrics_atomic() e compativel com os campos que PipelineLog.tsx
     consome via getPipelineMetrics() server action.
 
+    Fase 8.10: campos de rastreabilidade do readgssi_engine adicionados ao
+    nivel raiz (visual_profile, renderer, normalization, background_removal,
+    bgr_window, gain, skip_ia, detector_status) e campos de filtros efetivos
+    promovidos ao nivel raiz (dewow_window, bandpass_*, bgremoval_traces,
+    tpow_power, agc_window, velocity_mns, depth_tecnica_m, preview_*).
+
     :param dzt_data:          Metadados e array bruto do DZT (de DZTReader.read)
     :param flow_arrays:       Resultados dos tres fluxos (de process_flows); pode ser None
     :param config:            Dict de parametros usados no processamento
@@ -133,6 +176,10 @@ def build_pipeline_metrics(
     :returns:                 Dict pronto para save_metrics_atomic()
     """
     sha = dzt_sha256 if dzt_sha256 is not None else dzt_data.dzt_sha256
+    prof_max = _calc_profundidade_max_m(dzt_data, config)
+    velocity = float(config.get("velocity_mns", 0.10))
+    depth_preview = float(config.get("depth_preview_m", 5.0))
+    bandpass_descr, bp_low, bp_high = _bandpass_descricao(config)
 
     return {
         # -- Identidade do arquivo e engine --------------------------------
@@ -143,17 +190,47 @@ def build_pipeline_metrics(
         "pipeline_version":  pipeline_version,
 
         # -- Configuracao de processamento ---------------------------------
-        "modo_processamento":   modo_processamento,
-        "tipo_solo":            config.get("tipo_solo", "standard"),
-        "preset_name":          config.get("preset_name", None),
-        "detector_input_mode":  config.get("detector_input_mode", "raw"),
+        "modo_processamento":    modo_processamento,
+        "tipo_solo":             config.get("tipo_solo", "standard"),
+        "preset_name":           config.get("preset_name", None),
+        "preset_id":             config.get("preset_id", None),
+        "detector_input_mode":   config.get("detector_input_mode", "raw"),
         "det_depth_min_m_usado": float(config.get("det_depth_min_m", 0.30)),
-        "filtros_customizados": config,
+        "filtros_customizados":  config,
+
+        # -- Rastreabilidade do perfil de renderizacao (Fase 8.10) --------
+        **_render_profile_fields(config),
+        "skip_ia":           bool(config.get("skip_ia", False)),
+        "detector_status":   "skipped_not_integrated",
+
+        # -- Filtros efetivos no nivel raiz (lidos por PipelineLog via UI) -
+        # Dewow
+        "dewow_window":         int(config.get("dewow_window", 5)),
+        # Bandpass
+        "bandpass_aplicado":    bandpass_descr,
+        "bandpass_low_mhz_usado":  bp_low,
+        "bandpass_high_mhz_usado": bp_high,
+        "bandpass_order_usado":    int(config.get("bandpass_order", 5)),
+        "bandpass_tipo_usado":     str(config.get("bandpass_tipo", "butterworth")),
+        # BGRemoval / TPow / AGC (fluxo relatorio/cientifico)
+        "bgremoval_traces":     int(config.get("bgremoval_traces", 30)),
+        "tpow_power":           float(config.get("tpow_power", 0.5)),
+        "agc_window":           int(config.get("agc_window", 150)),
+        "agc_window_preview":   int(config.get("agc_window_preview", 80)),
+        # Velocity e profundidade
+        "velocity_mns":         velocity,
+        "velocity_fonte":       "config",
+        "depth_tecnica_m":      prof_max,
+        # Preview RADAN
+        "depth_preview_m":                  depth_preview,
+        "preview_depth_real_m":             prof_max,
+        "preview_visual_depth_configurado": depth_preview != 5.0,
+        "preview_velocity_mns":             velocity,
 
         # -- Dimensoes do levantamento ------------------------------------
-        "n_tracos":          int(dzt_data.n_traces),
-        "dist_total_m":      float(dzt_data.dist_total_m),
-        "profundidade_max_m": _calc_profundidade_max_m(dzt_data, config),
+        "n_tracos":           int(dzt_data.n_traces),
+        "dist_total_m":       float(dzt_data.dist_total_m),
+        "profundidade_max_m": prof_max,
 
         # -- SNR em tres estagios -----------------------------------------
         "snr_raw_db":    float(snr_raw_db),
