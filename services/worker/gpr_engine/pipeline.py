@@ -34,6 +34,7 @@ from gpr_engine.images import (
     render_scientific_image,
     render_report_image,
     render_radan_like_preview,
+    render_radargram_readgssi_reference,
 )
 from gpr_engine.arrays import save_engine_arrays
 from gpr_engine.metrics import build_pipeline_metrics, save_metrics_atomic
@@ -60,6 +61,9 @@ _DEFAULTS: dict = {
     "depth_preview_m":     5.0,
     "detector_input_mode": "raw",
     "det_depth_min_m":     0.30,
+    # Fase 8.6 — visual profile
+    "visual_profile":      "scientific",  # "scientific" | "readgssi_reference"
+    "gain":                1.0,           # readgssi SymLogNorm gain (linthresh=std/gain)
 }
 
 
@@ -209,12 +213,25 @@ def process_dzt(
         **render_kw,
     )
 
+    # readgssi_reference: arr_raw -> bgremoval_readgssi(window=0) -> SymLogNorm
+    from gpr_engine.filters import bgremoval_readgssi as _bgr_readgssi
+    _arr_readgssi_ref = _bgr_readgssi(dzt_data.arr_raw, window=0)
+    p_readgssi_ref = render_radargram_readgssi_reference(
+        _arr_readgssi_ref,
+        out_dir / f"{_stem}_radargrama_readgssi_reference.png",
+        dist_m, depth_max_m,
+        gain=float(final_config.get("gain", 1.0)),
+        colormap=str(final_config.get("colormap", "gray")),
+        dpi=int(final_config.get("dpi", 150)),
+    )
+
     image_paths: dict[str, Path] = {
-        "bruta":             p_bruta,
-        "cientifica":        p_cientifica,
-        "relatorio":         p_relatorio,
-        "processada":        p_processada,
-        "preview_radan_5m":  p_preview,
+        "bruta":                p_bruta,
+        "cientifica":           p_cientifica,
+        "relatorio":            p_relatorio,
+        "processada":           p_processada,
+        "preview_radan_5m":     p_preview,
+        "readgssi_reference":   p_readgssi_ref,
     }
 
     # 9. Arrays .npy
@@ -243,23 +260,24 @@ def process_dzt(
 
     # 11. index_row compativel com index_projeto.csv
     index_row: dict = {
-        "arquivo":                 str(dzt_data.dzt_filename),
-        "n_tracos":                int(dzt_data.n_traces),
-        "distancia_max_m":         float(dzt_data.dist_total_m),
-        "profundidade_max_m":      depth_max_m,
-        "snr_raw_db":              snr_raw_db,
-        "snr_raw_ratio":           snr_raw_ratio,
-        "modo_processamento":      modo_processamento,
-        "tipo_solo":               tipo_solo,
-        "velocity_mns":            velocity_mns,
-        "timezero_detected":       timezero_detected,
-        "engine_name":             _ENGINE_NAME,
-        "pipeline_version":        _PIPELINE_VERSION,
-        "imagem_bruta":            str(p_bruta),
-        "imagem_cientifica":       str(p_cientifica),
-        "imagem_relatorio":        str(p_relatorio),
-        "imagem_preview_radan_5m": str(p_preview),
-        "metrics_path":            str(metrics_path),
+        "arquivo":                        str(dzt_data.dzt_filename),
+        "n_tracos":                       int(dzt_data.n_traces),
+        "distancia_max_m":                float(dzt_data.dist_total_m),
+        "profundidade_max_m":             depth_max_m,
+        "snr_raw_db":                     snr_raw_db,
+        "snr_raw_ratio":                  snr_raw_ratio,
+        "modo_processamento":             modo_processamento,
+        "tipo_solo":                      tipo_solo,
+        "velocity_mns":                   velocity_mns,
+        "timezero_detected":              timezero_detected,
+        "engine_name":                    _ENGINE_NAME,
+        "pipeline_version":               _PIPELINE_VERSION,
+        "imagem_bruta":                   str(p_bruta),
+        "imagem_cientifica":              str(p_cientifica),
+        "imagem_relatorio":               str(p_relatorio),
+        "imagem_preview_radan_5m":        str(p_preview),
+        "imagem_readgssi_reference":      str(p_readgssi_ref),
+        "metrics_path":                   str(metrics_path),
     }
 
     return ProcessResult(

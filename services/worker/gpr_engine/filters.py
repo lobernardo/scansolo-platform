@@ -22,6 +22,11 @@ import numpy as np
 from scipy import signal as sp_signal
 from scipy.ndimage import uniform_filter1d
 
+# ── readgssi-exact implementations ───────────────────────────────────────────
+# As funcoes abaixo replicam exatamente os algoritmos de
+# readgssi/readgssi/filtering.py para fins de auditoria de paridade visual.
+# Nao usadas no pipeline padrao; use apenas para o perfil "readgssi_reference".
+
 
 # ── dewow ─────────────────────────────────────────────────────────────────────
 
@@ -232,3 +237,79 @@ def agc(arr: np.ndarray, window: int = 150) -> np.ndarray:
     f = arr.astype(np.float64)
     rms = np.sqrt(uniform_filter1d(f ** 2, size=win, axis=0, mode="reflect") + 1e-10)
     return (f / rms).astype(np.float32)
+
+
+def bgremoval_readgssi(arr: np.ndarray, window: int = 0) -> np.ndarray:
+    """
+    Background removal identico ao readgssi/readgssi/filtering.bgr().
+
+    Fonte: readgssi/filtering.py::bgr()
+      for i, row in enumerate(ar):
+          ar[i] = row - np.mean(row)              # sempre: subtract global row mean
+      if window:
+          ar -= uniform_filter1d(ar, size=window,  # depois: subtract windowed mean
+                                 mode='constant', cval=0, axis=1)
+
+    Diferenca em relacao a bgremoval():
+      - Sempre aplica o subtract global ANTES da janela (dois passes se window>0)
+      - Modo de borda: 'constant' com cval=0 (readgssi) vs 'reflect' (nossa versao)
+
+    :param arr:    Array 2-D (n_samples x n_traces)
+    :param window: Tamanho da janela (0 = apenas global mean, como readgssi default)
+    :returns:      float64 (readgssi nao converte para float32 internamente)
+    """
+    f = arr.astype(np.float64)
+    f -= f.mean(axis=1, keepdims=True)
+    if window > 1:
+        f -= uniform_filter1d(f, size=int(window), mode="constant", cval=0.0, axis=1)
+    return f.astype(np.float32)
+
+
+def bandpass_triangular_readgssi(
+    arr: np.ndarray,
+    samp_freq_hz: float,
+    low_mhz: float,
+    high_mhz: float,
+    zerophase: bool = True,
+) -> np.ndarray:
+    """
+    Bandpass FIR triangular identico ao readgssi/readgssi/filtering.triangular().
+
+    Fonte: readgssi/filtering.py::triangular()
+      numtaps = 25  (fixo)
+      filt = firwin(numtaps, [fmin_hz, fmax_hz],
+                    window='triangle', pass_zero='bandpass', fs=samp_freq)
+      far = lfilter(filt, 1.0, ar, axis=0).copy()
+      if zerophase:
+          far = lfilter(filt, 1.0, far[::-1], axis=0)[::-1]
+
+    Diferenca em relacao a bandpass_triangular():
+      - numtaps=25 fixo (nosso: adaptativo >= 101)
+      - firwin com window='triangle' (nosso: firwin2 com resposta triangular)
+      - lfilter + reverso (nosso: filtfilt)
+
+    :param arr:          Array 2-D (n_samples x n_traces)
+    :param samp_freq_hz: Frequencia de amostragem em Hz
+    :param low_mhz:      Frequencia de corte inferior (MHz)
+    :param high_mhz:     Frequencia de corte superior (MHz)
+    :param zerophase:    Se True, aplica causal + reverso (readgssi default True)
+    :returns:            float32, mesmo shape
+    """
+    numtaps = 25
+    fl_hz = low_mhz * 1e6
+    fh_hz = high_mhz * 1e6
+    filt = sp_signal.firwin(
+        numtaps,
+        [fl_hz, fh_hz],
+        window="triangle",
+        pass_zero="bandpass",
+        fs=samp_freq_hz,
+    )
+    out = np.empty_like(arr, dtype=np.float32)
+    for col in range(arr.shape[1]):
+        trace = arr[:, col].astype(np.float64)
+        filtered = sp_signal.lfilter(filt, 1.0, trace)
+        if zerophase:
+            filtered = sp_signal.lfilter(filt, 1.0, filtered[::-1])[::-1]
+        out[:, col] = filtered.astype(np.float32)
+    return out
