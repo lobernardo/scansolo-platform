@@ -106,7 +106,14 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
             processing_config["velocity_mns"] = float(velocity_from_config)
             log.info("pipeline_velocity_from_project_config", velocity_mns=velocity_from_config)
 
-        _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
+        engine = _get_engine(processing_config or {})
+        log.info("gpr_engine_selected", engine=engine)
+
+        if engine == "readgssi_engine":
+            from gpr_engine.scansolo_adapter import run_new_engine
+            run_new_engine(input_dir, output_dir, processing_config, tipo_solo)
+        else:
+            _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
 
         run_id = str(uuid.uuid4())
         new_profiles = _persist_outputs(
@@ -131,9 +138,10 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         else:
             supa.update_project_status(project_id, "gpr_concluido")
             log.info("gpr_job_done", job_id=job_id, run_id=run_id)
-            skip_ia = (raw_config or {}).get("skip_ia", False)
+            # readgssi_engine nao tem detector integrado nesta fase: skip_ia forcado
+            skip_ia = engine == "readgssi_engine" or (raw_config or {}).get("skip_ia", False)
             if skip_ia:
-                log.info("gpr_skip_ia", project_id=project_id)
+                log.info("gpr_skip_ia", project_id=project_id, engine=engine)
             else:
                 supa.create_job(project_id, "ia")
 
@@ -293,6 +301,26 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
         cfg["_det_depth_min_m_explicit"] = True
 
     return cfg
+
+
+# ── Engine selection ──────────────────────────────────────────────────────────
+
+_VALID_ENGINES = frozenset({"readgssi_engine", "legacy_scansolo"})
+
+
+def _get_engine(processing_config: dict) -> str:
+    """
+    Resolve o motor GPR a usar com base em processing_config["engine"].
+
+    "readgssi_engine"  -> novo motor (gpr_engine.pipeline.process_dzt)
+    "legacy_scansolo"  -> motor legado (subprocess pipeline_v1.py)
+    ausente ou invalido -> fallback "legacy_scansolo" com aviso no log
+    """
+    engine = str(processing_config.get("engine", "legacy_scansolo"))
+    if engine not in _VALID_ENGINES:
+        log.warning("gpr_engine_invalid", engine=engine, fallback="legacy_scansolo")
+        return "legacy_scansolo"
+    return engine
 
 
 # ── Pipeline subprocess ───────────────────────────────────────────────────────
