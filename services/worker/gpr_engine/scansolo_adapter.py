@@ -10,11 +10,22 @@ de diretorios esperada por job_gpr._persist_outputs:
       {stem}_bruta.png
     02_Imagens_Processadas/
       {stem}_radargrama_cientifico.png
-      {stem}_processada.png
+      {stem}_processada.png                         <- varia conforme visual_profile
+      {stem}_radargrama_readgssi_reference.png      <- sempre presente (Fase 8.6+)
       {stem}_radargrama_preview_radan_5m.png
       {stem}_pipeline_metrics.json
     05_Tabela_Alvos/
       {stem}_alvos.csv  (cabecalhos apenas -- detector nao integrado nesta fase)
+
+Mapeamento de processada.png conforme visual_profile (Fase 8.7):
+  visual_profile="readgssi_reference" -> processada.png = readgssi_reference
+      (SymLogNorm, arr_raw -> bgr, comparavel ao output visual do readgssi)
+  qualquer outro valor (default) -> processada.png = fluxo relatorio
+      (dewow+bp+bgremoval+tpow+AGC, comportamento anterior)
+
+Em ambos os casos:
+  - {stem}_radargrama_readgssi_reference.png e sempre salvo em proc_dir
+  - os demais outputs (bruta, cientifica, preview, metrics, alvos) nao mudam
 
 Decisao sobre CSV de alvos e job de IA:
   O detector de hiperboles nao esta integrado ao novo engine nesta fase.
@@ -104,12 +115,29 @@ def run_new_engine(
                         bruta_dir / f"{stem}_bruta.png")
         _move_if_exists(result.image_paths.get("cientifica"),
                         proc_dir / f"{stem}_radargrama_cientifico.png")
-        _move_if_exists(result.image_paths.get("processada"),
-                        proc_dir / f"{stem}_processada.png")
         _move_if_exists(result.image_paths.get("preview_radan_5m"),
                         proc_dir / f"{stem}_radargrama_preview_radan_5m.png")
         _move_if_exists(result.metrics_path,
                         proc_dir / f"{stem}_pipeline_metrics.json")
+
+        # readgssi_reference: sempre salvo em proc_dir com seu proprio nome
+        ref_dst = proc_dir / f"{stem}_radargrama_readgssi_reference.png"
+        _move_if_exists(result.image_paths.get("readgssi_reference"), ref_dst)
+
+        # Processada: conteudo depende de visual_profile
+        visual_profile = (config or {}).get("visual_profile", "scientific")
+        processada_dst = proc_dir / f"{stem}_processada.png"
+        if visual_profile == "readgssi_reference" and ref_dst.exists():
+            # Usa copia do readgssi_reference como imagem processada principal
+            shutil.copy2(str(ref_dst), str(processada_dst))
+            log.info(
+                "new_engine_processada_readgssi_ref",
+                dzt=dzt_path.name,
+                visual_profile=visual_profile,
+            )
+        else:
+            # Comportamento padrao: fluxo relatorio (dewow+bp+bgremoval+tpow+AGC)
+            _move_if_exists(result.image_paths.get("processada"), processada_dst)
 
         # CSV de alvos vazio (detector nao integrado nesta fase)
         _write_empty_alvos_csv(alvos_dir / f"{stem}_alvos.csv")
