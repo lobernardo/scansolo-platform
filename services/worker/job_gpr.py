@@ -459,7 +459,7 @@ def _persist_outputs(
             try:
                 metrics_bytes = metrics_file.read_bytes()
                 m_path = f"{project_id}/{run_id}/{profile_id[:8]}/{metrics_file.name}"
-                supa.upload_file("gpr-tabelas", m_path, metrics_bytes, "application/json")
+                supa.upload_file("gpr-tabelas", m_path, metrics_bytes, "application/octet-stream")
                 signed = supa._client.storage.from_("gpr-tabelas").create_signed_url(
                     m_path, 315360000  # 10 anos em segundos
                 )
