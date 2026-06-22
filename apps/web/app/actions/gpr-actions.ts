@@ -59,6 +59,20 @@ export type PipelineMetrics = {
   n_alvos_score_30?: number;
   // Sinaliza se metrics JSON estava disponível
   metricas_pipeline_url?: string | null;
+  // Preflight DZT (Fase 8.13) — opcionais; ausentes em perfis antigos
+  antenna_freq_mhz_detected?: number | null;
+  velocity_header_mns?: number | null;
+  epsr_header?: number | null;
+  frequency_mismatch?: boolean;
+  recommended_preset_family?: string | null;
+  recommended_velocity_mns?: number | null;
+  recommended_visual_profile?: string | null;
+  preflight_header_confidence?: "alta" | "media" | "baixa" | string | null;
+  preflight_warnings?: string[];
+  preflight?: {
+    dzt_metadata?: Record<string, unknown>;
+    recommendation?: Record<string, unknown>;
+  };
 };
 
 export async function getPipelineMetrics(profileId: string): Promise<PipelineMetrics | null> {
@@ -154,5 +168,19 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     n_alvos_baixa: n_baixa,
     n_alvos_score_30: n_score_30,
     metricas_pipeline_url: url,
+    // Preflight DZT (Fase 8.13) — presentes apenas em processamentos com readgssi_engine
+    antenna_freq_mhz_detected: metricsJson.antenna_freq_mhz_detected as number | null | undefined,
+    velocity_header_mns: metricsJson.velocity_header_mns as number | null | undefined,
+    epsr_header: metricsJson.epsr_header as number | null | undefined,
+    frequency_mismatch: metricsJson.frequency_mismatch as boolean | undefined,
+    recommended_preset_family: metricsJson.recommended_preset_family as string | null | undefined,
+    recommended_velocity_mns: metricsJson.recommended_velocity_mns as number | null | undefined,
+    recommended_visual_profile: metricsJson.recommended_visual_profile as string | null | undefined,
+    preflight_header_confidence: metricsJson.preflight_header_confidence as string | null | undefined,
+    preflight_warnings: metricsJson.preflight_warnings as string[] | undefined,
+    preflight: metricsJson.preflight as {
+      dzt_metadata?: Record<string, unknown>;
+      recommendation?: Record<string, unknown>;
+    } | undefined,
   };
 }

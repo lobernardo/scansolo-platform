@@ -106,6 +106,85 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
   );
 }
 
+// ── Preflight DZT section ─────────────────────────────────────────────────────
+
+function PreflightSection({ m }: { m: PipelineMetrics }) {
+  const hasPreflight =
+    (m.antenna_freq_mhz_detected != null && m.antenna_freq_mhz_detected > 0) ||
+    m.velocity_header_mns != null ||
+    m.frequency_mismatch === true ||
+    (m.preflight_warnings?.length ?? 0) > 0;
+
+  if (!hasPreflight) return null;
+
+  const confStatus =
+    m.preflight_header_confidence === "alta"
+      ? "ok"
+      : m.preflight_header_confidence === "media"
+      ? "warn"
+      : m.preflight_header_confidence === "baixa"
+      ? "skip"
+      : "na";
+
+  const headerWarnings =
+    (m.preflight?.dzt_metadata?.warnings as string[] | undefined) ?? [];
+
+  return (
+    <>
+      <SectionHead title="Preflight DZT" />
+      <div className="pl-2 space-y-0.5">
+        {m.frequency_mismatch && (
+          <div className="rounded border border-amber-600/40 bg-amber-900/20 px-2 py-1 text-amber-400 text-[11px] mb-1 leading-snug">
+            ⚠ Preset/frequência possivelmente incompatível com o DZT. Arquivo detectado como{" "}
+            {m.antenna_freq_mhz_detected != null ? `${m.antenna_freq_mhz_detected} MHz` : "frequência diferente"}.
+          </div>
+        )}
+        {m.antenna_freq_mhz_detected != null && m.antenna_freq_mhz_detected > 0 && (
+          <Row
+            s={m.frequency_mismatch ? "warn" : "ok"}
+            label="Antena detectada"
+            value={`${m.antenna_freq_mhz_detected} MHz`}
+          />
+        )}
+        {m.velocity_header_mns != null && (
+          <Row
+            s="ok"
+            label="Velocity header"
+            value={`${m.velocity_header_mns.toFixed(4)} m/ns${
+              m.epsr_header != null ? ` (εr = ${m.epsr_header.toFixed(2)})` : ""
+            }`}
+          />
+        )}
+        {m.preflight_header_confidence != null && (
+          <Row
+            s={confStatus}
+            label="Confiança header"
+            value={m.preflight_header_confidence}
+          />
+        )}
+        {m.recommended_preset_family != null && (
+          <Row s="ok" label="Família recomendada" value={m.recommended_preset_family} />
+        )}
+        {m.recommended_velocity_mns != null && (
+          <Row
+            s="ok"
+            label="Velocity recomendada"
+            value={`${m.recommended_velocity_mns.toFixed(4)} m/ns`}
+          />
+        )}
+        {m.recommended_visual_profile != null && (
+          <Row s="ok" label="Perfil visual rec." value={m.recommended_visual_profile} />
+        )}
+        {headerWarnings.map((w, i) => (
+          <div key={i} className="text-[10px] text-amber-600/80 pl-4 leading-snug break-words">
+            • {w.length > 90 ? w.slice(0, 90) + "…" : w}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ── Full log ─────────────────────────────────────────────────────────────────
 
 function FullLog({ m }: { m: PipelineMetrics }) {
@@ -177,6 +256,9 @@ function FullLog({ m }: { m: PipelineMetrics }) {
           />
         )}
       </div>
+
+      {/* PREFLIGHT DZT */}
+      <PreflightSection m={m} />
 
       {/* ESCALA E PROFUNDIDADE */}
       <SectionHead title="Escala e Profundidade" />
