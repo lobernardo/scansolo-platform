@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-18 (Estabilização F: fix campos n/d Pipeline Log + criar preset redesign Nova Entrada)
+> Última atualização: 2026-06-22 (Fase G: readgssi DZT-first GPR flow — PR #1 merged, main HEAD 553efea)
 > Este arquivo é o índice operacional. Detalhes técnicos estão nos docs/ linkados abaixo.
 
 ---
@@ -79,6 +79,7 @@
 | D | Preset versionamento: 8 colunas em `gpr_presets` + "Salvar como preset" em Ajustar Filtros + badge validado | ✅ |
 | E | Fix Pipeline Log (`imagem_migrada_url` migration) + PipelineLog preview fields + velocity UX + criar preset inline em Nova Entrada + manual | ✅ |
 | F | Fix campos n/d Pipeline Log (dewow/bgremoval/tpow/agc mapeados do pipeline_metrics.json) + Nova Entrada criar preset redesign (opção `__new__` no dropdown + modal unificado scratch/selection + botão no accordion + campos notas/dataset) | ✅ |
+| G | readgssi DZT-first GPR flow: `gpr_engine/` (reader nativo readgssi + pipeline próprio), `job_preflight.py`, fluxo upload→preflight→`aguardando_confirmacao`→confirmação UI→GPR, `_preflight_file_configs` per-DZT em `processing_config`, novos status `aguardando_preflight`/`aguardando_confirmacao`, migration `20260622000001` | ✅ |
 
 ---
 
@@ -119,6 +120,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | `interpretada` | `job_interpretada.handle_interpretada_job` | Imagem interpretada com alvos aprovados |
 | `recalibrar` | `job_recalibrar.handle_recalibrar_job` | Otimiza thresholds via gpr_ground_truth |
 | `recalibrar_velocity` | `job_recalibrar_velocity.handle_recalibrar_velocity_job` | Recalcula profundidades com nova velocity |
+| `preflight` | `job_preflight.handle_preflight_job` | Lê header DZT via readgssi (sem processar), detecta antena/velocity, gera recomendação por arquivo; dispara antes do job `gpr` no fluxo DZT-first |
 
 ---
 
@@ -130,7 +132,7 @@ DZT → raw → dewow+bp → [bifurcação]
 |---|---|---|
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "＋ Criar novo preset..." no dropdown + "Salvar configuração como preset" no accordion |
 | `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros + Pipeline Log |
-| `/projetos/[id]/upload` | `UploadClient.tsx` | Upload adicional; com `preset_id` usa `startProcessingDirect` |
+| `/projetos/[id]/upload` | `UploadClient.tsx` | Upload DZT-first: upload → job `preflight` → tela de confirmação por arquivo (antena/velocity/visual_profile) → `confirmPreflight` → job `gpr`; `_preflight_file_configs` gerado por arquivo |
 | `/presets` | `PresetsClient.tsx` | Cards + modal criar/editar (com toggle Bandpass ON/OFF) |
 | `/treinamento` | `TreinamentoClient.tsx` | Wizard validação manual (4 passos) + modal recalibração |
 | `/admin/qualidade` | `QualidadeClient.tsx` | Dashboard qualidade (socio/admin) |
@@ -151,7 +153,9 @@ DZT → raw → dewow+bp → [bifurcação]
 | `gpr_ground_truth` | 12 cols legadas (Fase 11) + 18 cols wizard (Fase 13) |
 | `gpr_training_sessions` | `project_id`, `profile_id`, `total_vp/fp/fn`, `status` |
 
-**Storage:** `gpr-uploads` (privado) | `gpr-images` (público) | `gpr-tabelas` (privado)
+**Storage:** `gpr-uploads` (privado) | `gpr-images` (público) | `gpr-tabelas` (⚠ público em produção — spec diz privado; ver P21)
+
+**Migrations aplicadas (última):** `20260622000001` — `job_type='preflight'`, `project_status='aguardando_preflight'`/`'aguardando_confirmacao'`
 
 ---
 
@@ -170,6 +174,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | P12 | Delete projeto não limpa Storage | Aberto |
 | P19 | UploadClient.tsx caminho legado não mapeia bandpass OFF | Aberto |
 | P20 | `imagem_migrada_url` nunca populada pelo worker (Fase 7 incompleta) — migration adicionada, job_gpr precisa salvar a URL | Aberto |
+| P21 | `gpr-tabelas` bucket configurado como `public=true` no Supabase — spec diz privado; métricas protegidas por signed URL mas bucket deveria ser privado | Aberto |
 
 ---
 
