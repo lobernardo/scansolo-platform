@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { PipelineMetrics } from "@/app/actions/gpr-actions";
 
 const ND = "n/d";
@@ -108,7 +109,32 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
 
 // ── Preflight DZT section ─────────────────────────────────────────────────────
 
-function PreflightSection({ m }: { m: PipelineMetrics }) {
+function formatPresetFamily(
+  family: string | null | undefined,
+  detectedFreq: number | null | undefined
+): string {
+  if (family == null) return ND;
+  if (family === "400mhz") {
+    if (detectedFreq != null && detectedFreq > 0) return `${detectedFreq}–400 MHz`;
+    return "350–400 MHz";
+  }
+  if (family === "270mhz") return "270 MHz";
+  if (family === "900mhz") return "900 MHz";
+  return family;
+}
+
+function PreflightSection({
+  m,
+  profileId,
+  onReprocessWithOverrides,
+}: {
+  m: PipelineMetrics;
+  profileId?: string;
+  onReprocessWithOverrides?: (overrides: Record<string, unknown>) => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [applying, setApplying] = useState(false);
+
   const hasPreflight =
     (m.antenna_freq_mhz_detected != null && m.antenna_freq_mhz_detected > 0) ||
     m.velocity_header_mns != null ||
@@ -128,6 +154,34 @@ function PreflightSection({ m }: { m: PipelineMetrics }) {
 
   const headerWarnings =
     (m.preflight?.dzt_metadata?.warnings as string[] | undefined) ?? [];
+
+  const canReprocess =
+    !!profileId &&
+    !!onReprocessWithOverrides &&
+    (m.frequency_mismatch === true || m.recommended_velocity_mns != null);
+
+  function buildOverrides(): Record<string, unknown> {
+    const overrides: Record<string, unknown> = { engine: "readgssi_engine" };
+    if (m.antenna_freq_mhz_detected != null && m.antenna_freq_mhz_detected > 0)
+      overrides.antenna_freq_mhz = m.antenna_freq_mhz_detected;
+    if (m.recommended_velocity_mns != null)
+      overrides.velocity_mns = m.recommended_velocity_mns;
+    if (m.recommended_visual_profile != null)
+      overrides.visual_profile = m.recommended_visual_profile;
+    if (m.recommended_depth_preview_m != null)
+      overrides.depth_preview_m = m.recommended_depth_preview_m;
+    return overrides;
+  }
+
+  async function handleApply() {
+    setApplying(true);
+    try {
+      await onReprocessWithOverrides!(buildOverrides());
+    } finally {
+      setApplying(false);
+      setConfirming(false);
+    }
+  }
 
   return (
     <>
@@ -163,7 +217,11 @@ function PreflightSection({ m }: { m: PipelineMetrics }) {
           />
         )}
         {m.recommended_preset_family != null && (
-          <Row s="ok" label="Família recomendada" value={m.recommended_preset_family} />
+          <Row
+            s="ok"
+            label="Família recomendada"
+            value={formatPresetFamily(m.recommended_preset_family, m.antenna_freq_mhz_detected)}
+          />
         )}
         {m.recommended_velocity_mns != null && (
           <Row
@@ -180,6 +238,74 @@ function PreflightSection({ m }: { m: PipelineMetrics }) {
             • {w.length > 90 ? w.slice(0, 90) + "…" : w}
           </div>
         ))}
+
+        {/* Botão "Usar configuração recomendada" — só aparece quando há profileId + handler + dados de preflight */}
+        {canReprocess && !confirming && (
+          <button
+            onClick={() => setConfirming(true)}
+            className="mt-1.5 text-[11px] px-2.5 py-1 rounded border border-cyan-700/60 bg-cyan-900/20 text-cyan-400 hover:bg-cyan-900/40 hover:text-cyan-300 transition-colors"
+          >
+            Usar configuração recomendada
+          </button>
+        )}
+
+        {confirming && (
+          <div className="mt-1.5 rounded border border-slate-600/60 bg-slate-900/60 px-2.5 py-2 space-y-1.5">
+            <p className="text-[11px] text-slate-300 font-medium">
+              Aplicar configuração recomendada e reprocessar este DZT?
+            </p>
+            <div className="space-y-0.5 text-[11px]">
+              {m.antenna_freq_mhz_detected != null && m.antenna_freq_mhz_detected > 0 && (
+                <div>
+                  <span className="text-slate-500">Antena:</span>{" "}
+                  <span className="text-slate-300">{m.antenna_freq_mhz_detected} MHz</span>
+                </div>
+              )}
+              {m.recommended_velocity_mns != null && (
+                <div>
+                  <span className="text-slate-500">Velocity:</span>{" "}
+                  <span className="text-slate-300">{m.recommended_velocity_mns.toFixed(4)} m/ns</span>
+                </div>
+              )}
+              {m.recommended_visual_profile != null && (
+                <div>
+                  <span className="text-slate-500">Perfil visual:</span>{" "}
+                  <span className="text-slate-300">{m.recommended_visual_profile}</span>
+                </div>
+              )}
+              {m.recommended_preset_family != null && (
+                <div>
+                  <span className="text-slate-500">Família recomendada:</span>{" "}
+                  <span className="text-slate-300">
+                    {formatPresetFamily(m.recommended_preset_family, m.antenna_freq_mhz_detected)}
+                  </span>
+                </div>
+              )}
+              {m.recommended_depth_preview_m != null && (
+                <div>
+                  <span className="text-slate-500">Profundidade visual:</span>{" "}
+                  <span className="text-slate-300">{m.recommended_depth_preview_m.toFixed(1)} m</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 pt-0.5">
+              <button
+                onClick={handleApply}
+                disabled={applying}
+                className="text-[11px] px-3 py-1 rounded bg-cyan-700 text-white hover:bg-cyan-600 disabled:opacity-50 transition-colors"
+              >
+                {applying ? "Enviando…" : "Confirmar"}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                disabled={applying}
+                className="text-[11px] px-3 py-1 rounded border border-slate-600 text-slate-400 hover:text-slate-200 disabled:opacity-50 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -187,7 +313,15 @@ function PreflightSection({ m }: { m: PipelineMetrics }) {
 
 // ── Full log ─────────────────────────────────────────────────────────────────
 
-function FullLog({ m }: { m: PipelineMetrics }) {
+function FullLog({
+  m,
+  profileId,
+  onReprocessWithOverrides,
+}: {
+  m: PipelineMetrics;
+  profileId?: string;
+  onReprocessWithOverrides?: (overrides: Record<string, unknown>) => Promise<void>;
+}) {
   const snr = m.snr_stages_db ?? {};
   const snrRaw = m.snr_raw_db ?? (snr.raw != null && snr.raw > -998 ? snr.raw : null);
   const snrRawRatio = m.snr_raw_ratio;
@@ -258,7 +392,11 @@ function FullLog({ m }: { m: PipelineMetrics }) {
       </div>
 
       {/* PREFLIGHT DZT */}
-      <PreflightSection m={m} />
+      <PreflightSection
+        m={m}
+        profileId={profileId}
+        onReprocessWithOverrides={onReprocessWithOverrides}
+      />
 
       {/* ESCALA E PROFUNDIDADE */}
       <SectionHead title="Escala e Profundidade" />
@@ -571,9 +709,13 @@ export function MetricsDiff({
 export function PipelineLog({
   metrics,
   compact = false,
+  profileId,
+  onReprocessWithOverrides,
 }: {
   metrics: PipelineMetrics | null;
   compact?: boolean;
+  profileId?: string;
+  onReprocessWithOverrides?: (overrides: Record<string, unknown>) => Promise<void>;
 }) {
   if (!metrics) {
     return (
@@ -584,5 +726,11 @@ export function PipelineLog({
   }
 
   if (compact) return <CompactLog m={metrics} />;
-  return <FullLog m={metrics} />;
+  return (
+    <FullLog
+      m={metrics}
+      profileId={profileId}
+      onReprocessWithOverrides={onReprocessWithOverrides}
+    />
+  );
 }

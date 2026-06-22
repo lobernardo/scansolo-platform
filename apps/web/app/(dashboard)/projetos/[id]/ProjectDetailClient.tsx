@@ -257,6 +257,31 @@ export function ProjectDetailClient({
     }
   }
 
+  async function handleReprocessWithOverrides(
+    profileId: string,
+    overrides: Record<string, unknown>
+  ) {
+    if (pipelineLogs[profileId] !== undefined) {
+      setPrevLogs((prev) => ({ ...prev, [profileId]: pipelineLogs[profileId] }));
+    }
+    setReprocessStatus((prev) => ({ ...prev, [profileId]: "loading" }));
+    try {
+      const result = await reprocessProfile(
+        profileId,
+        overrides as unknown as FilterState
+      );
+      if (result.ok && result.jobId) {
+        setPendingJobs((prev) => ({ ...prev, [profileId]: result.jobId! }));
+      }
+      setReprocessStatus((prev) => ({
+        ...prev,
+        [profileId]: result.ok ? "queued" : "error",
+      }));
+    } catch {
+      setReprocessStatus((prev) => ({ ...prev, [profileId]: "error" }));
+    }
+  }
+
   async function handleSaveAsPreset(profileId: string, name: string) {
     const result = await saveCurrentFiltersAsPreset(profileId, name);
     if (result.ok) {
@@ -455,6 +480,10 @@ export function ProjectDetailClient({
                             <PipelineLog
                               metrics={pipelineLogs[profile.id] ?? null}
                               compact={false}
+                              profileId={profile.id}
+                              onReprocessWithOverrides={(overrides) =>
+                                handleReprocessWithOverrides(profile.id, overrides)
+                              }
                             />
                           )}
                         </div>

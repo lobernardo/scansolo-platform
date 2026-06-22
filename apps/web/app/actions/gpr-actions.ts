@@ -67,6 +67,7 @@ export type PipelineMetrics = {
   recommended_preset_family?: string | null;
   recommended_velocity_mns?: number | null;
   recommended_visual_profile?: string | null;
+  recommended_depth_preview_m?: number | null;
   preflight_header_confidence?: "alta" | "media" | "baixa" | string | null;
   preflight_warnings?: string[];
   preflight?: {
@@ -176,6 +177,10 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     recommended_preset_family: metricsJson.recommended_preset_family as string | null | undefined,
     recommended_velocity_mns: metricsJson.recommended_velocity_mns as number | null | undefined,
     recommended_visual_profile: metricsJson.recommended_visual_profile as string | null | undefined,
+    recommended_depth_preview_m: (
+      (metricsJson.preflight as { recommendation?: Record<string, unknown> } | undefined)
+        ?.recommendation?.recommended_depth_preview_m ?? null
+    ) as number | null,
     preflight_header_confidence: metricsJson.preflight_header_confidence as string | null | undefined,
     preflight_warnings: metricsJson.preflight_warnings as string[] | undefined,
     preflight: metricsJson.preflight as {
