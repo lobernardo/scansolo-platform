@@ -29,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from gpr_engine._types import DZTData
 from gpr_engine.reader import DZTReader
 
 # ---------------------------------------------------------------------------
@@ -56,34 +57,18 @@ _FREQ_FAMILIES: list[tuple[int, int, str]] = [
 # Funcao principal de extracao
 # ---------------------------------------------------------------------------
 
-def extract_dzt_metadata(dzt_path: str | Path) -> dict:
+def build_preflight_from_dzt_data(dzt: DZTData) -> dict:
     """
-    Le um arquivo DZT via DZTReader e extrai metadados relevantes.
+    Constroi o dict de metadados de preflight a partir de um DZTData ja lido.
 
-    Retorna um dict com campos de identificacao, geometria do levantamento,
-    parametros fisicos e lista de warnings sobre qualidade do header.
+    Variante de extract_dzt_metadata que aceita DZTData diretamente — evita
+    double-read quando o pipeline ja leu o arquivo antes de chamar o preflight.
 
-    Campos retornados:
-      dzt_filename, dzt_sha256,
-      antenna_freq_mhz_detected, velocity_header_mns, epsr_header,
-      twtt_max_ns, timezero_sample, n_traces, n_samples,
-      dist_total_m, samp_freq_hz, dt_ns, rhf_spm, rhf_sps, modo_coleta,
-      depth_real_m_from_header_velocity,
-      depth_real_m_from_standard_velocity,
-      header_confidence,  -- "alta" | "media" | "baixa"
-      warnings            -- lista de strings com avisos de qualidade
+    Campos retornados: identicos a extract_dzt_metadata.
 
-    :param dzt_path: Caminho para o arquivo .DZT.
-    :returns:        Dict com metadados + header_confidence + warnings.
-    :raises FileNotFoundError: Se o arquivo nao existir.
+    :param dzt: DZTData retornado por DZTReader.read().
+    :returns:   Dict com metadados + header_confidence + warnings.
     """
-    dzt_path = Path(dzt_path)
-
-    if not dzt_path.exists():
-        raise FileNotFoundError(f"DZT nao encontrado: {dzt_path}")
-
-    reader  = DZTReader(verbose=False)
-    dzt     = reader.read(dzt_path)
     warnings: list[str] = []
 
     # ── Warnings de qualidade do header ─────────────────────────────────────
@@ -182,6 +167,26 @@ def extract_dzt_metadata(dzt_path: str | Path) -> dict:
         "header_confidence": header_confidence,
         "warnings":          warnings,
     }
+
+
+def extract_dzt_metadata(dzt_path: str | Path) -> dict:
+    """
+    Le um arquivo DZT via DZTReader e extrai metadados relevantes.
+
+    Wrapper publico de build_preflight_from_dzt_data para uso standalone
+    (sem pipeline). Chama DZTReader internamente.
+
+    Campos retornados: identicos a build_preflight_from_dzt_data.
+
+    :param dzt_path: Caminho para o arquivo .DZT.
+    :returns:        Dict com metadados + header_confidence + warnings.
+    :raises FileNotFoundError: Se o arquivo nao existir.
+    """
+    dzt_path = Path(dzt_path)
+    if not dzt_path.exists():
+        raise FileNotFoundError(f"DZT nao encontrado: {dzt_path}")
+    reader = DZTReader(verbose=False)
+    return build_preflight_from_dzt_data(reader.read(dzt_path))
 
 
 # ---------------------------------------------------------------------------

@@ -146,6 +146,8 @@ def build_pipeline_metrics(
     pipeline_version: str = "2.0.0",
     engine_name: str = "readgssi_engine",
     dzt_sha256: str | None = None,
+    preflight_metadata: dict | None = None,
+    preflight_recommendation: dict | None = None,
 ) -> dict:
     """
     Constroi o dict de metricas do pipeline para um DZT processado.
@@ -248,6 +250,23 @@ def build_pipeline_metrics(
         "outputs": {
             "images": _paths_to_str(image_paths),
             "arrays": _paths_to_str(array_paths),
+        },
+
+        # -- Preflight: metadados do DZT e recomendacoes (Fase 8.13) ------
+        # Campos resumidos no nivel raiz para acesso rapido pela UI
+        "antenna_freq_mhz_detected":           (preflight_metadata or {}).get("antenna_freq_mhz_detected", 0),
+        "velocity_header_mns":                 (preflight_metadata or {}).get("velocity_header_mns", None),
+        "epsr_header":                         (preflight_metadata or {}).get("epsr_header", None),
+        "frequency_mismatch":                  (preflight_recommendation or {}).get("frequency_mismatch", False),
+        "recommended_preset_family":           (preflight_recommendation or {}).get("recommended_preset_family", None),
+        "recommended_velocity_mns":            (preflight_recommendation or {}).get("recommended_velocity_mns", None),
+        "recommended_visual_profile":          (preflight_recommendation or {}).get("recommended_visual_profile", None),
+        "preflight_header_confidence":         (preflight_metadata or {}).get("header_confidence", None),
+        "preflight_warnings":                  (preflight_recommendation or {}).get("warnings", []),
+        # Bloco completo para auditoria
+        "preflight": {
+            "dzt_metadata":   preflight_metadata or {},
+            "recommendation": preflight_recommendation or {},
         },
     }
 

@@ -16,12 +16,14 @@ Sem GPRPy. Sem Supabase.
 """
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from gpr_engine._types import DZTData
 from gpr_engine.flows import FlowArrays, process_flows
+from gpr_engine.preflight import build_preflight_from_dzt_data, recommend_processing_config
 from gpr_engine.reader import DZTReader
 from gpr_engine.snr import (
     calcular_snr_imagem_db,
@@ -38,6 +40,8 @@ from gpr_engine.images import (
 )
 from gpr_engine.arrays import save_engine_arrays
 from gpr_engine.metrics import build_pipeline_metrics, save_metrics_atomic
+
+_log = logging.getLogger("gpr_engine.pipeline")
 
 _ENGINE_VERSION = "0.1.0"
 _PIPELINE_VERSION = "2.0.0"
@@ -149,6 +153,40 @@ def process_dzt(
     final_config["samp_freq_hz"] = dzt_data.samp_freq_hz
     final_config["tipo_solo"] = tipo_solo
 
+    # 2b. Preflight: extrai metadados do DZT e gera recomendacoes (sem alterar config)
+    preflight_metadata = build_preflight_from_dzt_data(dzt_data)
+    _selected_preset_pf: dict = {}
+    if final_config.get("antenna_freq_mhz"):
+        _selected_preset_pf["antenna_freq_mhz"] = int(final_config["antenna_freq_mhz"])
+    if final_config.get("preset_name"):
+        _selected_preset_pf["name"] = str(final_config["preset_name"])
+    preflight_recommendation = recommend_processing_config(
+        preflight_metadata, selected_preset=_selected_preset_pf,
+    )
+
+    _log.info(
+        "readgssi_preflight_done filename=%s confidence=%s "
+        "freq_detected=%s velocity_header=%.4f",
+        dzt_data.dzt_filename,
+        preflight_metadata["header_confidence"],
+        preflight_metadata["antenna_freq_mhz_detected"],
+        preflight_metadata["velocity_header_mns"],
+    )
+    for _w in preflight_metadata.get("warnings", []):
+        _log.warning("readgssi_preflight_warning filename=%s msg=%r",
+                     dzt_data.dzt_filename, _w)
+    if preflight_recommendation.get("frequency_mismatch"):
+        _log.warning(
+            "readgssi_frequency_mismatch filename=%s "
+            "detected_freq=%s selected_freq=%s recommended_family=%s "
+            "recommended_velocity=%.4f",
+            dzt_data.dzt_filename,
+            preflight_recommendation.get("detected_freq_mhz"),
+            preflight_recommendation.get("selected_preset_freq_mhz"),
+            preflight_recommendation.get("recommended_preset_family"),
+            preflight_recommendation.get("recommended_velocity_mns", 0.0),
+        )
+
     # 3. SNR do dado bruto e modo de processamento
     snr_raw_ratio = calcular_snr_ratio(dzt_data.arr_raw)
     snr_raw_db = calcular_snr_imagem_db(dzt_data.arr_raw)
@@ -253,6 +291,8 @@ def process_dzt(
         engine_version=_ENGINE_VERSION,
         pipeline_version=_PIPELINE_VERSION,
         engine_name=_ENGINE_NAME,
+        preflight_metadata=preflight_metadata,
+        preflight_recommendation=preflight_recommendation,
     )
     metrics_path = save_metrics_atomic(
         metrics, out_dir / f"{_stem}_pipeline_metrics.json",
