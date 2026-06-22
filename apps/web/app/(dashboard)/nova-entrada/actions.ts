@@ -45,7 +45,8 @@ export async function createProject(
     return { error: "Selecione um preset de processamento." };
   }
 
-  const processing_config: Record<string, unknown> = {};
+  // readgssi_engine é o motor padrão; param_overrides pode sobrescrever para rollback técnico
+  const processing_config: Record<string, unknown> = { engine: "readgssi_engine" };
   if (skip_ia) processing_config.skip_ia = true;
   Object.assign(processing_config, param_overrides);
 

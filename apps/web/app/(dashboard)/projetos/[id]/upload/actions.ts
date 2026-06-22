@@ -67,7 +67,8 @@ export async function startProcessingWithConfig(
     .from("projects")
     .update({
       status: "aguardando_processamento",
-      processing_config: config,
+      // engine é injetado aqui; o restante de config pode sobrescrever se necessário
+      processing_config: { engine: "readgssi_engine", ...config },
     } as unknown as never)
     .eq("id", projectId);
 
