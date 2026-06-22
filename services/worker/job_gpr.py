@@ -96,6 +96,11 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
 
         if filtros_customizados:
             processing_config = _filtros_to_pipeline_config(filtros_customizados)
+            # Preserva campos do readgssi_engine não mapeados por _filtros_to_pipeline_config
+            # (engine, antenna_freq_mhz, visual_profile não existem no FilterState legado)
+            for _k in ("engine", "antenna_freq_mhz", "visual_profile"):
+                if _k in filtros_customizados:
+                    processing_config[_k] = filtros_customizados[_k]
             log.info("reprocess_custom_filters", filters=filtros_customizados, config=processing_config)
         else:
             processing_config = raw_config
