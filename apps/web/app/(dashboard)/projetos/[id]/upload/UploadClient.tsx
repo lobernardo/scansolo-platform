@@ -1,9 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { registerUploadedFiles, startProcessingWithConfig, startProcessingDirect } from "./actions";
+import {
+  registerUploadedFiles,
+  startPreflight,
+  startProcessingWithConfig,
+  startProcessingDirect,
+} from "./actions";
 import type { FilterConfig, UploadedFileMeta } from "./actions";
+import { getJobStatus } from "../actions";
 
 // ── Presets de configuração ───────────────────────────────────────────────────
 
@@ -38,22 +44,49 @@ const FILTER_LABELS: Record<keyof FilterConfig["filtros_ativos"], string> = {
 };
 
 const UPLOAD_BATCH_SIZE = 5;
+const PREFLIGHT_POLL_MS = 5000;
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-type Step = "upload" | "configure" | "ready";
+// "configure" e "ready" mantidos para fallback; fluxo normal vai para "preflight"
+type Step = "upload" | "preflight" | "configure" | "ready";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function UploadClient({ projectId, presetId }: { projectId: string; presetId: string | null }) {
-  const [step, setStep]       = useState<Step>("upload");
-  const [files, setFiles]     = useState<File[]>([]);
+  const [step, setStep]           = useState<Step>("upload");
+  const [files, setFiles]         = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress]   = useState(0);   // quantos já foram enviados
+  const [progress, setProgress]   = useState(0);
   const [starting, setStarting]   = useState(false);
   const [errorMsg, setErrorMsg]   = useState("");
-  const [config, setConfig]   = useState<FilterConfig>(DEFAULT_CONFIG);
+  const [config, setConfig]       = useState<FilterConfig>(DEFAULT_CONFIG);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Preflight state
+  const [preflightJobId, setPreflightJobId]     = useState<string | null>(null);
+  const [preflightStatus, setPreflightStatus]   = useState<string>("aguardando");
+  const [preflightError, setPreflightError]     = useState("");
+  const [uploadedCount, setUploadedCount]       = useState(0);
+
   const dztFiles = files.filter((f) => f.name.toLowerCase().endsWith(".dzt"));
+
+  // ── Polling do job de preflight ───────────────────────────────────────────
+
+  useEffect(() => {
+    if (step !== "preflight" || !preflightJobId) return;
+    if (preflightStatus === "concluido" || preflightStatus === "erro") return;
+
+    const id = setInterval(async () => {
+      try {
+        const s = await getJobStatus(preflightJobId);
+        if (s) setPreflightStatus(s);
+      } catch {
+        // silencioso — próximo poll tentará novamente
+      }
+    }, PREFLIGHT_POLL_MS);
+
+    return () => clearInterval(id);
+  }, [step, preflightJobId, preflightStatus]);
 
   // ── Step 1: upload direto browser → Supabase Storage ─────────────────────
 
@@ -68,7 +101,6 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
       const supabase = createClient();
       const uploaded: UploadedFileMeta[] = [];
 
-      // Envia em lotes paralelos de UPLOAD_BATCH_SIZE
       for (let i = 0; i < dztFiles.length; i += UPLOAD_BATCH_SIZE) {
         const batch = dztFiles.slice(i, i + UPLOAD_BATCH_SIZE);
 
@@ -101,16 +133,27 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
         setProgress(uploaded.length);
       }
 
-      // Registra metadados no banco via Server Action (payload tiny: só JSON)
-      const result = await registerUploadedFiles(projectId, uploaded);
-      if (!result.ok) {
-        setErrorMsg(result.error);
+      // Registra metadados no banco
+      const regResult = await registerUploadedFiles(projectId, uploaded);
+      if (!regResult.ok) {
+        setErrorMsg(regResult.error);
         setUploading(false);
         return;
       }
 
-      // Se projeto já tem preset configurado via Nova Entrada, pula configuração manual
-      setStep(presetId ? "ready" : "configure");
+      // Inicia job de preflight (leitura de metadados DZT sem processamento pesado)
+      const pfResult = await startPreflight(projectId);
+      if (!pfResult.ok) {
+        setErrorMsg(pfResult.error ?? "Erro ao iniciar preflight");
+        setUploading(false);
+        return;
+      }
+
+      setUploadedCount(uploaded.length);
+      setPreflightJobId(pfResult.jobId ?? null);
+      setPreflightStatus("aguardando");
+      setPreflightError("");
+      setStep("preflight");
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Erro inesperado no upload");
     } finally {
@@ -118,7 +161,7 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
     }
   }
 
-  // ── Step 2: configure + start ─────────────────────────────────────────────
+  // ── Fallback: configure + start (mantido para compatibilidade) ────────────
 
   async function handleStart() {
     setStarting(true);
@@ -143,7 +186,88 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
     }));
   }
 
-  // ── Render: step ready (projeto com preset — dispara direto) ─────────────
+  // ── Render: step preflight ────────────────────────────────────────────────
+
+  if (step === "preflight") {
+    const isDone  = preflightStatus === "concluido";
+    const isError = preflightStatus === "erro";
+    const isPending = !isDone && !isError;
+
+    return (
+      <div className="max-w-xl mx-auto px-4 py-8 space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">
+            {isDone ? "Preflight concluído" : isError ? "Erro no preflight" : "Analisando DZTs…"}
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            {uploadedCount} arquivo{uploadedCount !== 1 ? "s" : ""} enviado{uploadedCount !== 1 ? "s" : ""} com sucesso.
+          </p>
+        </div>
+
+        {isPending && (
+          <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+              <p className="text-sm font-medium text-cyan-300">Analisando metadados do DZT…</p>
+            </div>
+            <p className="text-xs text-slate-400">
+              O sistema está lendo os parâmetros de antena, velocity e profundidade dos arquivos
+              para recomendar a melhor configuração de processamento.
+            </p>
+          </div>
+        )}
+
+        {isDone && (
+          <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-4 space-y-2">
+            <p className="text-sm font-medium text-green-300">
+              Metadados lidos com sucesso.
+            </p>
+            <p className="text-xs text-slate-400">
+              Aguardando confirmação para iniciar o processamento GPR. A configuração recomendada
+              estará disponível na página do projeto.
+            </p>
+          </div>
+        )}
+
+        {isError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 space-y-2">
+            <p className="text-sm font-medium text-red-300">Erro ao analisar metadados.</p>
+            {preflightError && (
+              <p className="text-xs text-slate-400 font-mono">{preflightError}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <a
+            href={`/projetos/${projectId}`}
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition-colors text-center"
+          >
+            Ver projeto
+          </a>
+          {isError && (
+            <button
+              onClick={async () => {
+                setPreflightError("");
+                const pfResult = await startPreflight(projectId);
+                if (!pfResult.ok) {
+                  setPreflightError(pfResult.error ?? "Erro ao tentar novamente");
+                  return;
+                }
+                setPreflightJobId(pfResult.jobId ?? null);
+                setPreflightStatus("aguardando");
+              }}
+              className="flex-1 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors"
+            >
+              Tentar novamente
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render: step ready (fallback — projeto com preset) ────────────────────
 
   if (step === "ready") {
     return (
@@ -186,7 +310,7 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
     );
   }
 
-  // ── Render: step configure ────────────────────────────────────────────────
+  // ── Render: step configure (fallback — sem preset) ────────────────────────
 
   if (step === "configure") {
     return (
@@ -199,7 +323,6 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
           </p>
         </div>
 
-        {/* Presets rápidos */}
         <div>
           <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">Preset rápido</p>
           <div className="flex flex-wrap gap-2">
@@ -215,7 +338,6 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
           </div>
         </div>
 
-        {/* Filtros — toggles */}
         <div className="rounded-xl border border-slate-800 bg-slate-900 divide-y divide-slate-800">
           {(Object.keys(FILTER_LABELS) as (keyof FilterConfig["filtros_ativos"])[]).map((key) => (
             <div key={key} className="flex items-center justify-between px-4 py-3">
@@ -236,7 +358,6 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
           ))}
         </div>
 
-        {/* Sliders */}
         <div className="space-y-4">
           {config.filtros_ativos.background_removal && (
             <Slider
@@ -322,7 +443,6 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
           )}
         </div>
 
-        {/* Progress bar — só aparece durante o envio */}
         {uploading && dztFiles.length > 0 && (
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-slate-400">

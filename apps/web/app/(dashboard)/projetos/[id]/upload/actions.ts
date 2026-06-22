@@ -82,6 +82,42 @@ export async function startProcessingWithConfig(
 }
 
 /**
+ * Inicia job leve de preflight: lê metadados dos DZTs e gera recomendação
+ * de configuração antes do processamento pesado GPR.
+ *
+ * Substitui startProcessingDirect/startProcessingWithConfig como primeiro passo
+ * após upload. O job GPR pesado só é criado após confirmação do usuário (8.16D).
+ */
+export async function startPreflight(
+  projectId: string
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  // Sinaliza que preflight está pendente (worker vai pegar o job)
+  await supabase
+    .from("projects")
+    .update({ status: "aguardando_preflight" } as unknown as never)
+    .eq("id", projectId);
+
+  const jobId = crypto.randomUUID();
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({
+      id: jobId,
+      project_id: projectId,
+      job_type: "preflight",
+      status: "aguardando",
+    } as unknown as never);
+
+  if (error) return { ok: false, error: `Erro ao criar job preflight: ${error.message}` };
+  return { ok: true, jobId };
+}
+
+/**
  * Inicia o processamento SEM alterar processing_config.
  * Usado quando o projeto já tem preset_id configurado via Nova Entrada.
  */
