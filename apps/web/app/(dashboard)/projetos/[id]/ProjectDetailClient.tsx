@@ -13,7 +13,10 @@ type GprProfileRow = Database["public"]["Tables"]["gpr_profiles"]["Row"];
 type DetectedTargetRow = Database["public"]["Tables"]["detected_targets"]["Row"];
 type AiInterpretationRow = Database["public"]["Tables"]["ai_interpretations"]["Row"];
 
-type LightboxState = { images: { url: string; label: string }[]; index: number };
+type LightboxState = {
+  images: { url: string; label: string; legend?: string }[];
+  index: number;
+};
 type FilterTab = "all" | "alta" | "media" | "baixa";
 
 export type DownloadFile = {
@@ -21,6 +24,31 @@ export type DownloadFile = {
   url: string | null;
   ext: string;
 };
+
+// ── Image metadata ────────────────────────────────────────────────────────────
+
+type ProfileImage = { url: string; label: string; legend: string };
+
+const IMAGE_LEGENDS: Record<string, string> = {
+  Original:
+    "Dado bruto lido do DZT, sem filtros de processamento. Usado para auditoria e comparação.",
+  Técnica:
+    "Imagem tratada para análise geofísica. Preserva melhor os sinais para revisão técnica e validação.",
+  Relatório:
+    "Imagem otimizada para apresentação ao cliente. Usa filtros visuais para melhorar contraste e leitura.",
+  Alvos:
+    "Imagem com marcações dos sinais detectados. Revise os alvos antes de incluir no relatório.",
+};
+
+function buildProfileImages(profile: GprProfileRow): ProfileImage[] {
+  const candidates: { url: string | null | undefined; label: string; legend: string }[] = [
+    { url: profile.imagem_bruta_url,      label: "Original",  legend: IMAGE_LEGENDS["Original"]  ?? "" },
+    { url: profile.imagem_cientifica_url, label: "Técnica",   legend: IMAGE_LEGENDS["Técnica"]   ?? "" },
+    { url: profile.imagem_processada_url, label: "Relatório", legend: IMAGE_LEGENDS["Relatório"] ?? "" },
+    { url: profile.imagem_anotada_url,    label: "Alvos",     legend: IMAGE_LEGENDS["Alvos"]     ?? "" },
+  ];
+  return candidates.filter((i): i is ProfileImage => !!i.url);
+}
 
 // ── Filter state ──────────────────────────────────────────────────────────────
 
@@ -80,6 +108,9 @@ export function ProjectDetailClient({
   const [velocityInput, setVelocityInput] = useState(initialVelocity);
   const [velocityStatus, setVelocityStatus] = useState<"idle" | "loading" | "concluido" | "error">("idle");
   const [velocityJobId, setVelocityJobId] = useState<string | null>(null);
+
+  // Per-profile active image label (for legend display below thumbnails)
+  const [activeImgLabel, setActiveImgLabel] = useState<Record<string, string>>({});
 
   // Pipeline log state (C3/C4): loaded lazily per profile
   const [pipelineLogs, setPipelineLogs] = useState<Record<string, PipelineMetrics | null>>({});
@@ -167,15 +198,7 @@ export function ProjectDetailClient({
   }, [lightbox, closeLightbox, prevImage, nextImage]);
 
   function openLightbox(profile: GprProfileRow, startIndex: number) {
-    const imgs: { url: string; label: string }[] = [
-      { url: profile.imagem_bruta_url ?? "",            label: "Bruta" },
-      { url: profile.imagem_cientifica_url ?? "",        label: "Técnica" },
-      { url: profile.imagem_processada_url ?? "",       label: "Relatório" },
-      { url: profile.imagem_preview_radan_5m_url ?? "", label: "Visual" },
-      { url: profile.imagem_anotada_url ?? "",          label: "Anotada IA" },
-      { url: profile.imagem_interpretada_url ?? "",     label: "Interpretada IA" },
-      { url: profile.imagem_interpretada_ia_p2_url ?? "", label: "Anotada P2" },
-    ].filter((i) => i.url);
+    const imgs = buildProfileImages(profile);
     if (!imgs.length) return;
     setLightbox({ images: imgs, index: Math.min(startIndex, imgs.length - 1) });
   }
@@ -257,6 +280,31 @@ export function ProjectDetailClient({
     }
   }
 
+  async function handleReprocessWithOverrides(
+    profileId: string,
+    overrides: Record<string, unknown>
+  ) {
+    if (pipelineLogs[profileId] !== undefined) {
+      setPrevLogs((prev) => ({ ...prev, [profileId]: pipelineLogs[profileId] }));
+    }
+    setReprocessStatus((prev) => ({ ...prev, [profileId]: "loading" }));
+    try {
+      const result = await reprocessProfile(
+        profileId,
+        overrides as unknown as FilterState
+      );
+      if (result.ok && result.jobId) {
+        setPendingJobs((prev) => ({ ...prev, [profileId]: result.jobId! }));
+      }
+      setReprocessStatus((prev) => ({
+        ...prev,
+        [profileId]: result.ok ? "queued" : "error",
+      }));
+    } catch {
+      setReprocessStatus((prev) => ({ ...prev, [profileId]: "error" }));
+    }
+  }
+
   async function handleSaveAsPreset(profileId: string, name: string) {
     const result = await saveCurrentFiltersAsPreset(profileId, name);
     if (result.ok) {
@@ -316,15 +364,9 @@ export function ProjectDetailClient({
               const pBaixa = pTargets.filter(
                 (t) => t.confidence_label_relatorio === "baixa"
               ).length;
-              const imgs = [
-                { url: profile.imagem_bruta_url,             label: "Bruta" },
-                { url: profile.imagem_cientifica_url,         label: "Técnica" },
-                { url: profile.imagem_processada_url,        label: "Relatório" },
-                { url: profile.imagem_preview_radan_5m_url,  label: "Visual" },
-                { url: profile.imagem_anotada_url,           label: "Anotada IA" },
-                { url: profile.imagem_interpretada_url,      label: "Interpretada IA" },
-                { url: profile.imagem_interpretada_ia_p2_url, label: "Anotada P2" },
-              ].filter((i): i is { url: string; label: string } => !!i.url);
+              const imgs = buildProfileImages(profile);
+              const activeLbl = activeImgLabel[profile.id] ?? imgs[0]?.label ?? "";
+              const activeLegend: string = IMAGE_LEGENDS[activeLbl] ?? "";
 
               const customized = isCustomized(profile.id);
               const expanded = expandedFilters[profile.id] ?? false;
@@ -382,7 +424,10 @@ export function ProjectDetailClient({
                         {imgs.map((img, idx) => (
                           <button
                             key={img.label}
-                            onClick={() => openLightbox(profile, idx)}
+                            onClick={() => {
+                              setActiveImgLabel((prev) => ({ ...prev, [profile.id]: img.label }));
+                              openLightbox(profile, idx);
+                            }}
                             className="relative group rounded overflow-hidden border border-slate-700 hover:border-cyan-500/50 transition-colors flex-1"
                             title={`Abrir ${img.label} em tamanho real`}
                           >
@@ -399,6 +444,13 @@ export function ProjectDetailClient({
                           </button>
                         ))}
                       </div>
+                      {/* Legend for active image */}
+                      {activeLegend && (
+                        <p className="text-[11px] text-slate-400 px-0.5 pt-1.5 border-t border-slate-700/50 leading-snug">
+                          <span className="font-medium text-slate-300">{activeLbl}:</span>{" "}
+                          {activeLegend}
+                        </p>
+                      )}
                       {/* Download buttons */}
                       <div className="flex gap-2 flex-wrap">
                         {imgs.map((img) => (
@@ -455,6 +507,10 @@ export function ProjectDetailClient({
                             <PipelineLog
                               metrics={pipelineLogs[profile.id] ?? null}
                               compact={false}
+                              profileId={profile.id}
+                              onReprocessWithOverrides={(overrides) =>
+                                handleReprocessWithOverrides(profile.id, overrides)
+                              }
                             />
                           )}
                         </div>
@@ -595,15 +651,22 @@ export function ProjectDetailClient({
               </div>
             )}
 
-            <div className="flex items-center gap-4">
-              <span className="text-white text-sm font-medium">
-                {lightbox.images[lightbox.index].label}
-              </span>
-              <span className="text-slate-400 text-xs">
-                {lightbox.index + 1} / {lightbox.images.length}
-              </span>
-              {lightbox.images.length > 1 && (
-                <span className="text-slate-500 text-xs">← → ou setas do teclado</span>
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-4">
+                <span className="text-white text-sm font-medium">
+                  {lightbox.images[lightbox.index].label}
+                </span>
+                <span className="text-slate-400 text-xs">
+                  {lightbox.index + 1} / {lightbox.images.length}
+                </span>
+                {lightbox.images.length > 1 && (
+                  <span className="text-slate-500 text-xs">← → ou setas do teclado</span>
+                )}
+              </div>
+              {lightbox.images[lightbox.index].legend && (
+                <p className="text-xs text-slate-400 max-w-xl text-center leading-relaxed">
+                  {lightbox.images[lightbox.index].legend}
+                </p>
               )}
             </div>
           </div>
@@ -804,7 +867,7 @@ export function ProjectDetailClient({
             Recalcula e salva a profundidade máxima (m) nos metadados de todos os perfis e atualiza a velocity padrão do projeto para novos processamentos.
           </p>
           <p className="text-xs text-amber-400/80">
-            As imagens existentes (Técnica, Relatório, Visual) não são alteradas por esta ação. Para regenerar as imagens com a nova escala, use &ldquo;Ajustar filtros&rdquo; em cada perfil.
+            As imagens existentes (Técnica, Relatório) não são alteradas por esta ação. Para regenerar as imagens com a nova escala, use &ldquo;Ajustar filtros&rdquo; em cada perfil.
           </p>
           <div className="flex items-center gap-3">
             <label className="text-xs text-slate-400 shrink-0">Velocity (m/ns)</label>
@@ -911,7 +974,7 @@ function FilterPanel({
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            {t === "processada" ? "Relatório" : "Visual"}
+            {t === "processada" ? "Relatório" : "Prof. visual"}
           </button>
         ))}
       </div>

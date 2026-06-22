@@ -53,6 +53,56 @@ export type FilterConfig = {
   agc_window: number;
 };
 
+// ── Tipos do preflight ────────────────────────────────────────────────────────
+
+export type DztMetadata = {
+  dzt_filename: string;
+  antenna_freq_mhz_detected: number;
+  velocity_header_mns: number;
+  epsr_header: number;
+  dist_total_m: number;
+  depth_real_m_from_header_velocity: number;
+  depth_real_m_from_standard_velocity: number;
+  header_confidence: "alta" | "media" | "baixa";
+  warnings: string[];
+  modo_coleta: string;
+  n_traces: number;
+};
+
+export type PreflightRecommendation = {
+  frequency_mismatch: boolean;
+  selected_preset_freq_mhz: number;
+  detected_freq_mhz: number;
+  recommended_antenna_freq_mhz: number;
+  recommended_preset_family: string | null;
+  recommended_velocity_mns: number;
+  velocity_from_header: boolean;
+  recommended_engine: string;
+  recommended_visual_profile: string;
+  recommended_depth_preview_m: number;
+  header_confidence: "alta" | "media" | "baixa";
+  warnings: string[];
+};
+
+export type PreflightFileResult = {
+  dzt_metadata: DztMetadata;
+  recommendation: PreflightRecommendation;
+};
+
+export type PreflightData = {
+  files: Record<string, PreflightFileResult>;
+  projectStatus: string;
+  currentConfig: Record<string, unknown>;
+};
+
+export type PreflightOverrides = {
+  velocity_mns?: number;
+  depth_preview_m?: number;
+  bandpass_enabled?: boolean;
+};
+
+// ── Server actions ────────────────────────────────────────────────────────────
+
 export async function startProcessingWithConfig(
   projectId: string,
   config: FilterConfig
@@ -67,7 +117,7 @@ export async function startProcessingWithConfig(
     .from("projects")
     .update({
       status: "aguardando_processamento",
-      processing_config: config,
+      processing_config: { engine: "readgssi_engine", ...config },
     } as unknown as never)
     .eq("id", projectId);
 
@@ -81,8 +131,161 @@ export async function startProcessingWithConfig(
 }
 
 /**
+ * Inicia job leve de preflight: lê metadados dos DZTs e gera recomendação
+ * de configuração antes do processamento pesado GPR.
+ */
+export async function startPreflight(
+  projectId: string
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  await supabase
+    .from("projects")
+    .update({ status: "aguardando_preflight" } as unknown as never)
+    .eq("id", projectId);
+
+  const jobId = crypto.randomUUID();
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({
+      id: jobId,
+      project_id: projectId,
+      job_type: "preflight",
+      status: "aguardando",
+    } as unknown as never);
+
+  if (error) return { ok: false, error: `Erro ao criar job preflight: ${error.message}` };
+  return { ok: true, jobId };
+}
+
+/**
+ * Busca o resultado do preflight salvo em projects.processing_config._preflight.
+ */
+export async function getProjectPreflight(
+  projectId: string
+): Promise<PreflightData | null> {
+  const supabase = await createClient();
+  const { data: rawData } = await supabase
+    .from("projects")
+    .select("processing_config, status")
+    .eq("id", projectId)
+    .single();
+
+  const data = rawData as { processing_config: unknown; status: string } | null;
+  if (!data) return null;
+
+  const config = (data.processing_config as Record<string, unknown>) ?? {};
+  const preflight = config._preflight as Record<string, PreflightFileResult> | undefined;
+
+  if (!preflight || typeof preflight !== "object") return null;
+
+  return {
+    files: preflight,
+    projectStatus: data.status,
+    currentConfig: config,
+  };
+}
+
+/**
+ * Confirma o preflight e cria o job GPR pesado.
+ *
+ * Para cada arquivo em _preflight, monta uma config própria baseada na
+ * recommendation daquele arquivo e salva em _preflight_file_configs.
+ * O worker usa _preflight_file_configs[filename] ao processar cada DZT.
+ *
+ * Se houver overrides, eles são aplicados a todos os arquivos e a source
+ * é marcada como "preflight_with_global_override".
+ * engine é sempre forçado para "readgssi_engine" — nunca sobrescrito.
+ */
+export async function confirmPreflight(
+  projectId: string,
+  overrides: PreflightOverrides = {}
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  const { data: projRaw } = await supabase
+    .from("projects")
+    .select("processing_config")
+    .eq("id", projectId)
+    .single();
+
+  const proj = projRaw as { processing_config: unknown } | null;
+  const currentConfig = (proj?.processing_config as Record<string, unknown>) ?? {};
+  const preflight = currentConfig._preflight as
+    | Record<string, { recommendation: PreflightRecommendation }>
+    | undefined;
+
+  const hasOverrides =
+    overrides.velocity_mns !== undefined ||
+    overrides.depth_preview_m !== undefined ||
+    overrides.bandpass_enabled !== undefined;
+
+  // Monta config por arquivo a partir da recommendation de cada DZT
+  const fileConfigs: Record<string, Record<string, unknown>> = {};
+  for (const [filename, fileResult] of Object.entries(preflight ?? {})) {
+    const rec = fileResult.recommendation;
+    const fc: Record<string, unknown> = {
+      engine:           "readgssi_engine",
+      antenna_freq_mhz: rec.recommended_antenna_freq_mhz,
+      velocity_mns:     rec.recommended_velocity_mns,
+      visual_profile:   rec.recommended_visual_profile,
+      depth_preview_m:  rec.recommended_depth_preview_m,
+      source:           hasOverrides ? "preflight_with_global_override" : "preflight",
+    };
+    // Overrides globais aplicados a cada arquivo; engine nunca sobrescrito
+    if (overrides.velocity_mns !== undefined)    fc.velocity_mns    = overrides.velocity_mns;
+    if (overrides.depth_preview_m !== undefined) fc.depth_preview_m = overrides.depth_preview_m;
+    if (overrides.bandpass_enabled !== undefined) fc.bandpass_enabled = overrides.bandpass_enabled;
+    fileConfigs[filename] = fc;
+  }
+
+  const finalConfig: Record<string, unknown> = {
+    ...currentConfig,
+    engine:                    "readgssi_engine",  // nunca sobrescrito
+    _preflight:                currentConfig._preflight,
+    _preflight_done:           true,
+    _preflight_accepted:       true,
+    _preflight_file_configs:   fileConfigs,
+  };
+
+  const { error: updateErr } = await supabase
+    .from("projects")
+    .update({
+      processing_config: finalConfig,
+      status: "aguardando_processamento",
+    } as unknown as never)
+    .eq("id", projectId);
+
+  if (updateErr)
+    return { ok: false, error: `Erro ao atualizar config: ${updateErr.message}` };
+
+  const jobId = crypto.randomUUID();
+  const { error: jobErr } = await supabase
+    .from("processing_jobs")
+    .insert({
+      id: jobId,
+      project_id: projectId,
+      job_type: "gpr",
+      status: "aguardando",
+    } as unknown as never);
+
+  if (jobErr)
+    return { ok: false, error: `Erro ao criar job GPR: ${jobErr.message}` };
+
+  return { ok: true, jobId };
+}
+
+/**
  * Inicia o processamento SEM alterar processing_config.
- * Usado quando o projeto já tem preset_id configurado via Nova Entrada.
+ * Mantido como fallback para projetos sem preflight.
  */
 export async function startProcessingDirect(projectId: string): Promise<void> {
   const supabase = await createClient();

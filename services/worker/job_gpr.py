@@ -96,6 +96,11 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
 
         if filtros_customizados:
             processing_config = _filtros_to_pipeline_config(filtros_customizados)
+            # Preserva campos do readgssi_engine não mapeados por _filtros_to_pipeline_config
+            # (engine, antenna_freq_mhz, visual_profile não existem no FilterState legado)
+            for _k in ("engine", "antenna_freq_mhz", "visual_profile"):
+                if _k in filtros_customizados:
+                    processing_config[_k] = filtros_customizados[_k]
             log.info("reprocess_custom_filters", filters=filtros_customizados, config=processing_config)
         else:
             processing_config = raw_config
@@ -106,7 +111,14 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
             processing_config["velocity_mns"] = float(velocity_from_config)
             log.info("pipeline_velocity_from_project_config", velocity_mns=velocity_from_config)
 
-        _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
+        engine = _get_engine(processing_config or {})
+        log.info("gpr_engine_selected", engine=engine)
+
+        if engine == "readgssi_engine":
+            from gpr_engine.scansolo_adapter import run_new_engine
+            run_new_engine(input_dir, output_dir, processing_config, tipo_solo)
+        else:
+            _run_pipeline(input_dir, output_dir, processing_config=processing_config, tipo_solo=tipo_solo)
 
         run_id = str(uuid.uuid4())
         new_profiles = _persist_outputs(
@@ -131,9 +143,10 @@ def handle_gpr_job(supa: "SupabaseClient", job: dict) -> None:
         else:
             supa.update_project_status(project_id, "gpr_concluido")
             log.info("gpr_job_done", job_id=job_id, run_id=run_id)
-            skip_ia = (raw_config or {}).get("skip_ia", False)
+            # readgssi_engine nao tem detector integrado nesta fase: skip_ia forcado
+            skip_ia = engine == "readgssi_engine" or (raw_config or {}).get("skip_ia", False)
             if skip_ia:
-                log.info("gpr_skip_ia", project_id=project_id)
+                log.info("gpr_skip_ia", project_id=project_id, engine=engine)
             else:
                 supa.create_job(project_id, "ia")
 
@@ -295,6 +308,26 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
     return cfg
 
 
+# ── Engine selection ──────────────────────────────────────────────────────────
+
+_VALID_ENGINES = frozenset({"readgssi_engine", "legacy_scansolo"})
+
+
+def _get_engine(processing_config: dict) -> str:
+    """
+    Resolve o motor GPR a usar com base em processing_config["engine"].
+
+    "readgssi_engine"  -> novo motor (gpr_engine.pipeline.process_dzt)
+    "legacy_scansolo"  -> motor legado (subprocess pipeline_v1.py)
+    ausente ou invalido -> fallback "legacy_scansolo" com aviso no log
+    """
+    engine = str(processing_config.get("engine", "legacy_scansolo"))
+    if engine not in _VALID_ENGINES:
+        log.warning("gpr_engine_invalid", engine=engine, fallback="legacy_scansolo")
+        return "legacy_scansolo"
+    return engine
+
+
 # ── Pipeline subprocess ───────────────────────────────────────────────────────
 
 def _run_pipeline(
@@ -431,7 +464,7 @@ def _persist_outputs(
             try:
                 metrics_bytes = metrics_file.read_bytes()
                 m_path = f"{project_id}/{run_id}/{profile_id[:8]}/{metrics_file.name}"
-                supa.upload_file("gpr-tabelas", m_path, metrics_bytes, "application/json")
+                supa.upload_file("gpr-tabelas", m_path, metrics_bytes, "application/octet-stream")
                 signed = supa._client.storage.from_("gpr-tabelas").create_signed_url(
                     m_path, 315360000  # 10 anos em segundos
                 )

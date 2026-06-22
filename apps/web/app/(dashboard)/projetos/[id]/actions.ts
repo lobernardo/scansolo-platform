@@ -38,10 +38,16 @@ export async function reprocessProfile(
   if (!profileRaw) return { ok: false, error: "Perfil não encontrado" };
   const profile = profileRaw as { id: string; project_id: string };
 
+  // Garante que engine está sempre definido (preserva se já vier em overrides de preflight)
+  const filtersWithEngine: Record<string, unknown> = {
+    ...(filters as Record<string, unknown>),
+    engine: (filters as Record<string, unknown>).engine ?? "readgssi_engine",
+  };
+
   // Save custom filters to the profile (column may not exist in DB yet — log and continue)
   const { error: updateError } = await supabase
     .from("gpr_profiles")
-    .update({ filtros_customizados: filters } as unknown as never)
+    .update({ filtros_customizados: filtersWithEngine } as unknown as never)
     .eq("id", profileId);
 
   if (updateError) {
@@ -62,7 +68,7 @@ export async function reprocessProfile(
       project_id: profile.project_id,
       job_type: "gpr",
       status: "aguardando",
-      payload: { profile_id: profileId, filtros_customizados: filters },
+      payload: { profile_id: profileId, filtros_customizados: filtersWithEngine },
     } as unknown as never);
 
   if (jobError) {

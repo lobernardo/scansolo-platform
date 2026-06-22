@@ -10,12 +10,24 @@ pydantic==2.10.3
 pydantic-settings==2.7.0
 ezdxf>=1.3            # DXF generation (Fase 4 - Cartografia)
 python-docx>=1.1      # DOCX generation (Fase 5 - Relatório)
-# pipeline dependencies
+# pipeline dependencies — pipeline_v1.py (engine legacy, mantido intacto)
 # gprpy is not on PyPI — install from GitHub:
 #   pip install git+https://github.com/NSGeophysics/GPRPy.git
 gprpy @ git+https://github.com/NSGeophysics/GPRPy.git
 numpy>=1.26
-scipy>=1.13
+# scipy<1.15: readgssi/filtering.py linha 2 usa
+#   from scipy.ndimage.filters import uniform_filter1d
+# Esse submodule foi removido no scipy 1.15 (jan/2025). A Fase 1 não chama
+# filtering — a restrição é preemptiva para a Fase 2, que usará filtering.bgr()
+# e filtering.triangular(). pipeline_v1.py não é afetado: usa apenas
+# scipy.signal (butter, sosfiltfilt, firwin2, filtfilt, hilbert), sem
+# scipy.ndimage.filters. Se o fork lobernardo/readgssi já corrigi esse import,
+# o pin pode ser removido sem impacto.
+scipy>=1.13,<1.15
 matplotlib>=3.9
 pandas>=2.2
 Pillow>=10.4
+# gpr_engine dependencies — novo motor baseado em readgssi (Fase 1+)
+readgssi @ git+https://github.com/lobernardo/readgssi.git
+pynmea2>=1.18   # parsing de sentenças NMEA em readgssi.gps (necessário quando DZG presente)
+geopy>=2.4      # cálculos de distância haversine em readgssi.gps
