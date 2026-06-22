@@ -193,9 +193,13 @@ export async function getProjectPreflight(
 /**
  * Confirma o preflight e cria o job GPR pesado.
  *
- * Lê o _preflight salvo, monta a config recomendada com overrides opcionais,
- * atualiza projects.processing_config, e insere processing_jobs (job_type="gpr").
- * Nunca permite engine diferente de readgssi_engine.
+ * Para cada arquivo em _preflight, monta uma config própria baseada na
+ * recommendation daquele arquivo e salva em _preflight_file_configs.
+ * O worker usa _preflight_file_configs[filename] ao processar cada DZT.
+ *
+ * Se houver overrides, eles são aplicados a todos os arquivos e a source
+ * é marcada como "preflight_with_global_override".
+ * engine é sempre forçado para "readgssi_engine" — nunca sobrescrito.
  */
 export async function confirmPreflight(
   projectId: string,
@@ -219,29 +223,37 @@ export async function confirmPreflight(
     | Record<string, { recommendation: PreflightRecommendation }>
     | undefined;
 
-  // Usa recomendação do primeiro arquivo como base
-  const firstRec = preflight ? Object.values(preflight)[0]?.recommendation : null;
+  const hasOverrides =
+    overrides.velocity_mns !== undefined ||
+    overrides.depth_preview_m !== undefined ||
+    overrides.bandpass_enabled !== undefined;
 
-  const recommended: Record<string, unknown> = {
-    engine:           "readgssi_engine",
-    antenna_freq_mhz: firstRec?.recommended_antenna_freq_mhz ?? 270,
-    velocity_mns:     firstRec?.recommended_velocity_mns ?? 0.10,
-    visual_profile:   firstRec?.recommended_visual_profile ?? "readgssi_reference",
-    depth_preview_m:  firstRec?.recommended_depth_preview_m ?? 5.0,
-  };
-
-  // Aplica overrides (engine sempre forçado para readgssi_engine)
-  if (overrides.velocity_mns !== undefined) recommended.velocity_mns = overrides.velocity_mns;
-  if (overrides.depth_preview_m !== undefined) recommended.depth_preview_m = overrides.depth_preview_m;
-  if (overrides.bandpass_enabled !== undefined) recommended.bandpass_enabled = overrides.bandpass_enabled;
+  // Monta config por arquivo a partir da recommendation de cada DZT
+  const fileConfigs: Record<string, Record<string, unknown>> = {};
+  for (const [filename, fileResult] of Object.entries(preflight ?? {})) {
+    const rec = fileResult.recommendation;
+    const fc: Record<string, unknown> = {
+      engine:           "readgssi_engine",
+      antenna_freq_mhz: rec.recommended_antenna_freq_mhz,
+      velocity_mns:     rec.recommended_velocity_mns,
+      visual_profile:   rec.recommended_visual_profile,
+      depth_preview_m:  rec.recommended_depth_preview_m,
+      source:           hasOverrides ? "preflight_with_global_override" : "preflight",
+    };
+    // Overrides globais aplicados a cada arquivo; engine nunca sobrescrito
+    if (overrides.velocity_mns !== undefined)    fc.velocity_mns    = overrides.velocity_mns;
+    if (overrides.depth_preview_m !== undefined) fc.depth_preview_m = overrides.depth_preview_m;
+    if (overrides.bandpass_enabled !== undefined) fc.bandpass_enabled = overrides.bandpass_enabled;
+    fileConfigs[filename] = fc;
+  }
 
   const finalConfig: Record<string, unknown> = {
     ...currentConfig,
-    ...recommended,
-    engine:              "readgssi_engine",  // nunca sobrescrito por override
-    _preflight:          currentConfig._preflight,
-    _preflight_done:     true,
-    _preflight_accepted: true,
+    engine:                    "readgssi_engine",  // nunca sobrescrito
+    _preflight:                currentConfig._preflight,
+    _preflight_done:           true,
+    _preflight_accepted:       true,
+    _preflight_file_configs:   fileConfigs,
   };
 
   const { error: updateErr } = await supabase

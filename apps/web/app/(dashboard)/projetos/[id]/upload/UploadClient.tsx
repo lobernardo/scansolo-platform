@@ -215,9 +215,13 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
   }
 
   function handleOpenAdjust() {
-    const firstRec = preflightData ? Object.values(preflightData.files)[0]?.recommendation : null;
-    setAdjVelocity(String(firstRec?.recommended_velocity_mns ?? 0.10));
-    setAdjDepth(String(firstRec?.recommended_depth_preview_m ?? 5.0));
+    // Pré-preenche com mediana das velocidades recomendadas (mais justo para múltiplos arquivos)
+    const recs = preflightData ? Object.values(preflightData.files).map((r) => r.recommendation) : [];
+    const velocities = recs.map((r) => r.recommended_velocity_mns).sort((a, b) => a - b);
+    const medianVelocity = velocities.length > 0 ? velocities[Math.floor(velocities.length / 2)] : 0.10;
+    const firstDepth = recs[0]?.recommended_depth_preview_m ?? 5.0;
+    setAdjVelocity(String(medianVelocity));
+    setAdjDepth(String(firstDepth));
     setAdjBandpass(true);
     setShowAdjust(true);
   }
@@ -249,7 +253,11 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
           <h1 className="text-2xl font-bold text-slate-100">
             {gprJobId
               ? gprJobStatus === "concluido" ? "Processamento concluído" : "Processando GPR…"
-              : isDone ? "Configuração recomendada pelo DZT"
+              : isDone && preflightData
+                ? Object.keys(preflightData.files).length > 1
+                  ? `Configurações recomendadas para ${Object.keys(preflightData.files).length} arquivos DZT`
+                  : "Configuração recomendada pelo DZT"
+              : isDone ? "Preflight concluído"
               : isError ? "Erro no preflight"
               : "Analisando DZTs…"}
           </h1>
@@ -559,9 +567,14 @@ function PreflightConfirmCard({
   onAdjBandpassToggle: () => void;
 }) {
   const entries = Object.entries(data.files);
-  const firstRec = entries[0]?.[1]?.recommendation;
+  const isMulti = entries.length > 1;
 
-  // Badges de confiança
+  // Detecta se arquivos têm antena ou velocity distintas
+  const uniqueFreqs     = new Set(entries.map(([, r]) => r.recommendation.recommended_antenna_freq_mhz));
+  const uniqueVelocities = new Set(entries.map(([, r]) => r.recommendation.recommended_velocity_mns.toFixed(4)));
+  const metadataDiffer  = isMulti && (uniqueFreqs.size > 1 || uniqueVelocities.size > 1);
+
+  // Badge de confiança
   const confBadge = (c: string) => {
     const cls = CONFIDENCE_COLORS[c] ?? "text-slate-400";
     return <span className={`text-xs font-medium ${cls}`}>{c}</span>;
@@ -569,6 +582,17 @@ function PreflightConfirmCard({
 
   return (
     <div className="space-y-4">
+      {/* ── Aviso: metadados diferentes entre arquivos ──────────────────────── */}
+      {metadataDiffer && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+          <p className="text-xs font-semibold text-amber-300 mb-0.5">Metadados diferentes entre arquivos</p>
+          <p className="text-xs text-slate-400">
+            Os arquivos possuem antena ou velocity distintas. Cada DZT será
+            processado com sua própria configuração recomendada.
+          </p>
+        </div>
+      )}
+
       {/* ── Por arquivo ────────────────────────────────────────────────────── */}
       {entries.map(([filename, result]) => {
         const meta = result.dzt_metadata;
@@ -585,19 +609,27 @@ function PreflightConfirmCard({
 
             {/* Metadados */}
             <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-              <MetaRow label="Antena detectada"  value={meta.antenna_freq_mhz_detected > 0 ? `${meta.antenna_freq_mhz_detected} MHz` : "—"} />
-              <MetaRow label="Velocity header"   value={`${meta.velocity_header_mns.toFixed(6)} m/ns`} />
-              <MetaRow label="εr header"         value={meta.epsr_header.toFixed(2)} />
-              <MetaRow label="Distância"         value={meta.dist_total_m > 0 ? `${meta.dist_total_m.toFixed(2)} m` : "— (coleta por tempo)"} />
+              <MetaRow label="Antena detectada"       value={meta.antenna_freq_mhz_detected > 0 ? `${meta.antenna_freq_mhz_detected} MHz` : "—"} />
+              <MetaRow label="Velocity header"        value={`${meta.velocity_header_mns.toFixed(6)} m/ns`} />
+              <MetaRow label="εr header"              value={meta.epsr_header.toFixed(2)} />
+              <MetaRow label="Distância"              value={meta.dist_total_m > 0 ? `${meta.dist_total_m.toFixed(2)} m` : "— (coleta por tempo)"} />
               <MetaRow label="Profundidade (v header)" value={`${meta.depth_real_m_from_header_velocity.toFixed(2)} m`} />
-              <MetaRow label="Traços"            value={String(meta.n_traces)} />
+              <MetaRow label="Traços"                 value={String(meta.n_traces)} />
             </div>
+
+            {/* Recomendação por arquivo (só mostra se múltiplos com metadados distintos) */}
+            {isMulti && (
+              <div className="px-4 pb-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs border-t border-slate-800 pt-2 bg-slate-800/20">
+                <MetaRow label="→ Velocity rec."  value={`${rec.recommended_velocity_mns.toFixed(6)} m/ns${rec.velocity_from_header ? " (header)" : " (padrão)"}`} />
+                <MetaRow label="→ Antena rec."    value={rec.recommended_antenna_freq_mhz > 0 ? `${rec.recommended_antenna_freq_mhz} MHz` : "—"} />
+              </div>
+            )}
 
             {/* Mismatch de frequência */}
             {rec.frequency_mismatch && (
               <div className="mx-4 mb-3 rounded-lg bg-orange-500/10 border border-orange-500/30 px-3 py-2">
                 <p className="text-xs text-orange-300 font-medium">
-                  Mismatch de frequência: DZT detectado em {rec.detected_freq_mhz} MHz, preset em {rec.selected_preset_freq_mhz} MHz.
+                  Mismatch de frequência: DZT em {rec.detected_freq_mhz} MHz, preset em {rec.selected_preset_freq_mhz} MHz.
                 </p>
                 {rec.recommended_preset_family && (
                   <p className="text-xs text-slate-400 mt-0.5">
@@ -619,15 +651,24 @@ function PreflightConfirmCard({
         );
       })}
 
-      {/* ── Resumo da recomendação ──────────────────────────────────────────── */}
-      {firstRec && (
+      {/* ── Resumo da recomendação (somente para arquivo único ou arquivos iguais) ─ */}
+      {!metadataDiffer && entries[0] && (
         <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4 space-y-3">
-          <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Configuração recomendada</p>
+          <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">
+            {isMulti ? `Configuração uniforme para ${entries.length} arquivos` : "Configuração recomendada"}
+          </p>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-            <MetaRow label="Antena"          value={firstRec.recommended_antenna_freq_mhz > 0 ? `${firstRec.recommended_antenna_freq_mhz} MHz` : "—"} />
-            <MetaRow label="Velocity"        value={`${firstRec.recommended_velocity_mns.toFixed(6)} m/ns${firstRec.velocity_from_header ? " (do header)" : " (padrão)"}`} />
-            <MetaRow label="Profundidade visual" value={`${firstRec.recommended_depth_preview_m} m`} />
-            <MetaRow label="Perfil visual"   value={firstRec.recommended_visual_profile} />
+            {(() => {
+              const rec = entries[0][1].recommendation;
+              return (
+                <>
+                  <MetaRow label="Antena"              value={rec.recommended_antenna_freq_mhz > 0 ? `${rec.recommended_antenna_freq_mhz} MHz` : "—"} />
+                  <MetaRow label="Velocity"            value={`${rec.recommended_velocity_mns.toFixed(6)} m/ns${rec.velocity_from_header ? " (do header)" : " (padrão)"}`} />
+                  <MetaRow label="Profundidade visual" value={`${rec.recommended_depth_preview_m} m`} />
+                  <MetaRow label="Perfil visual"       value={rec.recommended_visual_profile} />
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -636,13 +677,23 @@ function PreflightConfirmCard({
       {showAdjust && (
         <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-slate-200">Ajustar antes de processar</p>
+            <div>
+              <p className="text-sm font-medium text-slate-200">Ajustar antes de processar</p>
+              {isMulti && (
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Estes valores serão aplicados a todos os {entries.length} arquivos.
+                </p>
+              )}
+            </div>
             <button onClick={onCloseAdjust} className="text-xs text-slate-500 hover:text-slate-300">Cancelar</button>
           </div>
 
           {/* Velocity */}
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">Velocity (m/ns) — range 0.04–0.35</label>
+            <label className="text-xs text-slate-400">
+              Velocity (m/ns) — range 0.04–0.35
+              {isMulti && <span className="text-slate-600"> · mediana das recomendações usada como ponto de partida</span>}
+            </label>
             <input
               type="number" min={0.04} max={0.35} step={0.001}
               value={adjVelocity}
@@ -678,7 +729,7 @@ function PreflightConfirmCard({
             disabled={confirming}
             className="w-full rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
           >
-            {confirming ? "Iniciando…" : "Processar com ajustes"}
+            {confirming ? "Iniciando…" : isMulti ? `Processar ${entries.length} arquivos com ajustes` : "Processar com ajustes"}
           </button>
         </div>
       )}
@@ -698,7 +749,11 @@ function PreflightConfirmCard({
             disabled={confirming}
             className="flex-1 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
           >
-            {confirming ? "Iniciando…" : "Processar com recomendado"}
+            {confirming
+              ? "Iniciando…"
+              : isMulti
+                ? `Processar ${entries.length} arquivos com recomendado`
+                : "Processar com recomendado"}
           </button>
           <button
             onClick={onOpenAdjust}

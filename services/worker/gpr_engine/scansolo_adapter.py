@@ -57,6 +57,26 @@ _CSV_ALVOS_HEADERS = [
 ]
 
 
+def _per_file_config(global_config: dict, filename: str) -> dict:
+    """
+    Retorna a config efetiva para um DZT especifico.
+
+    Mescla a config global com a entrada em _preflight_file_configs[filename]
+    (se existir).  engine e sempre forcado para 'readgssi_engine'.
+
+    Fallback seguro: se nao houver entrada para o arquivo (projeto sem preflight
+    ou arquivo nao listado), usa a config global com engine forcado —
+    comportamento identico ao anterior ao preflight per-file.
+
+    :param global_config: processing_config do projeto (pode ter _preflight_file_configs)
+    :param filename:      Basename do arquivo DZT — chave em _preflight_file_configs
+    :returns:             Dict de config pronto para process_dzt
+    """
+    file_configs: dict = global_config.get("_preflight_file_configs") or {}
+    file_config: dict = file_configs.get(filename) or {}
+    return {**global_config, **file_config, "engine": "readgssi_engine"}
+
+
 def run_new_engine(
     input_dir: Path,
     output_dir: Path,
@@ -68,10 +88,11 @@ def run_new_engine(
     os outputs na estrutura de diretorios esperada por _persist_outputs.
 
     Para cada DZT encontrado em input_dir (extensao .dzt, case-insensitive):
-      1. Chama process_dzt com output separado por stem
-      2. Move imagens e metrics para os subdiretorios esperados
-      3. Gera _alvos.csv vazio (detector pendente)
-      4. Acumula linha em index_projeto.csv
+      1. Resolve config por arquivo via _per_file_config (usa _preflight_file_configs)
+      2. Chama process_dzt com a config especifica daquele DZT
+      3. Move imagens e metrics para os subdiretorios esperados
+      4. Gera _alvos.csv vazio (detector pendente)
+      5. Acumula linha em index_projeto.csv
 
     :param input_dir:  Diretorio com os arquivos .DZT baixados do Storage
     :param output_dir: Diretorio de saida (subdiretorios criados automaticamente)
@@ -80,6 +101,8 @@ def run_new_engine(
     :raises RuntimeError: Se nenhum DZT for encontrado em input_dir
     """
     from gpr_engine.pipeline import process_dzt
+
+    global_config = config or {}
 
     dzt_files = sorted(
         f for f in Path(input_dir).iterdir() if f.suffix.lower() == ".dzt"
@@ -97,15 +120,26 @@ def run_new_engine(
 
     for dzt_path in dzt_files:
         stem = dzt_path.stem
+        filename = dzt_path.name  # basename — chave em _preflight_file_configs
         engine_out = Path(output_dir) / "_engine" / stem
         engine_out.mkdir(parents=True, exist_ok=True)
 
-        log.info("new_engine_dzt_start", dzt=dzt_path.name, stem=stem)
+        # Config efetiva: global + override por arquivo (via _preflight_file_configs)
+        effective_config = _per_file_config(global_config, filename)
+
+        log.info(
+            "new_engine_dzt_start",
+            dzt=filename,
+            stem=stem,
+            velocity_mns=effective_config.get("velocity_mns"),
+            antenna_freq_mhz=effective_config.get("antenna_freq_mhz"),
+            config_source=effective_config.get("source", "global"),
+        )
 
         result = process_dzt(
             dzt_path=dzt_path,
             output_dir=engine_out,
-            config=dict(config) if config else None,
+            config=effective_config,
             tipo_solo=tipo_solo,
             stem=stem,
         )
@@ -124,15 +158,15 @@ def run_new_engine(
         ref_dst = proc_dir / f"{stem}_radargrama_readgssi_reference.png"
         _move_if_exists(result.image_paths.get("readgssi_reference"), ref_dst)
 
-        # Processada: conteudo depende de visual_profile
-        visual_profile = (config or {}).get("visual_profile", "scientific")
+        # Processada: visual_profile lido do effective_config (pode diferir por arquivo)
+        visual_profile = effective_config.get("visual_profile", "scientific")
         processada_dst = proc_dir / f"{stem}_processada.png"
         if visual_profile == "readgssi_reference" and ref_dst.exists():
             # Usa copia do readgssi_reference como imagem processada principal
             shutil.copy2(str(ref_dst), str(processada_dst))
             log.info(
                 "new_engine_processada_readgssi_ref",
-                dzt=dzt_path.name,
+                dzt=filename,
                 visual_profile=visual_profile,
             )
         else:
@@ -145,7 +179,7 @@ def run_new_engine(
         # Linha para index_projeto.csv (campos lidos por _persist_outputs)
         row = result.index_row
         index_rows.append({
-            "arquivo_dzt":        str(row.get("arquivo", dzt_path.name)),
+            "arquivo_dzt":        str(row.get("arquivo", filename)),
             "n_tracos":           str(row.get("n_tracos", "")),
             "n_amostras":         "",
             "profundidade_max_m": str(row.get("profundidade_max_m", "")),
@@ -161,7 +195,7 @@ def run_new_engine(
 
         log.info(
             "new_engine_dzt_done",
-            dzt=dzt_path.name,
+            dzt=filename,
             n_tracos=row.get("n_tracos"),
             modo=row.get("modo_processamento"),
             snr_db=row.get("snr_raw_db"),
