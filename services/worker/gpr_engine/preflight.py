@@ -252,8 +252,8 @@ def recommend_processing_config(
             )
     elif detected_freq > 0 and preset_freq == 0:
         warnings.append(
-            f"Preset nao especificado. Frequencia detectada no DZT: {detected_freq} MHz. "
-            "Selecione ou crie um preset adequado antes de processar."
+            f"Preset nao informado. Frequencia detectada no DZT: {detected_freq} MHz — "
+            "configuracao definida automaticamente pelos metadados."
         )
     elif detected_freq == 0:
         warnings.append(
