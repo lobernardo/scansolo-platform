@@ -119,16 +119,26 @@ def _render_profile_fields(config: dict) -> dict:
     Caso contrario (scientific/relatorio):
       renderer=relatorio, normalization=linear_percentile99, background_removal=bgremoval_windowed
     """
-    visual_profile = str(config.get("visual_profile", "scientific"))
+    visual_profile = str(config.get("visual_profile", "readgssi_reference"))
     is_readgssi = visual_profile == "readgssi_reference"
     bgr_window_used = 0 if is_readgssi else int(config.get("bgremoval_traces", 30))
+    # G3: render config — user-explicit, never hidden
+    normalization = str(config.get("normalization", "linear_percentile"))
+    polarity = str(config.get("polarity", "normal"))
+    _cfg_display_depth = config.get("display_depth_m")
+    display_depth_m = float(_cfg_display_depth) if _cfg_display_depth is not None else None
     return {
-        "visual_profile":     visual_profile,
-        "renderer":           visual_profile if is_readgssi else "relatorio",
-        "normalization":      "SymLogNorm" if is_readgssi else "linear_percentile99",
-        "background_removal": "readgssi_bgr" if is_readgssi else "bgremoval_windowed",
-        "bgr_window":         bgr_window_used,
-        "gain":               float(config.get("gain", 1.0)),
+        "visual_profile":        visual_profile,
+        "renderer":              visual_profile if is_readgssi else "relatorio",
+        "normalization":         "SymLogNorm" if is_readgssi else normalization,
+        "background_removal":    "readgssi_bgr" if is_readgssi else "bgremoval_windowed",
+        "bgr_window":            bgr_window_used,
+        "gain":                  float(config.get("gain", 1.0)),
+        "polarity":              polarity,
+        # G3 — depth fields
+        "display_depth_m":       display_depth_m,
+        "depth_display_mode":    "axis_limit_no_stretch",
+        "depth_source":          "velocity_config" if config.get("velocity_mns") else "velocity_default",
     }
 
 
@@ -229,6 +239,13 @@ def build_pipeline_metrics(
         "velocity_mns":         velocity,
         "velocity_fonte":       "config",
         "depth_tecnica_m":      prof_max,
+        # G3 — separacao fisica / visual
+        "physical_depth_m":     prof_max,
+        "display_depth_m":      float(config["display_depth_m"]) if config.get("display_depth_m") else None,
+        "depth_display_mode":   "axis_limit_no_stretch",
+        "visual_crop_occurred": (
+            bool(config.get("display_depth_m") and float(config["display_depth_m"]) < prof_max)
+        ),
         # Preview RADAN
         "depth_preview_m":                  depth_preview,
         "preview_depth_real_m":             prof_max,

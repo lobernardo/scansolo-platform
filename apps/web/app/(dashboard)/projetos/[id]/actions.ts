@@ -16,6 +16,10 @@ export type FilterState = {
   // Processada 2 (preview RADAN visual) — independent params
   depth_preview_m: number;
   agc_window_preview: number;
+  // G3: render config — display-only, never mutate data
+  normalization: "linear_percentile" | "symlog" | "linear_minmax";
+  polarity: "normal" | "inverted";
+  display_depth_m: number | null;
 };
 
 export async function reprocessProfile(

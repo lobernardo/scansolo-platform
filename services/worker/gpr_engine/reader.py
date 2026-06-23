@@ -37,6 +37,14 @@ except ImportError:
 from gpr_engine._types import DZTData
 
 
+# GSSI model codes known to be missing from the readgssi ANT dictionary.
+# Keys are str(int(code)) — same format as ANT.get(). Values are MHz.
+# Do NOT modify the readgssi fork; extend here instead.
+_GSSI_MODEL_CODES_EXTRA: dict[str, int] = {
+    "50350": 350,   # 50350HSUS — 350 MHz HS horn antenna (GSSI SIR-30)
+}
+
+
 class DZTReadError(Exception):
     """Levantada quando um arquivo DZT não pode ser aberto ou interpretado."""
 
@@ -221,7 +229,10 @@ class DZTReader:
                 if 10 <= f <= 5000:
                     return int(f)
                 # Código de modelo GSSI (ex: 50270 → 270 MHz)
-                mhz = ANT.get(str(int(f)))
+                code_str = str(int(f))
+                if code_str in _GSSI_MODEL_CODES_EXTRA:
+                    return _GSSI_MODEL_CODES_EXTRA[code_str]
+                mhz = ANT.get(code_str)
                 if isinstance(mhz, int):
                     return mhz
         # Fallback: comparar nome da antena com readgssi.constants.ANT

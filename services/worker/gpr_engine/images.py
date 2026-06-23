@@ -96,50 +96,117 @@ def render_radargram(
     dpi: int = 150,
     footer_text: str | None = None,
     markers: list[dict[str, Any]] | None = None,
+    normalization: str = "linear_percentile",
+    polarity: str = "normal",
+    symlog_gain: float = 1.0,
+    display_depth_m: float | None = None,
 ) -> Path:
     """
     Renderiza um radargrama GPR como PNG.
 
-    Normalizacao visual:
-      vmin/vmax = +/-percentil-99(|arr|) / contrast
-      Array constante -> range (-1.0, 1.0) para imagem valida
+    Separacao fisica / visual:
+      depth_max_m   = profundidade fisica real do DZT (calculada via twtt * velocity / 2)
+                      Usada no imshow extent — NUNCA remapeada pelo display_depth_m.
+      display_depth_m = limite visual do eixo Y (None = usa depth_max_m)
+                        Quando > depth_max_m: espaco vazio abaixo dos dados reais.
+                        Quando < depth_max_m: janela visual (dados abaixo ficam fora).
+                        Nunca altera os dados, o extent, ou a profundidade fisica.
+
+    Normalizacao visual (parametro normalization):
+      "linear_percentile" (default): vmin/vmax = +/-p99(|arr|) / contrast
+      "symlog":  SymLogNorm identica ao readgssi (mean +/-3*std, linthresh=std/gain)
+      "linear_minmax": vmin/vmax = min/max absolutos do array
+
+    Polarity (parametro polarity):
+      "normal" (default): colormap direto
+      "inverted": colormap invertido via sufixo "_r" — NUNCA inverte o array
 
     Eixo X: distancia horizontal (0 a dist_total_m).
-    Eixo Y: profundidade (0 a depth_max_m), invertido (0 no topo).
+    Eixo Y: profundidade fisica (extent) com limite visual (set_ylim).
 
-    :param arr:          Array 2-D GPR (n_samples x n_traces)
-    :param output_path:  Caminho de saida .png (dir pai criado automaticamente)
-    :param dist_total_m: Distancia total da linha em metros (eixo X)
-    :param depth_max_m:  Profundidade maxima em metros (eixo Y)
-    :param title:        Titulo do grafico (None = sem titulo)
-    :param colormap:     Colormap matplotlib (padrao: "gray")
-    :param contrast:     Fator de contraste visual (padrao: 2.5)
-    :param dpi:          Resolucao do PNG (padrao: 150)
-    :param footer_text:  Rodape em laranja (ex: aviso preview RADAN)
-    :param markers:      Lista de dicts {x_m, label, color} para anotacoes
-    :returns:            Path do arquivo PNG salvo
+    :param arr:             Array 2-D GPR (n_samples x n_traces)
+    :param output_path:     Caminho de saida .png (dir pai criado automaticamente)
+    :param dist_total_m:    Distancia total da linha em metros (eixo X)
+    :param depth_max_m:     Profundidade fisica real em metros (usado no extent)
+    :param title:           Titulo do grafico (None = sem titulo)
+    :param colormap:        Colormap matplotlib (padrao: "gray")
+    :param contrast:        Fator de contraste (normalization=linear_percentile)
+    :param dpi:             Resolucao do PNG (padrao: 150)
+    :param footer_text:     Rodape em laranja (ex: aviso preview RADAN)
+    :param markers:         Lista de dicts {x_m, label, color} para anotacoes
+    :param normalization:   "linear_percentile" | "symlog" | "linear_minmax"
+    :param polarity:        "normal" | "inverted" (display-only — nao altera dados)
+    :param symlog_gain:     Ganho SymLogNorm (usado quando normalization="symlog")
+    :param display_depth_m: Limite visual do eixo Y (None = depth_max_m fisico)
+    :returns:               Path do arquivo PNG salvo
     """
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Polarity: display-only — NUNCA inverte ou muta o array de dados
+    effective_cmap = (colormap + "_r") if polarity == "inverted" else colormap
+
     arr_clean = _sanitize_arr(arr)
-    vmin, vmax = _compute_vrange(arr_clean, contrast)
+
+    # Normalization
+    norm = None
+    if normalization == "symlog":
+        finite = arr_clean[np.isfinite(arr_clean)]
+        if len(finite) == 0:
+            mean_val, std_val = 0.0, 1.0
+        else:
+            mean_val = float(np.mean(finite))
+            std_val = float(np.std(finite))
+            if std_val == 0.0:
+                std_val = 1.0
+        ll = mean_val - std_val * 3.0
+        ul = mean_val + std_val * 3.0
+        g = max(float(symlog_gain), 1e-6)
+        norm = mcolors.SymLogNorm(
+            linthresh=std_val / g,
+            linscale=1.0,
+            vmin=ll,
+            vmax=ul,
+            base=float(np.e),
+        )
+        vmin, vmax = ll, ul
+    elif normalization == "linear_minmax":
+        finite = arr_clean[np.isfinite(arr_clean)]
+        if len(finite) == 0:
+            vmin, vmax = -1.0, 1.0
+        else:
+            vmin = float(finite.min())
+            vmax = float(finite.max())
+            if vmin == vmax:
+                vmin, vmax = -1.0, 1.0
+    else:  # linear_percentile (default)
+        vmin, vmax = _compute_vrange(arr_clean, contrast)
 
     dist_m = max(float(dist_total_m), 1e-3)
+    # depth_m: profundidade FISICA — usada no extent (mapeamento de dados)
     depth_m = max(float(depth_max_m), 1e-3)
+    # ylim_depth: limite VISUAL do eixo Y — nunca remapeia os dados
+    # > depth_m: mostra espaco vazio abaixo dos dados
+    # < depth_m: janela visual (dados abaixo do limite nao aparecem)
+    ylim_depth = max(float(display_depth_m), 1e-3) if display_depth_m is not None else depth_m
 
     fig, ax = plt.subplots(figsize=(10, 4))
 
-    ax.imshow(
-        arr_clean,
-        cmap=colormap,
-        vmin=vmin,
-        vmax=vmax,
+    imshow_kw: dict[str, Any] = dict(
+        cmap=effective_cmap,
         aspect="auto",
-        extent=[0.0, dist_m, depth_m, 0.0],
+        extent=[0.0, dist_m, depth_m, 0.0],   # extent usa profundidade FISICA
         origin="upper",
     )
-    ax.set_ylim(depth_m, 0.0)
+    if norm is not None:
+        imshow_kw["norm"] = norm
+        imshow_kw["interpolation"] = "bicubic"
+    else:
+        imshow_kw["vmin"] = vmin
+        imshow_kw["vmax"] = vmax
+
+    ax.imshow(arr_clean, **imshow_kw)
+    ax.set_ylim(ylim_depth, 0.0)   # limite VISUAL (pode diferir da profundidade fisica)
     ax.set_xlim(0.0, dist_m)
     ax.set_xlabel("Distance (m)")
     ax.set_ylabel("Depth (m)")
@@ -253,6 +320,7 @@ def render_radargram_readgssi_reference(
     dpi: int = 150,
     title: str | None = "readgssi reference",
     footer_text: str | None = None,
+    display_depth_m: float | None = None,
 ) -> Path:
     """
     Radargrama com normalizacao identica ao readgssi/readgssi/plot.py.
@@ -308,7 +376,8 @@ def render_radargram_readgssi_reference(
     )
 
     dist_m  = max(float(dist_total_m), 1e-3)
-    depth_m = max(float(depth_max_m), 1e-3)
+    depth_m = max(float(depth_max_m), 1e-3)         # profundidade FISICA → extent
+    ylim_depth = max(float(display_depth_m), 1e-3) if display_depth_m is not None else depth_m
 
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.imshow(
@@ -317,10 +386,10 @@ def render_radargram_readgssi_reference(
         interpolation="bicubic",
         norm=norm,
         aspect="auto",
-        extent=[0.0, dist_m, depth_m, 0.0],
+        extent=[0.0, dist_m, depth_m, 0.0],        # extent usa profundidade FISICA
         origin="upper",
     )
-    ax.set_ylim(depth_m, 0.0)
+    ax.set_ylim(ylim_depth, 0.0)                    # limite VISUAL
     ax.set_xlim(0.0, dist_m)
     ax.set_xlabel("Distance (m)")
     ax.set_ylabel("Depth (m)")

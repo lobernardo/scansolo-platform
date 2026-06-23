@@ -68,8 +68,14 @@ _DEFAULTS: dict = {
     "detector_input_mode": "raw",
     "det_depth_min_m":     0.30,
     # Fase 8.6 — visual profile
-    "visual_profile":      "scientific",  # "scientific" | "readgssi_reference"
+    # "readgssi_reference" e o default: processada.png = fiel ao readgssi (sem filtros ScanSOLO)
+    # Altere explicitamente para "scientific" ou outro valor apenas quando necessario
+    "visual_profile":      "readgssi_reference",
     "gain":                1.0,           # readgssi SymLogNorm gain (linthresh=std/gain)
+    # G3 — render config (display-only; nao mutam dados)
+    "normalization":       "linear_percentile",  # "linear_percentile" | "symlog" | "linear_minmax"
+    "polarity":            "normal",              # "normal" | "inverted"
+    "display_depth_m":     None,                  # Y-axis scale; None = profundidade fisica
 }
 
 
@@ -229,12 +235,39 @@ def process_dzt(
 
     # 8. Imagens PNG
     dist_m = float(dzt_data.dist_total_m)
+
+    # G3: display_depth_m — limite VISUAL do eixo Y (nao altera dados nem extent).
+    # depth_max_m (fisico) sempre vai para o extent.
+    # display_depth_m (do config) vai apenas para set_ylim.
+    # None = usa depth_max_m como limite visual (comportamento identico ao original).
+    _cfg_display_depth = final_config.get("display_depth_m")
+    _display_depth_m: float | None = (
+        float(_cfg_display_depth)
+        if _cfg_display_depth is not None and float(_cfg_display_depth) > 0
+        else None
+    )
+    if _display_depth_m is not None and abs(_display_depth_m - depth_max_m) > 1e-3:
+        _log.warning(
+            "display_depth_differs_from_physical dzt=%s "
+            "display_depth_m=%.3f depth_max_m=%.3f (physical) "
+            "mode=%s",
+            dzt_data.dzt_filename,
+            _display_depth_m,
+            depth_max_m,
+            "crop" if _display_depth_m < depth_max_m else "extend",
+        )
+
     render_kw = {
-        "contrast": float(final_config.get("contrast", 2.5)),
-        "colormap": str(final_config.get("colormap", "gray")),
-        "dpi":      int(final_config.get("dpi", 150)),
+        "contrast":        float(final_config.get("contrast", 2.5)),
+        "colormap":        str(final_config.get("colormap", "gray")),
+        "dpi":             int(final_config.get("dpi", 150)),
+        "normalization":   str(final_config.get("normalization", "linear_percentile")),
+        "polarity":        str(final_config.get("polarity", "normal")),
+        "display_depth_m": _display_depth_m,  # None → renderer usa depth_max_m
     }
 
+    # depth_max_m (fisico) e passado como 4o arg (depth_max_m) → extent
+    # _display_depth_m e passado via render_kw → set_ylim apenas
     p_bruta = render_raw_image(
         dzt_data.arr_raw,
         out_dir / f"{_stem}_bruta.png",
@@ -266,15 +299,17 @@ def process_dzt(
     )
 
     # readgssi_reference: arr_raw -> bgremoval_readgssi(window=0) -> SymLogNorm
+    # Sempre usa normalizacao SymLogNorm (identica ao readgssi) — nao alterada por render_kw.
     from gpr_engine.filters import bgremoval_readgssi as _bgr_readgssi
     _arr_readgssi_ref = _bgr_readgssi(dzt_data.arr_raw, window=0)
     p_readgssi_ref = render_radargram_readgssi_reference(
         _arr_readgssi_ref,
         out_dir / f"{_stem}_radargrama_readgssi_reference.png",
-        dist_m, depth_max_m,
+        dist_m, depth_max_m,                   # extent usa profundidade FISICA
         gain=float(final_config.get("gain", 1.0)),
         colormap=str(final_config.get("colormap", "gray")),
         dpi=int(final_config.get("dpi", 150)),
+        display_depth_m=_display_depth_m,       # limite VISUAL apenas
     )
 
     image_paths: dict[str, Path] = {
@@ -352,7 +387,8 @@ def process_dzt(
         "arquivo":                        str(dzt_data.dzt_filename),
         "n_tracos":                       int(dzt_data.n_traces),
         "distancia_max_m":                float(dzt_data.dist_total_m),
-        "profundidade_max_m":             depth_max_m,
+        "profundidade_max_m":             depth_max_m,           # profundidade FISICA
+        "display_depth_m":                _display_depth_m,      # limite visual (None se nao configurado)
         "snr_raw_db":                     snr_raw_db,
         "snr_raw_ratio":                  snr_raw_ratio,
         "modo_processamento":             modo_processamento,

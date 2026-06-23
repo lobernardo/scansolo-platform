@@ -3,7 +3,7 @@
 import { Fragment, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Database } from "@/lib/types/database";
-import { reprocessProfile, requestIaP2, getJobStatus, requestRecalibrarVelocity } from "./actions";
+import { reprocessProfile, getJobStatus, requestRecalibrarVelocity } from "./actions";
 import type { FilterState } from "./actions";
 import { getPipelineMetrics, type PipelineMetrics } from "@/app/actions/gpr-actions";
 import { PipelineLog, MetricsDiff } from "@/components/PipelineLog";
@@ -64,6 +64,9 @@ const DEFAULT_FILTERS: FilterState = {
   velocity_mns: 0.10,
   depth_preview_m: 5.0,
   agc_window_preview: 80,
+  normalization: "linear_percentile",
+  polarity: "normal",
+  display_depth_m: null,
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -92,9 +95,6 @@ export function ProjectDetailClient({
   const [filterTargets, setFilterTargets] = useState<Record<string, "processada" | "processada2">>({});
   const [expandedFilters, setExpandedFilters] = useState<Record<string, boolean>>({});
   const [reprocessStatus, setReprocessStatus] = useState<
-    Record<string, "idle" | "loading" | "queued" | "error">
-  >({});
-  const [iaP2Status, setIaP2Status] = useState<
     Record<string, "idle" | "loading" | "queued" | "error">
   >({});
 
@@ -314,16 +314,6 @@ export function ProjectDetailClient({
     }
   }
 
-  async function handleIaP2(profileId: string) {
-    setIaP2Status((prev) => ({ ...prev, [profileId]: "loading" }));
-    try {
-      const result = await requestIaP2(profileId);
-      setIaP2Status((prev) => ({ ...prev, [profileId]: result.ok ? "queued" : "error" }));
-    } catch {
-      setIaP2Status((prev) => ({ ...prev, [profileId]: "error" }));
-    }
-  }
-
   // ── Build profile / target maps ─────────────────────────────────────────────
 
   const profileMap: Record<string, GprProfileRow> = {};
@@ -518,31 +508,6 @@ export function ProjectDetailClient({
                             />
                           )}
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Anotada P2 button */}
-                  {profile.imagem_preview_radan_5m_url && pTargets.length > 0 && (
-                    <div className="px-4 py-2 border-t border-slate-800/60 flex items-center gap-3">
-                      <button
-                        onClick={() => handleIaP2(profile.id)}
-                        disabled={iaP2Status[profile.id] === "loading"}
-                        className="text-xs px-3 py-1 rounded border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100 disabled:opacity-50 transition-colors"
-                      >
-                        {iaP2Status[profile.id] === "loading"
-                          ? "Solicitando…"
-                          : profile.imagem_interpretada_ia_p2_url
-                          ? "Regenerar Anotada P2"
-                          : "Gerar Anotada P2"}
-                      </button>
-                      {iaP2Status[profile.id] === "queued" && (
-                        <span className="text-xs text-cyan-400">
-                          ✓ Em fila — recarregue em ~1 min
-                        </span>
-                      )}
-                      {iaP2Status[profile.id] === "error" && (
-                        <span className="text-xs text-red-400">Erro ao criar job</span>
                       )}
                     </div>
                   )}
@@ -1057,6 +1022,80 @@ function FilterPanel({
             step={0.1}
             onChange={(v) => onChange({ contrast: parseFloat(v.toFixed(1)) })}
           />
+
+          {/* Normalization */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 w-24 shrink-0">Normalização</label>
+            <select
+              value={filters.normalization}
+              onChange={(e) =>
+                onChange({ normalization: e.target.value as FilterState["normalization"] })
+              }
+              className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            >
+              <option value="linear_percentile">Linear percentil 99 (padrão)</option>
+              <option value="symlog">SymLog (estilo readgssi)</option>
+              <option value="linear_minmax">Linear min/max</option>
+            </select>
+          </div>
+
+          {/* Polarity */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 w-24 shrink-0">Polaridade</label>
+            <select
+              value={filters.polarity}
+              onChange={(e) =>
+                onChange({ polarity: e.target.value as FilterState["polarity"] })
+              }
+              className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            >
+              <option value="normal">Normal</option>
+              <option value="inverted">Invertida</option>
+            </select>
+          </div>
+
+          {/* Display depth */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">
+                Prof. exibida — {filters.display_depth_m != null ? `${filters.display_depth_m.toFixed(1)} m` : "automático (física)"}
+              </span>
+              <span
+                className="text-[10px] text-slate-600 hover:text-cyan-400 cursor-help transition-colors"
+                title="Escala do eixo Y na imagem. Não altera os dados — apenas o quanto é visível. Deixe em branco para usar a profundidade física do DZT."
+              >
+                ⓘ
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0.5"
+                max="20"
+                step="0.5"
+                placeholder="automático"
+                value={filters.display_depth_m ?? ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    onChange({ display_depth_m: null });
+                  } else {
+                    const v = parseFloat(raw);
+                    if (!isNaN(v) && v >= 0.5 && v <= 20) onChange({ display_depth_m: v });
+                  }
+                }}
+                className="w-28 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              />
+              {filters.display_depth_m != null && (
+                <button
+                  onClick={() => onChange({ display_depth_m: null })}
+                  className="text-xs text-slate-500 hover:text-slate-300"
+                >
+                  limpar
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Velocity */}
           <div className="space-y-1.5">
