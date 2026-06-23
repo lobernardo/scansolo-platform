@@ -36,16 +36,19 @@ const IMAGE_LEGENDS: Record<string, string> = {
     "Imagem tratada para análise geofísica. Preserva melhor os sinais para revisão técnica e validação.",
   Relatório:
     "Imagem otimizada para apresentação ao cliente. Usa filtros visuais para melhorar contraste e leitura.",
+  "Visual/Exportação":
+    "Imagem visual/exportável para comparação e apresentação. Pode usar profundidade visual sem alterar a saída técnica.",
   Alvos:
     "Imagem com marcações dos sinais detectados. Revise os alvos antes de incluir no relatório.",
 };
 
 function buildProfileImages(profile: GprProfileRow): ProfileImage[] {
   const candidates: { url: string | null | undefined; label: string; legend: string }[] = [
-    { url: profile.imagem_bruta_url,      label: "Original",  legend: IMAGE_LEGENDS["Original"]  ?? "" },
-    { url: profile.imagem_cientifica_url, label: "Técnica",   legend: IMAGE_LEGENDS["Técnica"]   ?? "" },
-    { url: profile.imagem_processada_url, label: "Relatório", legend: IMAGE_LEGENDS["Relatório"] ?? "" },
-    { url: profile.imagem_anotada_url,    label: "Alvos",     legend: IMAGE_LEGENDS["Alvos"]     ?? "" },
+    { url: profile.imagem_bruta_url,              label: "Original",          legend: IMAGE_LEGENDS["Original"]          ?? "" },
+    { url: profile.imagem_cientifica_url,         label: "Técnica",           legend: IMAGE_LEGENDS["Técnica"]           ?? "" },
+    { url: profile.imagem_processada_url,         label: "Relatório",         legend: IMAGE_LEGENDS["Relatório"]         ?? "" },
+    { url: profile.imagem_preview_radan_5m_url,   label: "Visual/Exportação", legend: IMAGE_LEGENDS["Visual/Exportação"] ?? "" },
+    { url: profile.imagem_anotada_url,            label: "Alvos",             legend: IMAGE_LEGENDS["Alvos"]             ?? "" },
   ];
   return candidates.filter((i): i is ProfileImage => !!i.url);
 }
