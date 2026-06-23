@@ -148,6 +148,10 @@ def build_pipeline_metrics(
     dzt_sha256: str | None = None,
     preflight_metadata: dict | None = None,
     preflight_recommendation: dict | None = None,
+    detector_status: str = "skipped_not_integrated",
+    detector_n_total: int = 0,
+    detector_error: str | None = None,
+    imagem_anotada_ok: bool = False,
 ) -> dict:
     """
     Constroi o dict de metricas do pipeline para um DZT processado.
@@ -202,8 +206,10 @@ def build_pipeline_metrics(
 
         # -- Rastreabilidade do perfil de renderizacao (Fase 8.10) --------
         **_render_profile_fields(config),
-        "skip_ia":           bool(config.get("skip_ia", False)),
-        "detector_status":   "skipped_not_integrated",
+        "skip_ia":            bool(config.get("skip_ia", False)),
+        "detector_status":    detector_status,
+        "detector_n_total":   detector_n_total,
+        "detector_error":     detector_error,
 
         # -- Filtros efetivos no nivel raiz (lidos por PipelineLog via UI) -
         # Dewow
@@ -244,7 +250,7 @@ def build_pipeline_metrics(
         "imagem_cientifica_ok":       _path_ok(image_paths, "cientifica"),
         "imagem_relatorio_ok":        _path_ok(image_paths, "relatorio"),
         "imagem_preview_radan_5m_ok": _path_ok(image_paths, "preview_radan_5m"),
-        "imagem_anotada_ok":          False,  # detector nao integrado ainda
+        "imagem_anotada_ok":          imagem_anotada_ok,
 
         # -- Paths completos dos outputs -----------------------------------
         "outputs": {

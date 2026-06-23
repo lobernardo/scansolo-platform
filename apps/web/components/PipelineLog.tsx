@@ -77,7 +77,9 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
   const nAlta = m.n_alvos_alta ?? 0;
   const nMedia = m.n_alvos_media ?? 0;
   const modo = m.modo_processamento;
-  const detectorSkipped = m.detector_status === "skipped_not_integrated";
+  const detectorStatus = m.detector_status ?? null;
+  const detectorSkipped = detectorStatus === "skipped_not_integrated" || detectorStatus?.startsWith("skipped");
+  const detectorFailed = detectorStatus === "failed";
 
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono">
@@ -101,6 +103,11 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
         <span className="flex items-center gap-1">
           <span className="text-slate-500">Detector:</span>
           <span className="text-slate-600 italic">não executado</span>
+        </span>
+      ) : detectorFailed ? (
+        <span className="flex items-center gap-1">
+          <span className="text-slate-500">Detector:</span>
+          <span className="text-red-500 italic">falhou</span>
         </span>
       ) : (
         <span className="flex items-center gap-1">
@@ -364,7 +371,9 @@ function FullLog({
     return ` (${d >= 0 ? "+" : ""}${d.toFixed(1)} dB vs raw)`;
   }
 
-  const detectorSkipped = m.detector_status === "skipped_not_integrated";
+  const detectorStatus2 = m.detector_status ?? null;
+  const detectorSkipped = detectorStatus2 === "skipped_not_integrated" || detectorStatus2?.startsWith("skipped");
+  const detectorFailed2 = detectorStatus2 === "failed";
   const nAlvos =
     (m.n_alvos_alta ?? 0) + (m.n_alvos_media ?? 0) + (m.n_alvos_baixa ?? 0);
   const nScore30 = m.n_alvos_score_30 ?? 0;
@@ -568,7 +577,9 @@ function FullLog({
       <SectionHead title="Detector" />
       <div className="pl-2 space-y-0.5">
         {detectorSkipped ? (
-          <Row s="skip" label="Status" value="não executado (motor sem detector integrado)" />
+          <Row s="skip" label="Status" value="não executado" />
+        ) : detectorFailed2 ? (
+          <Row s="warn" label="Status" value="falhou (erro no detector)" />
         ) : (
           <>
             <Row

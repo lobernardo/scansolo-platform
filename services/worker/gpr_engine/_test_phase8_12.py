@@ -407,10 +407,13 @@ def test_g7_engine_visual_profile() -> None:
             _ok("G7", f"{label}: recommended_visual_profile='readgssi_reference'")
         else:
             _fail("G7", f"{label}: visual_profile={vp!r}")
-        if dp == 5.0:
-            _ok("G7", f"{label}: recommended_depth_preview_m=5.0")
+        # Comportamento correto: profundidade fisica do DZT (nao fallback 5.0).
+        # Mock padrao: twtt=49.38 ns, velocity=0.0899 m/ns -> depth_hdr=2.2196 -> 2.22 m.
+        expected_dp = round(_mock_metadata()["depth_real_m_from_header_velocity"], 2)
+        if dp == expected_dp:
+            _ok("G7", f"{label}: recommended_depth_preview_m={dp} (profundidade fisica, nao fallback 5.0)")
         else:
-            _fail("G7", f"{label}: depth_preview_m={dp!r}")
+            _fail("G7", f"{label}: depth_preview_m={dp!r} (esperado {expected_dp} da velocidade do header)")
 
 
 # ============================================================

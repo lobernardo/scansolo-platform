@@ -13,9 +13,10 @@ de diretorios esperada por job_gpr._persist_outputs:
       {stem}_processada.png                         <- varia conforme visual_profile
       {stem}_radargrama_readgssi_reference.png      <- sempre presente (Fase 8.6+)
       {stem}_radargrama_preview_radan_5m.png
+      {stem}_anotada_completa.png                   <- quando detector executou
       {stem}_pipeline_metrics.json
     05_Tabela_Alvos/
-      {stem}_alvos.csv  (cabecalhos apenas -- detector nao integrado nesta fase)
+      {stem}_alvos.csv  (com alvos quando detector encontrou; cabecalhos apenas senao)
 
 Mapeamento de processada.png conforme visual_profile (Fase 8.7):
   visual_profile="readgssi_reference" -> processada.png = readgssi_reference
@@ -23,16 +24,13 @@ Mapeamento de processada.png conforme visual_profile (Fase 8.7):
   qualquer outro valor (default) -> processada.png = fluxo relatorio
       (dewow+bp+bgremoval+tpow+AGC, comportamento anterior)
 
-Em ambos os casos:
-  - {stem}_radargrama_readgssi_reference.png e sempre salvo em proc_dir
-  - os demais outputs (bruta, cientifica, preview, metrics, alvos) nao mudam
-
-Decisao sobre CSV de alvos e job de IA:
-  O detector de hiperboles nao esta integrado ao novo engine nesta fase.
-  Portanto, _alvos.csv e gerado vazio (somente cabecalhos) e o job_gpr.py
-  nao cria job de IA quando engine=readgssi_engine (skip_ia forcado).
-  Quando o detector for integrado (fase futura), o CSV sera populado e
-  o flag skip_ia podera ser removido.
+Detector de hiperboles (Fase G2):
+  Integrado no pipeline.process_dzt via gpr_engine.detector.run_scansolo_detector.
+  Quando detector executa e encontra alvos:
+    - {stem}_anotada_completa.png e movido para proc_dir
+    - {stem}_alvos.csv e gravado com dados reais (nao apenas cabecalhos)
+  O CSV populado alimenta _parse_targets -> detected_targets no job_gpr.py.
+  Skip IA (skip_ia forcado no job_gpr) permanece ate a integracao da IA.
 
 Nao acessa Supabase. Nao modifica arquivos brutos.
 """
@@ -174,8 +172,29 @@ def run_new_engine(
             # Comportamento padrao: fluxo relatorio (dewow+bp+bgremoval+tpow+AGC)
             _move_if_exists(result.image_paths.get("processada"), processada_dst)
 
-        # CSV de alvos vazio (detector nao integrado nesta fase)
-        _write_empty_alvos_csv(alvos_dir / f"{stem}_alvos.csv")
+        # Imagem anotada (gerada pelo detector quando executado com alvos)
+        _move_if_exists(
+            result.image_paths.get("anotada"),
+            proc_dir / f"{stem}_anotada_completa.png",
+        )
+
+        # CSV de alvos: real quando detector encontrou alvos; cabecalhos apenas senao
+        csv_dst = alvos_dir / f"{stem}_alvos.csv"
+        if result.detected_targets:
+            _write_alvos_csv(csv_dst, result.detected_targets)
+            log.info(
+                "new_engine_alvos_csv_written",
+                dzt=filename,
+                n_alvos=len(result.detected_targets),
+                detector_status=result.detector_status,
+            )
+        else:
+            _write_empty_alvos_csv(csv_dst)
+            log.info(
+                "new_engine_alvos_csv_empty",
+                dzt=filename,
+                detector_status=result.detector_status,
+            )
 
         # Linha para index_projeto.csv (campos lidos por _persist_outputs)
         row = result.index_row
@@ -227,3 +246,11 @@ def _write_empty_alvos_csv(path: Path) -> None:
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=_CSV_ALVOS_HEADERS)
         writer.writeheader()
+
+
+def _write_alvos_csv(path: Path, targets: list[dict]) -> None:
+    """Escreve CSV de alvos com dados reais do detector."""
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_CSV_ALVOS_HEADERS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(targets)

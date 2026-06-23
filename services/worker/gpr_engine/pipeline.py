@@ -4,13 +4,14 @@ Orchestrador end-to-end do ScanSOLO GPR Engine.
 process_dzt() recebe um arquivo .DZT e um diretorio de saida e executa
 o pipeline completo, retornando ProcessResult com todos os outputs.
 
-Modulos usados (Fases 1-6):
-  reader  -- DZTReader: le o arquivo .DZT
-  snr     -- calcular_snr_*, detectar_modo_processamento, detectar_time_zero
-  flows   -- process_flows: tres fluxos de sinal (cientifico, relatorio, preview)
-  images  -- render_*: gera PNGs
-  arrays  -- save_engine_arrays: salva .npy
-  metrics -- build_pipeline_metrics, save_metrics_atomic: salva JSON
+Modulos usados:
+  reader   -- DZTReader: le o arquivo .DZT
+  snr      -- calcular_snr_*, detectar_modo_processamento, detectar_time_zero
+  flows    -- process_flows: tres fluxos de sinal (cientifico, relatorio, preview)
+  images   -- render_*: gera PNGs
+  arrays   -- save_engine_arrays: salva .npy
+  metrics  -- build_pipeline_metrics, save_metrics_atomic: salva JSON
+  detector -- run_scansolo_detector: detector de hiperboles (legado integrado)
 
 Sem GPRPy. Sem Supabase.
 """
@@ -40,6 +41,7 @@ from gpr_engine.images import (
 )
 from gpr_engine.arrays import save_engine_arrays
 from gpr_engine.metrics import build_pipeline_metrics, save_metrics_atomic
+from gpr_engine.detector import DetectorResult, build_detector_params, run_scansolo_detector
 
 _log = logging.getLogger("gpr_engine.pipeline")
 
@@ -83,7 +85,8 @@ class ProcessResult:
 
     image_paths: dict[str, Path]
     """Caminhos das imagens PNG geradas.
-    Chaves: bruta, cientifica, relatorio, processada, preview_radan_5m."""
+    Chaves: bruta, cientifica, relatorio, processada, preview_radan_5m, readgssi_reference,
+    anotada (quando detector executado e imagem gerada com sucesso)."""
 
     array_paths: dict[str, Path]
     """Caminhos dos arrays .npy salvos.
@@ -101,6 +104,20 @@ class ProcessResult:
     index_row: dict
     """Linha compativel com index_projeto.csv (campos minimos garantidos)."""
 
+    detected_targets: list[dict]
+    """Alvos detectados prontos para CSV; lista vazia quando detector nao executou."""
+
+    detector_status: str
+    """
+    "executed"         -- rodou e encontrou alvos
+    "no_targets"       -- rodou mas 0 alvos apos filtros
+    "skipped_no_dist"  -- dist_total_m == 0
+    "failed"           -- excecao durante execucao
+    """
+
+    detector_error: str | None
+    """Mensagem de erro quando detector_status == 'failed', senao None."""
+
 
 def process_dzt(
     dzt_path: str | Path,
@@ -108,7 +125,7 @@ def process_dzt(
     config: dict | None = None,
     tipo_solo: str = "standard",
     stem: str | None = None,
-    run_detector: bool = False,
+    run_detector: bool = True,
 ) -> ProcessResult:
     """
     Processa um arquivo .DZT completo com o motor GPR.
@@ -121,24 +138,21 @@ def process_dzt(
       5. SNR medido em 6 estagios (raw, dewow_bp, cientifico, sem_agc, relatorio, preview_radan)
       6. Imagens PNG: bruta, cientifico, relatorio, processada (alias), preview RADAN
       7. Arrays .npy (raw, cientifico, sem_agc, visual, processado alias)
-      8. pipeline_metrics.json (atomico)
-      9. index_row com campos minimos para index_projeto.csv
+      8. Detector de hiperboles (run_scansolo_detector): Hough+CurveFit+DeltaT+fisica
+         - entrada: arr_raw (v2.0.0 default; detector_input_mode configuravel)
+         - saida: _anotada_completa.png sobre arr_cientifico + lista de alvos
+         - falha graciosamente (status="failed" nao aborta o pipeline)
+      9. pipeline_metrics.json (atomico) com detector_status
+     10. index_row com campos minimos para index_projeto.csv
 
     :param dzt_path:     Caminho para o arquivo .DZT
     :param output_dir:   Diretorio de saida (criado automaticamente)
     :param config:       Overrides sobre _DEFAULTS (usuario/preset)
     :param tipo_solo:    "standard" | "arenoso" | "argiloso" | "umido" | "pedregoso"
     :param stem:         Nome base dos arquivos de saida (default: dzt_path.stem)
-    :param run_detector: Nao implementado nesta fase
+    :param run_detector: Executa detector de hiperboles (default: True)
     :returns:            ProcessResult com todos os outputs
-    :raises NotImplementedError: Se run_detector=True
     """
-    if run_detector:
-        raise NotImplementedError(
-            "run_detector=True not implemented in this phase. "
-            "Hyperbola detector will be integrated in a future phase."
-        )
-
     dzt_path = Path(dzt_path)
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +291,38 @@ def process_dzt(
         flow_arrays, out_dir, stem=_stem, arr_raw=dzt_data.arr_raw,
     )
 
-    # 10. Pipeline metrics JSON
+    # 10. Detector de hiperboles (Hough + CurveFit + DeltaT + fisica)
+    det_result: DetectorResult
+    if run_detector:
+        det_params = build_detector_params(
+            config=final_config,
+            velocity_mns=velocity_mns,
+            samp_freq_hz=float(dzt_data.samp_freq_hz),
+            dist_total_m=float(dzt_data.dist_total_m),
+            n_traces=int(dzt_data.n_traces),
+        )
+        p_anotada = out_dir / f"{_stem}_anotada_completa.png"
+        det_result = run_scansolo_detector(
+            arr_detection=dzt_data.arr_raw,
+            arr_sem_agc=flow_arrays.arr_sem_agc,
+            arr_raw=dzt_data.arr_raw,
+            arr_annotation=flow_arrays.arr_cientifico,
+            detector_params=det_params,
+            output_path=p_anotada,
+            dzt_filename=dzt_data.dzt_filename,
+            config=final_config,
+            dist_total_m=float(dzt_data.dist_total_m),
+        )
+        if det_result.anotada_ok and det_result.anotada_path is not None:
+            image_paths["anotada"] = det_result.anotada_path
+        _log.info(
+            "detector_done dzt=%s status=%s n_alvos=%d anotada_ok=%s",
+            dzt_data.dzt_filename, det_result.status, det_result.n_total, det_result.anotada_ok,
+        )
+    else:
+        det_result = DetectorResult(status="skipped_not_integrated")
+
+    # 11. Pipeline metrics JSON
     metrics = build_pipeline_metrics(
         dzt_data=dzt_data,
         flow_arrays=flow_arrays,
@@ -293,6 +338,10 @@ def process_dzt(
         engine_name=_ENGINE_NAME,
         preflight_metadata=preflight_metadata,
         preflight_recommendation=preflight_recommendation,
+        detector_status=det_result.status,
+        detector_n_total=det_result.n_total,
+        detector_error=det_result.detector_error,
+        imagem_anotada_ok=det_result.anotada_ok,
     )
     metrics_path = save_metrics_atomic(
         metrics, out_dir / f"{_stem}_pipeline_metrics.json",
@@ -329,4 +378,7 @@ def process_dzt(
         metrics=metrics,
         output_dir=out_dir,
         index_row=index_row,
+        detected_targets=det_result.targets,
+        detector_status=det_result.status,
+        detector_error=det_result.detector_error,
     )
