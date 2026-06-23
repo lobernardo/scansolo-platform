@@ -41,9 +41,6 @@ export async function createProject(
   if (!nome || !cliente || !estado || !data_levantamento) {
     return { error: "Preencha todos os campos obrigatórios (nome, cliente, estado, data)." };
   }
-  if (!preset_id) {
-    return { error: "Selecione um preset de processamento." };
-  }
 
   // readgssi_engine é o motor padrão; param_overrides pode sobrescrever para rollback técnico
   const processing_config: Record<string, unknown> = { engine: "readgssi_engine" };

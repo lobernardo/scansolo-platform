@@ -18,7 +18,8 @@ Regras de recomendacao:
   - Velocity do header valida (0.04–0.20 m/ns) -> recomendar header velocity
   - velocity fora desse range -> manter 0.10 m/ns (standard)
   - visual_profile recomendado: sempre "readgssi_reference" para readgssi_engine
-  - depth_preview_m: 5.0 apenas como escala visual (nao profundidade fisica)
+  - depth_preview_m: profundidade fisica calculada do DZT (twtt * velocity / 2);
+    5.0 apenas como fallback final se nao houver profundidade calculavel
   - engine recomendado: sempre "readgssi_engine"
 
 Nao altera nenhum arquivo de producao (pipeline_v1.py, job_gpr.py,
@@ -207,7 +208,8 @@ def recommend_processing_config(
       - recommended_velocity_mns: usa header se 0.04–0.20 m/ns; senao 0.10
       - recommended_engine: sempre "readgssi_engine"
       - recommended_visual_profile: sempre "readgssi_reference"
-      - recommended_depth_preview_m: sempre 5.0 (escala visual, nao fisica)
+      - recommended_depth_preview_m: profundidade fisica calculada do DZT;
+        5.0 apenas como fallback final se nao houver dado calculavel
 
     :param metadata:        Dict retornado por extract_dzt_metadata().
     :param selected_preset: Dict do preset escolhido na UI (campos: name,
@@ -290,14 +292,21 @@ def recommend_processing_config(
                 f"(baseado em {detected_freq} MHz)."
             )
 
-    # ── Depth preview vs depth real ───────────────────────────────────────────
-    depth_real = float(metadata.get("depth_real_m_from_header_velocity") or 0.0)
-    if 0 < depth_real < _DEPTH_PREVIEW_M:
-        warnings.append(
-            f"depth_real_fisica={depth_real:.2f} m < depth_preview={_DEPTH_PREVIEW_M} m. "
-            "O preview visual de 5 m usa escala de display (stretch/zeropad), "
-            "nao profundidade fisica real."
-        )
+    # ── Profundidade fisica: usa header velocity; fallback standard; fallback 5.0 ──
+    #
+    # Regra: profundidade renderizada inicial = depth_real do proprio DZT.
+    # 5.0 m so como fallback final (sem twtt calculavel).
+    # Arredondado em 2 casas para exibicao limpa.
+
+    depth_from_header = float(metadata.get("depth_real_m_from_header_velocity") or 0.0)
+    depth_from_std    = float(metadata.get("depth_real_m_from_standard_velocity") or 0.0)
+
+    if depth_from_header > 0:
+        recommended_depth = round(depth_from_header, 2)
+    elif depth_from_std > 0:
+        recommended_depth = round(depth_from_std, 2)
+    else:
+        recommended_depth = _DEPTH_PREVIEW_M  # fallback: 5.0
 
     # ── Timezero out of range (repassa do metadata) ───────────────────────────
     for w in metadata.get("warnings", []):
@@ -321,7 +330,7 @@ def recommend_processing_config(
         # -- Engine e perfil visual -------------------------------------------
         "recommended_engine":          "readgssi_engine",
         "recommended_visual_profile":  "readgssi_reference",
-        "recommended_depth_preview_m": _DEPTH_PREVIEW_M,
+        "recommended_depth_preview_m": recommended_depth,
         # -- Qualidade --------------------------------------------------------
         "header_confidence":           metadata.get("header_confidence", "baixa"),
         "warnings":                    warnings,

@@ -101,9 +101,16 @@ else:
     chk("recommended_antenna_freq_mhz=350",
         rec.get("recommended_antenna_freq_mhz") == 350,
         str(rec.get("recommended_antenna_freq_mhz")))
-    chk("recommended_depth_preview_m=5.0",
-        rec.get("recommended_depth_preview_m") == 5.0,
-        str(rec.get("recommended_depth_preview_m")))
+    # HELPER_0004: velocity_header=0.089929, twtt~49.38 ns -> depth_real ~2.22 m
+    # A partir da Fase G a profundidade fisica do DZT substitui o hardcode 5.0
+    # Validamos: deve ser proximo de 2.22 m (nao 5.0 m)
+    depth_rec = rec.get("recommended_depth_preview_m", 0)
+    chk("recommended_depth_preview_m usa profundidade fisica (~2.22 m, nao 5.0)",
+        0 < depth_rec < 4.0,
+        f"{depth_rec:.4f} m")
+    chk("recommended_depth_preview_m != 5.0 (5.0 e apenas fallback)",
+        depth_rec != 5.0,
+        str(depth_rec))
     chk("recommended_visual_profile=readgssi_reference",
         rec.get("recommended_visual_profile") == "readgssi_reference",
         rec.get("recommended_visual_profile", ""))

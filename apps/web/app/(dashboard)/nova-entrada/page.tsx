@@ -156,9 +156,12 @@ export default function NovaEntradaPage() {
 
         {/* ── Preset selector ── */}
         <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
-          <label className="block text-sm font-semibold text-slate-200">
-            Preset de processamento
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-semibold text-slate-200">
+              Preset de processamento
+            </label>
+            <span className="text-xs text-slate-500">Opcional — revisado após leitura dos DZTs</span>
+          </div>
 
           <select
             value={selectedPresetId}
@@ -404,13 +407,15 @@ export default function NovaEntradaPage() {
         <div className="pt-2">
           <button
             type="submit"
-            disabled={pending || !selectedPresetId}
+            disabled={pending}
             className="w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 transition-colors disabled:opacity-50"
           >
             {pending ? "Criando projeto…" : "Criar projeto e fazer upload"}
           </button>
           {!selectedPresetId && (
-            <p className="text-xs text-slate-500 text-center mt-1">Selecione um preset para continuar.</p>
+            <p className="text-xs text-slate-500 text-center mt-1">
+              Sem preset — configuração será definida automaticamente após leitura dos DZTs.
+            </p>
           )}
         </div>
       </form>

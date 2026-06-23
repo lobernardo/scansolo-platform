@@ -215,13 +215,14 @@ export function UploadClient({ projectId, presetId }: { projectId: string; prese
   }
 
   function handleOpenAdjust() {
-    // Pré-preenche com mediana das velocidades recomendadas (mais justo para múltiplos arquivos)
+    // Velocity: mediana das recomendações (mais justo para múltiplos arquivos)
+    // Depth: maior profundidade física recomendada entre os arquivos (escala uniforme)
     const recs = preflightData ? Object.values(preflightData.files).map((r) => r.recommendation) : [];
     const velocities = recs.map((r) => r.recommended_velocity_mns).sort((a, b) => a - b);
     const medianVelocity = velocities.length > 0 ? velocities[Math.floor(velocities.length / 2)] : 0.10;
-    const firstDepth = recs[0]?.recommended_depth_preview_m ?? 5.0;
+    const maxDepth = recs.length > 0 ? Math.max(...recs.map((r) => r.recommended_depth_preview_m)) : 5.0;
     setAdjVelocity(String(medianVelocity));
-    setAdjDepth(String(firstDepth));
+    setAdjDepth(String(maxDepth));
     setAdjBandpass(true);
     setShowAdjust(true);
   }
@@ -662,10 +663,10 @@ function PreflightConfirmCard({
               const rec = entries[0][1].recommendation;
               return (
                 <>
-                  <MetaRow label="Antena"              value={rec.recommended_antenna_freq_mhz > 0 ? `${rec.recommended_antenna_freq_mhz} MHz` : "—"} />
-                  <MetaRow label="Velocity"            value={`${rec.recommended_velocity_mns.toFixed(6)} m/ns${rec.velocity_from_header ? " (do header)" : " (padrão)"}`} />
-                  <MetaRow label="Profundidade visual" value={`${rec.recommended_depth_preview_m} m`} />
-                  <MetaRow label="Perfil visual"       value={rec.recommended_visual_profile} />
+                  <MetaRow label="Antena"                       value={rec.recommended_antenna_freq_mhz > 0 ? `${rec.recommended_antenna_freq_mhz} MHz` : "—"} />
+                  <MetaRow label="Velocity"                     value={`${rec.recommended_velocity_mns.toFixed(6)} m/ns${rec.velocity_from_header ? " (do header)" : " (padrão)"}`} />
+                  <MetaRow label="Escala inicial de profundidade" value={`${rec.recommended_depth_preview_m} m (profundidade física estimada)`} />
+                  <MetaRow label="Perfil visual"                value={rec.recommended_visual_profile} />
                 </>
               );
             })()}
@@ -702,9 +703,11 @@ function PreflightConfirmCard({
             />
           </div>
 
-          {/* Profundidade visual */}
+          {/* Profundidade renderizada */}
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">Profundidade visual (m) — escala do preview</label>
+            <label className="text-xs text-slate-400">
+              Escala de profundidade renderizada (m) — ajustável antes ou depois do processamento
+            </label>
             <input
               type="number" min={1} max={20} step={0.5}
               value={adjDepth}
