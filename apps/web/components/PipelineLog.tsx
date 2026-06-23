@@ -77,6 +77,7 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
   const nAlta = m.n_alvos_alta ?? 0;
   const nMedia = m.n_alvos_media ?? 0;
   const modo = m.modo_processamento;
+  const detectorSkipped = m.detector_status === "skipped_not_integrated";
 
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono">
@@ -96,13 +97,20 @@ function CompactLog({ m }: { m: PipelineMetrics }) {
           <span className="text-slate-300">{db(m.snr_raw_db)}</span>
         </span>
       )}
-      <span className="flex items-center gap-1">
-        <span className="text-slate-500">Alvos ≥30:</span>
-        <span className="text-slate-300">{nScore30}</span>
-        <span className="text-slate-600">
-          ({nAlta} alta, {nMedia} média)
+      {detectorSkipped ? (
+        <span className="flex items-center gap-1">
+          <span className="text-slate-500">Detector:</span>
+          <span className="text-slate-600 italic">não executado</span>
         </span>
-      </span>
+      ) : (
+        <span className="flex items-center gap-1">
+          <span className="text-slate-500">Alvos ≥30:</span>
+          <span className="text-slate-300">{nScore30}</span>
+          <span className="text-slate-600">
+            ({nAlta} alta, {nMedia} média)
+          </span>
+        </span>
+      )}
     </div>
   );
 }
@@ -356,6 +364,7 @@ function FullLog({
     return ` (${d >= 0 ? "+" : ""}${d.toFixed(1)} dB vs raw)`;
   }
 
+  const detectorSkipped = m.detector_status === "skipped_not_integrated";
   const nAlvos =
     (m.n_alvos_alta ?? 0) + (m.n_alvos_media ?? 0) + (m.n_alvos_baixa ?? 0);
   const nScore30 = m.n_alvos_score_30 ?? 0;
@@ -558,26 +567,32 @@ function FullLog({
       {/* DETECTOR */}
       <SectionHead title="Detector" />
       <div className="pl-2 space-y-0.5">
-        <Row
-          s={nAlvos > 0 ? "ok" : "warn"}
-          label="Total detectados"
-          value={String(nAlvos)}
-        />
-        <Row
-          s={nScore30 > 0 ? "ok" : "warn"}
-          label="Score ≥ 30"
-          value={String(nScore30)}
-        />
-        <Row
-          s="ok"
-          label="Alta / Média / Baixa"
-          value={`${m.n_alvos_alta ?? 0} / ${m.n_alvos_media ?? 0} / ${m.n_alvos_baixa ?? 0}`}
-        />
-        {m.det_depth_min_m_usado != null && (
-          <Row s="ok" label="Prof. mín. filtro" value={`${m.det_depth_min_m_usado} m`} />
-        )}
-        {m.detector_input_mode_json && (
-          <Row s="ok" label="Input mode" value={m.detector_input_mode_json} />
+        {detectorSkipped ? (
+          <Row s="skip" label="Status" value="não executado (motor sem detector integrado)" />
+        ) : (
+          <>
+            <Row
+              s={nAlvos > 0 ? "ok" : "warn"}
+              label="Total detectados"
+              value={String(nAlvos)}
+            />
+            <Row
+              s={nScore30 > 0 ? "ok" : "warn"}
+              label="Score ≥ 30"
+              value={String(nScore30)}
+            />
+            <Row
+              s="ok"
+              label="Alta / Média / Baixa"
+              value={`${m.n_alvos_alta ?? 0} / ${m.n_alvos_media ?? 0} / ${m.n_alvos_baixa ?? 0}`}
+            />
+            {m.det_depth_min_m_usado != null && (
+              <Row s="ok" label="Prof. mín. filtro" value={`${m.det_depth_min_m_usado} m`} />
+            )}
+            {m.detector_input_mode_json && (
+              <Row s="ok" label="Input mode" value={m.detector_input_mode_json} />
+            )}
+          </>
         )}
       </div>
 

@@ -16,6 +16,8 @@ export type PipelineMetrics = {
   // snr_stages_db: { raw, dewow, bp, bgremoval, tpow, agc } — valores em dB (float)
   snr_stages_db?: Record<string, number>;
   detector_input_mode_json?: string;
+  // Status do detector — "skipped_not_integrated" quando não executado no readgssi_engine
+  detector_status?: string | null;
   // De gpr_profiles (complementar — disponível mesmo sem metrics JSON)
   snr_raw_db?: number | null;
   snr_raw_ratio?: number | null;
@@ -133,6 +135,7 @@ export async function getPipelineMetrics(profileId: string): Promise<PipelineMet
     det_depth_min_m_usado: metricsJson.det_depth_min_m_usado as number | undefined,
     snr_stages_db: metricsJson.snr_stages_db as Record<string, number> | undefined,
     detector_input_mode_json: metricsJson.detector_input_mode as string | undefined,
+    detector_status: metricsJson.detector_status as string | null | undefined,
     // Do profile
     snr_raw_db: p.snr_imagem_db as number | null,
     snr_raw_ratio: p.snr_imagem_ratio as number | null,

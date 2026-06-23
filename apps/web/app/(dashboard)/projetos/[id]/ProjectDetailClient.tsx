@@ -348,8 +348,12 @@ export function ProjectDetailClient({
           <h2 className="text-lg font-semibold text-slate-100 mb-4">
             Perfis GPR{" "}
             <span className="text-sm font-normal text-slate-500">
-              ({profiles.length} perfil{profiles.length !== 1 ? "s" : ""} ·{" "}
-              {targets.length} alvo{targets.length !== 1 ? "s" : ""} total)
+              ({profiles.length} perfil{profiles.length !== 1 ? "s" : ""}{" "}
+              {targets.length > 0
+                ? `· ${targets.length} alvo${targets.length !== 1 ? "s" : ""} total`
+                : profiles.some((p) => p.imagem_anotada_url)
+                ? "· 0 alvos"
+                : "· detector não executado"}
             </span>
           </h2>
           <div className="grid gap-4">

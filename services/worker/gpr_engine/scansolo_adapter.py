@@ -158,8 +158,9 @@ def run_new_engine(
         ref_dst = proc_dir / f"{stem}_radargrama_readgssi_reference.png"
         _move_if_exists(result.image_paths.get("readgssi_reference"), ref_dst)
 
-        # Processada: visual_profile lido do effective_config (pode diferir por arquivo)
-        visual_profile = effective_config.get("visual_profile", "scientific")
+        # Processada: visual_profile lido do effective_config (pode diferir por arquivo).
+        # Default "readgssi_reference": imagem base fiel ao readgssi sem filtros ScanSOLO.
+        visual_profile = effective_config.get("visual_profile", "readgssi_reference")
         processada_dst = proc_dir / f"{stem}_processada.png"
         if visual_profile == "readgssi_reference" and ref_dst.exists():
             # Usa copia do readgssi_reference como imagem processada principal
