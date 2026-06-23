@@ -576,6 +576,7 @@ export type Database = {
           imagem_interpretada_url: string | null
           imagem_preview_radan_5m_url: string | null
           imagem_processada_url: string | null
+          imagem_visual_url: string | null
           metricas_pipeline_url: string | null
           modo_processamento: string | null
           n_amostras: number | null
@@ -589,6 +590,7 @@ export type Database = {
           tipo_solo: string | null
           velocity_calibrada: boolean | null
           velocity_mns: number | null
+          visual_config: Json | null
         }
         Insert: {
           arquivo_dzt: string
@@ -610,6 +612,7 @@ export type Database = {
           imagem_migrada_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          imagem_visual_url?: string | null
           metricas_pipeline_url?: string | null
           modo_processamento?: string | null
           n_amostras?: number | null
@@ -623,6 +626,7 @@ export type Database = {
           tipo_solo?: string | null
           velocity_calibrada?: boolean | null
           velocity_mns?: number | null
+          visual_config?: Json | null
         }
         Update: {
           arquivo_dzt?: string
@@ -644,6 +648,7 @@ export type Database = {
           imagem_migrada_url?: string | null
           imagem_preview_radan_5m_url?: string | null
           imagem_processada_url?: string | null
+          imagem_visual_url?: string | null
           metricas_pipeline_url?: string | null
           modo_processamento?: string | null
           n_amostras?: number | null
@@ -657,6 +662,7 @@ export type Database = {
           tipo_solo?: string | null
           velocity_calibrada?: boolean | null
           velocity_mns?: number | null
+          visual_config?: Json | null
         }
         Relationships: [
           {

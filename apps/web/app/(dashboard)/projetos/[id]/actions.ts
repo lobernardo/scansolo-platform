@@ -3,6 +3,29 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+export type VisualConfig = {
+  visual_base: "raw" | "dewow_bp";
+  visual_depth_mode: "real" | "manual";
+  visual_depth_m: number | null;
+  visual_aspect_ratio: "default" | "panoramic";
+  visual_normalization: "linear_percentile" | "symlog";
+  visual_contrast: number;
+  visual_colormap: string;
+  visual_polarity: "normal" | "inverted";
+  visual_dewow_enabled: boolean;
+  visual_dewow_window: number;
+  visual_bandpass_enabled: boolean;
+  visual_bandpass_low_mhz: number;
+  visual_bandpass_high_mhz: number;
+  visual_bandpass_order: number;
+  visual_bgremoval_enabled: boolean;
+  visual_bgremoval_traces: number;
+  visual_tpow_enabled: boolean;
+  visual_tpow_power: number;
+  visual_agc_enabled: boolean;
+  visual_agc_window: number;
+};
+
 export type FilterState = {
   dewow: boolean;
   background_removal: boolean;
@@ -194,6 +217,40 @@ export async function requestRecalibrarVelocity(
       job_type: "recalibrar_velocity",
       status: "aguardando",
       payload: { project_id: projectId, velocity_mns: velocityMns },
+    } as unknown as never);
+
+  if (error) return { ok: false, error: `Erro ao criar job: ${error.message}` };
+  return { ok: true, jobId };
+}
+
+export async function generateVisual(
+  profileId: string,
+  visualConfig: VisualConfig
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Não autenticado" };
+
+  const { data: profileRaw } = await supabase
+    .from("gpr_profiles")
+    .select("id, project_id")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (!profileRaw) return { ok: false, error: "Perfil não encontrado" };
+  const profile = profileRaw as { id: string; project_id: string };
+
+  const jobId = crypto.randomUUID();
+  const { error } = await supabase
+    .from("processing_jobs")
+    .insert({
+      id: jobId,
+      project_id: profile.project_id,
+      job_type: "visual",
+      status: "aguardando",
+      payload: {
+        profile_id: profileId,
+        visual_config: { ...visualConfig, generated_by: user.id },
+      },
     } as unknown as never);
 
   if (error) return { ok: false, error: `Erro ao criar job: ${error.message}` };

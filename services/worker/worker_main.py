@@ -27,6 +27,7 @@ from job_interpretada import handle_interpretada_job
 from job_recalibrar import handle_recalibrar_job
 from job_recalibrar_velocity import handle_recalibrar_velocity_job
 from job_preflight import handle_preflight_job
+from job_visual import handle_visual_job
 
 log = structlog.get_logger()
 
@@ -77,6 +78,8 @@ def poll_once(supa: SupabaseClient) -> None:
         handle_recalibrar_velocity_job(job_id, job.get("payload") or {}, supa)
     elif job_type == "preflight":
         handle_preflight_job(supa, job)
+    elif job_type == "visual":
+        handle_visual_job(supa, job)
     else:
         log.warning("unknown_job_type_skipped", job_id=job_id, job_type=job_type)
         supa.update_job_status(job_id, "erro", error_message=f"job_type '{job_type}' not implemented in this worker version")

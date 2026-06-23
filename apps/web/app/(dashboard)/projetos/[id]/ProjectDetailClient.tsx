@@ -3,8 +3,8 @@
 import { Fragment, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Database } from "@/lib/types/database";
-import { reprocessProfile, getJobStatus, requestRecalibrarVelocity } from "./actions";
-import type { FilterState } from "./actions";
+import { reprocessProfile, getJobStatus, requestRecalibrarVelocity, generateVisual } from "./actions";
+import type { FilterState, VisualConfig } from "./actions";
 import { getPipelineMetrics, type PipelineMetrics } from "@/app/actions/gpr-actions";
 import { PipelineLog, MetricsDiff } from "@/components/PipelineLog";
 import { saveCurrentFiltersAsPreset } from "@/app/actions/preset-actions";
@@ -73,6 +73,29 @@ const DEFAULT_FILTERS: FilterState = {
   preview_visual_depth_mode: "stretch_to_preview_depth",
 };
 
+const DEFAULT_VISUAL_CONFIG: VisualConfig = {
+  visual_base: "raw",
+  visual_depth_mode: "real",
+  visual_depth_m: null,
+  visual_aspect_ratio: "default",
+  visual_normalization: "linear_percentile",
+  visual_contrast: 2.5,
+  visual_colormap: "gray",
+  visual_polarity: "normal",
+  visual_dewow_enabled: true,
+  visual_dewow_window: 5,
+  visual_bandpass_enabled: true,
+  visual_bandpass_low_mhz: 80,
+  visual_bandpass_high_mhz: 500,
+  visual_bandpass_order: 5,
+  visual_bgremoval_enabled: false,
+  visual_bgremoval_traces: 30,
+  visual_tpow_enabled: false,
+  visual_tpow_power: 0.5,
+  visual_agc_enabled: true,
+  visual_agc_window: 150,
+};
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ProjectDetailClient({
@@ -115,6 +138,14 @@ export function ProjectDetailClient({
 
   // Per-profile active image label (for legend display below thumbnails)
   const [activeImgLabel, setActiveImgLabel] = useState<Record<string, string>>({});
+
+  // ── Visual panel state ────────────────────────────────────────────────────
+  const [expandedVisual, setExpandedVisual] = useState<Record<string, boolean>>({});
+  const [visualConfigs, setVisualConfigs] = useState<Record<string, VisualConfig>>({});
+  const [visualStatus, setVisualStatus] = useState<
+    Record<string, "idle" | "loading" | "queued" | "error">
+  >({});
+  const [visualPendingJobs, setVisualPendingJobs] = useState<Record<string, string>>({});
 
   // Pipeline log state (C3/C4): loaded lazily per profile
   const [pipelineLogs, setPipelineLogs] = useState<Record<string, PipelineMetrics | null>>({});
@@ -173,6 +204,29 @@ export function ProjectDetailClient({
     }, 5000);
     return () => clearInterval(interval);
   }, [velocityJobId, router]);
+
+  // Poll visual jobs every 5s; refresh page when any completes
+  useEffect(() => {
+    if (!Object.keys(visualPendingJobs).length) return;
+    const interval = setInterval(async () => {
+      for (const [profileId, jobId] of Object.entries(visualPendingJobs)) {
+        const status = await getJobStatus(jobId);
+        if (status === "concluido" || status === "erro") {
+          setVisualPendingJobs((prev) => {
+            const next = { ...prev };
+            delete next[profileId];
+            return next;
+          });
+          setVisualStatus((prev) => ({
+            ...prev,
+            [profileId]: status === "concluido" ? "idle" : "error",
+          }));
+          if (status === "concluido") router.refresh();
+        }
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [visualPendingJobs, router]);
 
   const closeLightbox = useCallback(() => setLightbox(null), []);
   const prevImage = useCallback(
@@ -315,6 +369,48 @@ export function ProjectDetailClient({
       alert(`Preset "${name}" criado com sucesso. Visualize em /presets.`);
     } else {
       alert(`Erro ao criar preset: ${result.error}`);
+    }
+  }
+
+  // ── Visual panel helpers ────────────────────────────────────────────────────
+
+  function getVisualConfig(profileId: string): VisualConfig {
+    return visualConfigs[profileId] ?? DEFAULT_VISUAL_CONFIG;
+  }
+
+  function toggleVisualPanel(profileId: string) {
+    const expanding = !(expandedVisual[profileId] ?? false);
+    setExpandedVisual((prev) => ({ ...prev, [profileId]: expanding }));
+    if (expanding && visualConfigs[profileId] === undefined) {
+      const profile = profiles.find((p) => p.id === profileId);
+      const saved = profile?.visual_config as VisualConfig | null | undefined;
+      setVisualConfigs((prev) => ({
+        ...prev,
+        [profileId]: saved ? { ...DEFAULT_VISUAL_CONFIG, ...saved } : DEFAULT_VISUAL_CONFIG,
+      }));
+    }
+  }
+
+  function updateVisualConfig(profileId: string, patch: Partial<VisualConfig>) {
+    setVisualConfigs((prev) => ({
+      ...prev,
+      [profileId]: { ...(prev[profileId] ?? DEFAULT_VISUAL_CONFIG), ...patch },
+    }));
+  }
+
+  async function handleGenerateVisual(profileId: string) {
+    setVisualStatus((prev) => ({ ...prev, [profileId]: "loading" }));
+    try {
+      const result = await generateVisual(profileId, getVisualConfig(profileId));
+      if (result.ok && result.jobId) {
+        setVisualPendingJobs((prev) => ({ ...prev, [profileId]: result.jobId! }));
+      }
+      setVisualStatus((prev) => ({
+        ...prev,
+        [profileId]: result.ok ? "queued" : "error",
+      }));
+    } catch {
+      setVisualStatus((prev) => ({ ...prev, [profileId]: "error" }));
     }
   }
 
@@ -542,6 +638,46 @@ export function ProjectDetailClient({
                         currentMetrics={pipelineLogs[profile.id] ?? null}
                         prevMetrics={prevLogs[profile.id] ?? null}
                         metricsLoading={logLoading[profile.id] ?? false}
+                      />
+                    )}
+                  </div>
+
+                  {/* Visual / Bancada ── painel independente, nunca altera saídas técnicas */}
+                  <div className="px-4 py-3 border-t border-slate-800/60">
+                    <button
+                      onClick={() => toggleVisualPanel(profile.id)}
+                      className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <span className="text-[10px]">
+                        {expandedVisual[profile.id] ? "▾" : "▸"}
+                      </span>
+                      <span>Bancada Visual</span>
+                      {profile.imagem_visual_url && (
+                        <span className="ml-1.5 text-[10px] text-emerald-500 font-medium">
+                          ● visual disponível
+                        </span>
+                      )}
+                      {(visualStatus[profile.id] === "queued" ||
+                        visualStatus[profile.id] === "loading") && (
+                        <span className="ml-1.5 text-[10px] text-cyan-400 animate-pulse">
+                          gerando…
+                        </span>
+                      )}
+                    </button>
+
+                    {expandedVisual[profile.id] && (
+                      <VisualPanel
+                        profile={profile}
+                        config={getVisualConfig(profile.id)}
+                        onChange={(patch) => updateVisualConfig(profile.id, patch)}
+                        onGenerate={() => handleGenerateVisual(profile.id)}
+                        onReset={() =>
+                          setVisualConfigs((prev) => ({
+                            ...prev,
+                            [profile.id]: DEFAULT_VISUAL_CONFIG,
+                          }))
+                        }
+                        status={visualStatus[profile.id] ?? "idle"}
                       />
                     )}
                   </div>
@@ -1235,6 +1371,381 @@ function FilterPanel({
           Erro ao criar job. Verifique a conexão e tente novamente.
         </p>
       )}
+    </div>
+  );
+}
+
+// ── VisualPanel ───────────────────────────────────────────────────────────────
+
+function VisualPanel({
+  profile,
+  config,
+  onChange,
+  onGenerate,
+  onReset,
+  status,
+}: {
+  profile: GprProfileRow;
+  config: VisualConfig;
+  onChange: (patch: Partial<VisualConfig>) => void;
+  onGenerate: () => void;
+  onReset: () => void;
+  status: "idle" | "loading" | "queued" | "error";
+}) {
+  const physDepth = profile.profundidade_max_m;
+  const savedConfig = profile.visual_config as Record<string, unknown> | null | undefined;
+  const generatedAt = savedConfig?.generated_at as string | null | undefined;
+  const isGenerating = status === "loading" || status === "queued";
+
+  return (
+    <div className="mt-3 rounded-lg border border-indigo-900/50 bg-slate-800/50 p-3 space-y-3">
+      <p className="text-[10px] text-indigo-400/70 leading-snug">
+        Bancada Visual — gera imagem visual customizada por perfil. Não altera as saídas
+        Original, Técnica, Relatório ou Alvos.
+      </p>
+
+      {/* Imagem visual atual */}
+      {profile.imagem_visual_url ? (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            Imagem visual atual
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={profile.imagem_visual_url}
+            alt="Visual gerado"
+            className="w-full rounded border border-slate-700 object-contain max-h-48"
+          />
+          {generatedAt && (
+            <p className="text-[10px] text-slate-500">
+              Gerada em {new Date(generatedAt).toLocaleString("pt-BR")}
+            </p>
+          )}
+          <a
+            href={profile.imagem_visual_url}
+            download={`${profile.arquivo_dzt ?? profile.id}_visual.png`}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-[11px] font-medium text-slate-300 hover:bg-slate-700 transition"
+          >
+            ⬇ Baixar Visual
+          </a>
+        </div>
+      ) : profile.imagem_preview_radan_5m_url ? (
+        <div className="space-y-1">
+          <p className="text-[10px] text-slate-500">
+            Nenhuma imagem visual gerada ainda. Referência atual (Preview):
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={profile.imagem_preview_radan_5m_url}
+            alt="Preview de referência"
+            className="w-full rounded border border-slate-700 object-contain max-h-32 opacity-60"
+          />
+        </div>
+      ) : (
+        <p className="text-[10px] text-slate-500">
+          Nenhuma imagem visual disponível. Configure os parâmetros e clique em Gerar Visual.
+        </p>
+      )}
+
+      {/* Metadados do DZT */}
+      <div className="rounded border border-slate-700/50 bg-slate-900/40 p-2 grid grid-cols-2 gap-x-4 gap-y-0.5">
+        <p className="text-[10px] text-slate-500 col-span-2 font-bold uppercase tracking-widest mb-1">
+          Metadados do DZT
+        </p>
+        <MetaItem label="Arquivo" value={profile.arquivo_dzt ?? "—"} />
+        <MetaItem label="Traços" value={profile.n_tracos?.toString() ?? "—"} />
+        <MetaItem label="Amostras" value={(profile.n_amostras as number | null)?.toString() ?? "—"} />
+        <MetaItem label="Distância" value={profile.distancia_max_m != null ? `${profile.distancia_max_m.toFixed(2)} m` : "—"} />
+        <MetaItem label="Prof. física" value={physDepth != null ? `${physDepth.toFixed(2)} m` : "—"} />
+        <MetaItem label="Velocity usada" value={profile.velocity_mns != null ? `${profile.velocity_mns.toFixed(3)} m/ns` : "—"} />
+        {config.visual_depth_mode === "manual" && config.visual_depth_m != null && (
+          <MetaItem label="Prof. visual" value={`${config.visual_depth_m.toFixed(1)} m (manual)`} />
+        )}
+      </div>
+
+      {/* ── Parâmetros: Base ─────────────────────────────────────────────────── */}
+      <div className="space-y-2 pt-1 border-t border-slate-700/50">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          Base de dados
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 w-24 shrink-0">Ponto de partida</label>
+          <select
+            value={config.visual_base}
+            onChange={(e) => onChange({ visual_base: e.target.value as VisualConfig["visual_base"] })}
+            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="raw">raw — dado bruto (todos os filtros controláveis)</option>
+            <option value="dewow_bp">dewow_bp — após dewow+bandpass padrão</option>
+          </select>
+        </div>
+        {config.visual_base === "dewow_bp" && (
+          <p className="text-[10px] text-amber-400/70">
+            dewow_bp: dewow e bandpass são sempre aplicados com os valores configurados abaixo,
+            independente dos toggles ON/OFF.
+          </p>
+        )}
+      </div>
+
+      {/* ── Filtros de sinal ─────────────────────────────────────────────────── */}
+      <div className="space-y-2 pt-1 border-t border-slate-700/50">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          Filtros de sinal
+        </p>
+
+        {/* Dewow */}
+        <div className="space-y-1.5">
+          <Toggle
+            label="Dewow"
+            checked={config.visual_dewow_enabled}
+            onChange={(v) => onChange({ visual_dewow_enabled: v })}
+          />
+          {config.visual_dewow_enabled && (
+            <SliderRow
+              label={`Janela dewow — ${config.visual_dewow_window} amostras`}
+              value={config.visual_dewow_window}
+              min={3} max={30} step={1}
+              onChange={(v) => onChange({ visual_dewow_window: Math.round(v) })}
+            />
+          )}
+        </div>
+
+        {/* Bandpass */}
+        <div className="space-y-1.5">
+          <Toggle
+            label="Bandpass"
+            checked={config.visual_bandpass_enabled}
+            onChange={(v) => onChange({ visual_bandpass_enabled: v })}
+          />
+          {config.visual_bandpass_enabled && (
+            <div className="space-y-1.5 pl-2">
+              <SliderRow
+                label={`Low — ${config.visual_bandpass_low_mhz} MHz`}
+                value={config.visual_bandpass_low_mhz}
+                min={10} max={200} step={10}
+                onChange={(v) => onChange({ visual_bandpass_low_mhz: v })}
+              />
+              <SliderRow
+                label={`High — ${config.visual_bandpass_high_mhz} MHz`}
+                value={config.visual_bandpass_high_mhz}
+                min={100} max={700} step={10}
+                onChange={(v) => onChange({ visual_bandpass_high_mhz: v })}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* BGRemoval */}
+        <div className="space-y-1.5">
+          <Toggle
+            label="Background Removal"
+            checked={config.visual_bgremoval_enabled}
+            onChange={(v) => onChange({ visual_bgremoval_enabled: v })}
+          />
+          {config.visual_bgremoval_enabled && (
+            <SliderRow
+              label={`Janela BGRemoval — ${config.visual_bgremoval_traces} traços`}
+              value={config.visual_bgremoval_traces}
+              min={5} max={100} step={5}
+              onChange={(v) => onChange({ visual_bgremoval_traces: Math.round(v) })}
+            />
+          )}
+        </div>
+
+        {/* TPow */}
+        <div className="space-y-1.5">
+          <Toggle
+            label="TPow (ganho de tempo)"
+            checked={config.visual_tpow_enabled}
+            onChange={(v) => onChange({ visual_tpow_enabled: v })}
+          />
+          {config.visual_tpow_enabled && (
+            <SliderRow
+              label={`Potência TPow — ${config.visual_tpow_power.toFixed(2)}`}
+              value={config.visual_tpow_power}
+              min={0.1} max={1.5} step={0.05}
+              onChange={(v) => onChange({ visual_tpow_power: parseFloat(v.toFixed(2)) })}
+            />
+          )}
+        </div>
+
+        {/* AGC */}
+        <div className="space-y-1.5">
+          <Toggle
+            label="AGC"
+            checked={config.visual_agc_enabled}
+            onChange={(v) => onChange({ visual_agc_enabled: v })}
+          />
+          {config.visual_agc_enabled && (
+            <SliderRow
+              label={`Janela AGC — ${config.visual_agc_window} amostras`}
+              value={config.visual_agc_window}
+              min={20} max={300} step={10}
+              onChange={(v) => onChange({ visual_agc_window: Math.round(v) })}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ── Renderização ─────────────────────────────────────────────────────── */}
+      <div className="space-y-2 pt-1 border-t border-slate-700/50">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          Renderização
+        </p>
+
+        {/* Normalização */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 w-24 shrink-0">Normalização</label>
+          <select
+            value={config.visual_normalization}
+            onChange={(e) =>
+              onChange({ visual_normalization: e.target.value as VisualConfig["visual_normalization"] })
+            }
+            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="linear_percentile">Linear percentil 99 (padrão)</option>
+            <option value="symlog">SymLog (estilo readgssi)</option>
+          </select>
+        </div>
+
+        {/* Polaridade */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 w-24 shrink-0">Polaridade</label>
+          <select
+            value={config.visual_polarity}
+            onChange={(e) =>
+              onChange({ visual_polarity: e.target.value as VisualConfig["visual_polarity"] })
+            }
+            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="normal">Normal</option>
+            <option value="inverted">Invertida</option>
+          </select>
+        </div>
+
+        {/* Contraste */}
+        <SliderRow
+          label={`Contraste — ${config.visual_contrast.toFixed(1)}×`}
+          value={config.visual_contrast}
+          min={0.5} max={5.0} step={0.1}
+          onChange={(v) => onChange({ visual_contrast: parseFloat(v.toFixed(1)) })}
+        />
+
+        {/* Aspect ratio */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 w-24 shrink-0">Proporção</label>
+          <select
+            value={config.visual_aspect_ratio}
+            onChange={(e) =>
+              onChange({ visual_aspect_ratio: e.target.value as VisualConfig["visual_aspect_ratio"] })
+            }
+            className="flex-1 rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="default">Padrão (10×4)</option>
+            <option value="panoramic">Panorâmico (20×4) — comparação/exportação</option>
+          </select>
+        </div>
+        {config.visual_aspect_ratio === "panoramic" && (
+          <p className="text-[10px] text-amber-400/70">
+            Panorâmico: imagem mais larga para comparação com softwares externos.
+            Não usar como saída técnica oficial.
+          </p>
+        )}
+      </div>
+
+      {/* ── Profundidade visual ───────────────────────────────────────────────── */}
+      <div className="space-y-2 pt-1 border-t border-slate-700/50">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          Profundidade
+        </p>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name={`depth-mode-${profile.id}`}
+              value="real"
+              checked={config.visual_depth_mode === "real"}
+              onChange={() => onChange({ visual_depth_mode: "real" })}
+              className="accent-indigo-500"
+            />
+            <span className="text-xs text-slate-300">
+              Real {physDepth != null ? `(${physDepth.toFixed(2)} m do DZT)` : "(física do DZT)"}
+            </span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name={`depth-mode-${profile.id}`}
+              value="manual"
+              checked={config.visual_depth_mode === "manual"}
+              onChange={() => onChange({ visual_depth_mode: "manual" })}
+              className="accent-indigo-500"
+            />
+            <span className="text-xs text-slate-300">Manual</span>
+          </label>
+        </div>
+        {config.visual_depth_mode === "manual" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0.5"
+              max="20"
+              step="0.5"
+              placeholder="ex: 5.0"
+              value={config.visual_depth_m ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === "") {
+                  onChange({ visual_depth_m: null });
+                } else {
+                  const v = parseFloat(raw);
+                  if (!isNaN(v) && v >= 0.5 && v <= 20) onChange({ visual_depth_m: v });
+                }
+              }}
+              className="w-28 bg-slate-900 border border-slate-700 text-slate-100 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-xs text-slate-500">m (limite do eixo Y — não altera dados físicos)</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Ações ────────────────────────────────────────────────────────────── */}
+      <div className="flex gap-2 pt-1 flex-wrap border-t border-slate-700/50">
+        <button
+          onClick={onGenerate}
+          disabled={isGenerating}
+          className="flex-1 rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {status === "loading" ? "Solicitando…" : status === "queued" ? "⏳ Gerando visual…" : "Gerar Visual"}
+        </button>
+        <button
+          onClick={onReset}
+          disabled={isGenerating}
+          className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-50"
+        >
+          Restaurar padrão
+        </button>
+      </div>
+
+      {status === "queued" && (
+        <p className="text-xs text-cyan-400">
+          ✓ Job visual em fila — imagem será atualizada ao concluir.
+        </p>
+      )}
+      {status === "error" && (
+        <p className="text-xs text-red-400">
+          Erro ao criar job visual. Verifique a conexão e tente novamente.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MetaItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-1.5">
+      <span className="text-[10px] text-slate-500 shrink-0">{label}:</span>
+      <span className="text-[10px] text-slate-300 truncate">{value}</span>
     </div>
   );
 }

@@ -100,6 +100,7 @@ def render_radargram(
     polarity: str = "normal",
     symlog_gain: float = 1.0,
     display_depth_m: float | None = None,
+    figsize: tuple[float, float] | None = None,
 ) -> Path:
     """
     Renderiza um radargrama GPR como PNG.
@@ -190,7 +191,7 @@ def render_radargram(
     # < depth_m: janela visual (dados abaixo do limite nao aparecem)
     ylim_depth = max(float(display_depth_m), 1e-3) if display_depth_m is not None else depth_m
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=figsize or (10, 4))
 
     imshow_kw: dict[str, Any] = dict(
         cmap=effective_cmap,
