@@ -20,6 +20,10 @@ export type FilterState = {
   normalization: "linear_percentile" | "symlog" | "linear_minmax";
   polarity: "normal" | "inverted";
   display_depth_m: number | null;
+  // G3: preview visual depth mode — how the preview image maps depth
+  // "stretch_to_preview_depth" (default): data stretched to fill depth_preview_m frame
+  // "axis_limit_no_stretch": physical data preserved; blank space below if depth_preview_m > physical
+  preview_visual_depth_mode: "stretch_to_preview_depth" | "axis_limit_no_stretch";
 };
 
 export async function reprocessProfile(

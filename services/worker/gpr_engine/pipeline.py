@@ -76,6 +76,10 @@ _DEFAULTS: dict = {
     "normalization":       "linear_percentile",  # "linear_percentile" | "symlog" | "linear_minmax"
     "polarity":            "normal",              # "normal" | "inverted"
     "display_depth_m":     None,                  # Y-axis scale; None = profundidade fisica
+    # G3 — preview visual depth mode (apenas para imagem de preview RADAN)
+    # "stretch_to_preview_depth" (default): extent = depth_preview_m; data esticado visualmente
+    # "axis_limit_no_stretch": extent = depth_max_m fisico; ylim = depth_preview_m (espaco vazio abaixo)
+    "preview_visual_depth_mode": "stretch_to_preview_depth",
 }
 
 
@@ -290,13 +294,33 @@ def process_dzt(
     p_processada = out_dir / f"{_stem}_processada.png"
     shutil.copy2(p_relatorio, p_processada)
 
-    p_preview = render_radan_like_preview(
-        flow_arrays.arr_preview_radan,
-        out_dir / f"{_stem}_radargrama_preview_radan_5m.png",
-        dist_m, depth_preview_m,
-        footer_text="AVISO: preview RADAN 5m -- nao usar como radargrama cientifico",
-        **render_kw,
+    # G3 — preview visual depth mode:
+    # "stretch_to_preview_depth" (default): extent = depth_preview_m → data esticado visualmente
+    # "axis_limit_no_stretch": extent = depth_max_m fisico → ylim = depth_preview_m (espaco vazio)
+    preview_visual_depth_mode = str(final_config.get("preview_visual_depth_mode", "stretch_to_preview_depth"))
+    _visual_stretch_occurred = (
+        preview_visual_depth_mode == "stretch_to_preview_depth" and
+        abs(depth_preview_m - depth_max_m) > 1e-3
     )
+
+    if preview_visual_depth_mode == "axis_limit_no_stretch":
+        # Modo fisicamente correto: dados mapeados na profundidade real, eixo Y estende-se ate depth_preview_m
+        p_preview = render_radan_like_preview(
+            flow_arrays.arr_preview_radan,
+            out_dir / f"{_stem}_radargrama_preview_radan_5m.png",
+            dist_m, depth_max_m,                                 # extent = profundidade FISICA
+            footer_text="AVISO: preview RADAN 5m -- nao usar como radargrama cientifico",
+            **{**render_kw, "display_depth_m": depth_preview_m}, # ylim = depth_preview_m (sem esticamento)
+        )
+    else:  # stretch_to_preview_depth (default, backward compat)
+        # Modo visual: dados esticados para preencher depth_preview_m (comportamento original)
+        p_preview = render_radan_like_preview(
+            flow_arrays.arr_preview_radan,
+            out_dir / f"{_stem}_radargrama_preview_radan_5m.png",
+            dist_m, depth_preview_m,                             # extent = depth_preview_m (estica)
+            footer_text="AVISO: preview RADAN 5m -- nao usar como radargrama cientifico",
+            **render_kw,
+        )
 
     # readgssi_reference: arr_raw -> bgremoval_readgssi(window=0) -> SymLogNorm
     # Sempre usa normalizacao SymLogNorm (identica ao readgssi) — nao alterada por render_kw.
@@ -387,8 +411,8 @@ def process_dzt(
         "arquivo":                        str(dzt_data.dzt_filename),
         "n_tracos":                       int(dzt_data.n_traces),
         "distancia_max_m":                float(dzt_data.dist_total_m),
-        "profundidade_max_m":             depth_max_m,           # profundidade FISICA
-        "display_depth_m":                _display_depth_m,      # limite visual (None se nao configurado)
+        "profundidade_max_m":             depth_max_m,               # profundidade FISICA
+        "display_depth_m":                _display_depth_m,          # limite visual tecnico (None = auto)
         "snr_raw_db":                     snr_raw_db,
         "snr_raw_ratio":                  snr_raw_ratio,
         "modo_processamento":             modo_processamento,
@@ -403,6 +427,10 @@ def process_dzt(
         "imagem_preview_radan_5m":        str(p_preview),
         "imagem_readgssi_reference":      str(p_readgssi_ref),
         "metrics_path":                   str(metrics_path),
+        # G3 — preview depth mode audit fields
+        "depth_preview_m":                depth_preview_m,
+        "preview_visual_depth_mode":      preview_visual_depth_mode,
+        "visual_stretch_occurred":        _visual_stretch_occurred,
     }
 
     return ProcessResult(

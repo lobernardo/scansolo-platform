@@ -415,3 +415,124 @@ class TestExtentVsYlim:
             f"_DEFAULTS['visual_profile'] = {_DEFAULTS.get('visual_profile')!r} "
             f"— esperado 'readgssi_reference'"
         )
+
+
+# ---------------------------------------------------------------------------
+# G3-22 a G3-24 — _filtros_to_pipeline_config mapeamento G3 fields
+# ---------------------------------------------------------------------------
+
+class TestFiltrosToPipelineConfig:
+    """Testa que _filtros_to_pipeline_config mapeia display_depth_m, normalization, polarity."""
+
+    def _convert(self, filtros: dict) -> dict:
+        from job_gpr import _filtros_to_pipeline_config
+        return _filtros_to_pipeline_config(filtros)
+
+    def test_g3_22_display_depth_m_mapeado(self):
+        """G3-22: display_depth_m explicito e mapeado para a config do pipeline."""
+        cfg = self._convert({"display_depth_m": 5.0})
+        assert cfg.get("display_depth_m") == 5.0, (
+            f"display_depth_m nao mapeado: {cfg}"
+        )
+
+    def test_g3_22b_display_depth_none_nao_mapeado(self):
+        """G3-22b: display_depth_m=None nao insere a chave na config."""
+        cfg = self._convert({"display_depth_m": None})
+        assert "display_depth_m" not in cfg, (
+            "display_depth_m=None nao deve inserir a chave na config"
+        )
+
+    def test_g3_23_normalization_mapeada(self):
+        """G3-23: normalization e mapeada para a config do pipeline."""
+        cfg = self._convert({"normalization": "symlog"})
+        assert cfg.get("normalization") == "symlog", (
+            f"normalization nao mapeada: {cfg}"
+        )
+
+    def test_g3_23b_normalization_linear_minmax(self):
+        """G3-23b: normalization=linear_minmax e preservada."""
+        cfg = self._convert({"normalization": "linear_minmax"})
+        assert cfg.get("normalization") == "linear_minmax"
+
+    def test_g3_24_polarity_mapeada(self):
+        """G3-24: polarity e mapeada para a config do pipeline."""
+        cfg = self._convert({"polarity": "inverted"})
+        assert cfg.get("polarity") == "inverted", (
+            f"polarity nao mapeada: {cfg}"
+        )
+
+    def test_g3_24b_polarity_normal_preservada(self):
+        """G3-24b: polarity=normal e preservada."""
+        cfg = self._convert({"polarity": "normal"})
+        assert cfg.get("polarity") == "normal"
+
+    def test_g3_24c_preview_visual_depth_mode_mapeado(self):
+        """G3-24c: preview_visual_depth_mode e mapeado para a config do pipeline."""
+        cfg = self._convert({"preview_visual_depth_mode": "axis_limit_no_stretch"})
+        assert cfg.get("preview_visual_depth_mode") == "axis_limit_no_stretch"
+
+
+# ---------------------------------------------------------------------------
+# G3-25 a G3-28 — preview_visual_depth_mode no pipeline e metricas
+# ---------------------------------------------------------------------------
+
+class TestPreviewVisualDepthMode:
+    """Testa os dois modos de profundidade visual para a imagem de preview."""
+
+    def test_g3_25_default_preview_mode_e_stretch(self):
+        """G3-25: _DEFAULTS['preview_visual_depth_mode'] = 'stretch_to_preview_depth'."""
+        from gpr_engine.pipeline import _DEFAULTS
+        assert _DEFAULTS.get("preview_visual_depth_mode") == "stretch_to_preview_depth", (
+            f"Default errado: {_DEFAULTS.get('preview_visual_depth_mode')!r}"
+        )
+
+    def test_g3_26_stretch_mode_records_visual_stretch_true(self, tmp_path):
+        """G3-26: modo stretch + depth_preview != physical → visual_stretch_occurred=True nas metricas."""
+        result = _run_process_dzt(tmp_path, config={
+            "preview_visual_depth_mode": "stretch_to_preview_depth",
+            "depth_preview_m": 5.0,  # physical e ~2.22 m → esticamento
+        })
+        assert result.metrics.get("visual_stretch_occurred") is True, (
+            f"visual_stretch_occurred deveria ser True: {result.metrics.get('visual_stretch_occurred')}"
+        )
+
+    def test_g3_27_no_stretch_mode_records_visual_stretch_false(self, tmp_path):
+        """G3-27: axis_limit_no_stretch → visual_stretch_occurred=False nas metricas."""
+        result = _run_process_dzt(tmp_path, config={
+            "preview_visual_depth_mode": "axis_limit_no_stretch",
+            "depth_preview_m": 5.0,
+        })
+        assert result.metrics.get("visual_stretch_occurred") is False, (
+            f"visual_stretch_occurred deveria ser False: {result.metrics.get('visual_stretch_occurred')}"
+        )
+
+    def test_g3_28_stretch_nao_muta_profundidade_fisica(self, tmp_path):
+        """G3-28: visual_stretch_occurred=True nao altera physical_depth_m."""
+        sub_a = tmp_path / "a"; sub_a.mkdir()
+        sub_b = tmp_path / "b"; sub_b.mkdir()
+        result_default = _run_process_dzt(sub_a, config={})
+        result_stretch = _run_process_dzt(sub_b, config={
+            "preview_visual_depth_mode": "stretch_to_preview_depth",
+            "depth_preview_m": 5.0,
+        })
+        assert abs(
+            result_default.metrics.get("physical_depth_m", 0) -
+            result_stretch.metrics.get("physical_depth_m", 0)
+        ) < 0.01, "physical_depth_m nao deve mudar com stretch"
+
+    def test_g3_28b_preview_visual_depth_mode_em_metricas(self, tmp_path):
+        """G3-28b: preview_visual_depth_mode registrado nas metricas."""
+        result = _run_process_dzt(tmp_path, config={
+            "preview_visual_depth_mode": "axis_limit_no_stretch",
+        })
+        assert result.metrics.get("preview_visual_depth_mode") == "axis_limit_no_stretch"
+
+    def test_g3_28c_stretch_mode_em_index_row(self, tmp_path):
+        """G3-28c: index_row contem preview_visual_depth_mode e visual_stretch_occurred."""
+        result = _run_process_dzt(tmp_path, config={
+            "preview_visual_depth_mode": "stretch_to_preview_depth",
+            "depth_preview_m": 5.0,
+        })
+        assert "preview_visual_depth_mode" in result.index_row
+        assert "visual_stretch_occurred" in result.index_row
+        assert result.index_row["visual_stretch_occurred"] is True

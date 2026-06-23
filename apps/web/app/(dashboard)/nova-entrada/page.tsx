@@ -338,8 +338,8 @@ export default function NovaEntradaPage() {
                   <CustomGroup label="Escala e Profundidade">
                     <CFloat label="velocity_mns" value={Number(getParam("velocity_mns", 0.10))} min={0.04} max={0.30} step={0.01} onChange={(v) => setOverride("velocity_mns", v)}
                       tooltip="Converte eixo de tempo (ns) em profundidade (m). NÃO afeta filtros de sinal. ε_r = (0.3/v)². Recomendado: 0.06 (argila saturada) a 0.20 (areia seca)." />
-                    <CFloat label="depth_preview_m" value={Number(getParam("depth_preview_m", 5.0))} min={1.0} max={10.0} step={0.5} onChange={(v) => setOverride("depth_preview_m", v)}
-                      tooltip="Controla o eixo Y da imagem Visual (Processada 2). Não altera profundidade técnica, detector ou CSV — apenas a escala exibida na imagem de comparação." />
+                    <CFloat label="Prof. visual de exportação (m)" value={Number(getParam("depth_preview_m", 5.0))} min={1.0} max={10.0} step={0.5} onChange={(v) => setOverride("depth_preview_m", v)}
+                      tooltip="Escala vertical da imagem visual/exportada (Preview). Não altera profundidade física, detector ou CSV. Modo padrão: stretch — dados esticados para preencher o frame. Para comparação com RADAN: use 5 m." />
                     <CInt label="agc_window_preview" value={Number(getParam("agc_window_preview", 80))} min={40} max={200} onChange={(v) => setOverride("agc_window_preview", v)}
                       tooltip="Ganho visual da imagem Visual. Valores menores aumentam contraste; maiores suavizam. Não afeta processamento técnico." />
                   </CustomGroup>

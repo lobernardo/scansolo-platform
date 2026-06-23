@@ -67,6 +67,7 @@ const DEFAULT_FILTERS: FilterState = {
   normalization: "linear_percentile",
   polarity: "normal",
   display_depth_m: null,
+  preview_visual_depth_mode: "stretch_to_preview_depth",
 };
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -943,7 +944,7 @@ function FilterPanel({
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            {t === "processada" ? "Relatório" : "Prof. visual"}
+            {t === "processada" ? "Técnico/Relatório" : "Visual/Exportação"}
           </button>
         ))}
       </div>
@@ -1054,19 +1055,27 @@ function FilterPanel({
             </select>
           </div>
 
-          {/* Display depth */}
+          {/* Display depth — axis_limit_no_stretch */}
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">
-                Prof. exibida — {filters.display_depth_m != null ? `${filters.display_depth_m.toFixed(1)} m` : "automático (física)"}
+                Prof. do eixo técnico —{" "}
+                {filters.display_depth_m != null
+                  ? `${filters.display_depth_m.toFixed(1)} m (eixo estendido)`
+                  : "automático (profundidade física do DZT)"}
               </span>
               <span
                 className="text-[10px] text-slate-600 hover:text-cyan-400 cursor-help transition-colors"
-                title="Escala do eixo Y na imagem. Não altera os dados — apenas o quanto é visível. Deixe em branco para usar a profundidade física do DZT."
+                title="Escala do eixo Y nas imagens técnicas (Original, Técnica, Relatório). Não altera os dados físicos nem a profundidade real. Modo sem stretch: se maior que a profundidade física, aparece espaço vazio abaixo dos dados reais. Deixe em branco para usar a profundidade física calculada do DZT."
               >
                 ⓘ
               </span>
             </div>
+            {filters.display_depth_m != null && (
+              <p className="text-[10px] text-amber-400/80">
+                Modo sem stretch — dados físicos preservados; eixo estendido visualmente.
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -1128,14 +1137,54 @@ function FilterPanel({
 
       {filterTarget === "processada2" && (
         <>
+          <p className="text-[10px] text-slate-500 leading-snug">
+            Afeta apenas a imagem visual/exportada (Preview). Não altera profundidade física,
+            detector ou CSV técnico.
+          </p>
+
+          {/* Depth target */}
           <SliderRow
-            label={`Profundidade máxima — ${filters.depth_preview_m.toFixed(1)} m`}
+            label={`Prof. visual de exportação — ${filters.depth_preview_m.toFixed(1)} m`}
             value={filters.depth_preview_m}
             min={2.0}
             max={8.0}
             step={0.5}
             onChange={(v) => onChange({ depth_preview_m: parseFloat(v.toFixed(1)) })}
           />
+
+          {/* Visual depth mode */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-slate-400">Modo de profundidade visual</label>
+              <span
+                className="text-[10px] text-slate-600 hover:text-cyan-400 cursor-help transition-colors"
+                title="Stretch: dados esticados para preencher o frame visual (imita exportação RADAN). Sem stretch: dados mapeados na profundidade física real — espaço vazio aparece abaixo quando profundidade visual > física. Nunca use Stretch para análise técnica."
+              >
+                ⓘ
+              </span>
+            </div>
+            <select
+              value={filters.preview_visual_depth_mode}
+              onChange={(e) =>
+                onChange({ preview_visual_depth_mode: e.target.value as FilterState["preview_visual_depth_mode"] })
+              }
+              className="w-full rounded border border-slate-600 bg-slate-800 text-slate-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            >
+              <option value="stretch_to_preview_depth">
+                Stretch visual/exportação — preenche profundidade configurada
+              </option>
+              <option value="axis_limit_no_stretch">
+                Sem stretch — dados físicos preservados (espaço vazio abaixo)
+              </option>
+            </select>
+            {filters.preview_visual_depth_mode === "stretch_to_preview_depth" && (
+              <p className="text-[10px] text-amber-400/80">
+                Stretch visual — não usar para análise técnica. Útil para comparação com exportações RADAN.
+              </p>
+            )}
+          </div>
+
+          {/* AGC window */}
           <SliderRow
             label={`Janela AGC visual — ${filters.agc_window_preview} traços`}
             value={filters.agc_window_preview}

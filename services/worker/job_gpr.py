@@ -305,6 +305,18 @@ def _filtros_to_pipeline_config(filtros: dict) -> dict:
         cfg["det_depth_min_m"] = float(filtros["det_depth_min_m"])
         cfg["_det_depth_min_m_explicit"] = True
 
+    # G3 — render config (display-only; não afetam dados físicos nem detector)
+    if "normalization" in filtros:
+        cfg["normalization"] = str(filtros["normalization"])
+    if "polarity" in filtros:
+        cfg["polarity"] = str(filtros["polarity"])
+    if filtros.get("display_depth_m") is not None:
+        cfg["display_depth_m"] = float(filtros["display_depth_m"])
+
+    # preview visual depth mode (se enviado pelo frontend)
+    if "preview_visual_depth_mode" in filtros:
+        cfg["preview_visual_depth_mode"] = str(filtros["preview_visual_depth_mode"])
+
     return cfg
 
 

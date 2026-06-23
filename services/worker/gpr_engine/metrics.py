@@ -246,11 +246,19 @@ def build_pipeline_metrics(
         "visual_crop_occurred": (
             bool(config.get("display_depth_m") and float(config["display_depth_m"]) < prof_max)
         ),
-        # Preview RADAN
+        # Preview RADAN — separacao fisica / visual
         "depth_preview_m":                  depth_preview,
         "preview_depth_real_m":             prof_max,
         "preview_visual_depth_configurado": depth_preview != 5.0,
         "preview_velocity_mns":             velocity,
+        # G3 — modo de profundidade visual do preview
+        # "stretch_to_preview_depth": extent = depth_preview_m (estica dados; default)
+        # "axis_limit_no_stretch": extent = profundidade fisica; ylim = depth_preview_m (espaco vazio)
+        "preview_visual_depth_mode": str(config.get("preview_visual_depth_mode", "stretch_to_preview_depth")),
+        "visual_stretch_occurred": bool(
+            str(config.get("preview_visual_depth_mode", "stretch_to_preview_depth")) == "stretch_to_preview_depth"
+            and abs(depth_preview - prof_max) > 1e-3
+        ),
 
         # -- Dimensoes do levantamento ------------------------------------
         "n_tracos":           int(dzt_data.n_traces),
