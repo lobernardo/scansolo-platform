@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-22 (Fase G: readgssi DZT-first GPR flow — PR #1 merged, main HEAD 553efea)
+> Última atualização: 2026-06-23 (Fase G3: modos visuais de exportação — `preview_visual_depth_mode` + `display_depth_m` separados + UI Técnico/Relatório vs Visual/Exportação — HEAD e997595)
 > Este arquivo é o índice operacional. Detalhes técnicos estão nos docs/ linkados abaixo.
 
 ---
@@ -80,6 +80,7 @@
 | E | Fix Pipeline Log (`imagem_migrada_url` migration) + PipelineLog preview fields + velocity UX + criar preset inline em Nova Entrada + manual | ✅ |
 | F | Fix campos n/d Pipeline Log (dewow/bgremoval/tpow/agc mapeados do pipeline_metrics.json) + Nova Entrada criar preset redesign (opção `__new__` no dropdown + modal unificado scratch/selection + botão no accordion + campos notas/dataset) | ✅ |
 | G | readgssi DZT-first GPR flow: `gpr_engine/` (reader nativo readgssi + pipeline próprio), `job_preflight.py`, fluxo upload→preflight→`aguardando_confirmacao`→confirmação UI→GPR, `_preflight_file_configs` per-DZT em `processing_config`, novos status `aguardando_preflight`/`aguardando_confirmacao`, migration `20260622000001` | ✅ |
+| G3 | Modos visuais de exportação: `preview_visual_depth_mode` (`stretch_to_preview_depth` / `axis_limit_no_stretch`) + `display_depth_m` separado de `depth_preview_m` + UI "Técnico/Relatório" vs "Visual/Exportação" + métricas `visual_stretch_occurred` + mapeamento de `normalization`/`polarity`/`display_depth_m` em `_filtros_to_pipeline_config` | ✅ |
 
 ---
 
@@ -96,12 +97,21 @@ DZT → raw → dewow+bp → [bifurcação]
         (para Amilson/detector)   (para cliente/PDF)
 ```
 
-| Fluxo | Saída | Finalidade |
-|---|---|---|
-| Científico (dewow+bp+tpow) | `_radargrama_cientifico.png` | Revisão técnica (Amilson) |
-| Relatório (dewow+bp+bgremoval+tpow+AGC) | `_radargrama_relatorio.png` / `_processada.png` | Cliente/PDF |
-| Detector (input: `arr_raw` por padrão — v2.0.0) | `_anotada_completa.png` | Hough+CurveFit+DeltaT |
-| Preview RADAN (arr_dewow_bp → AGC(80)) | `_radargrama_preview_radan_5m.png` | Comparação RADAN |
+| Fluxo | Saída | Finalidade | Controle de profundidade |
+|---|---|---|---|
+| Científico (dewow+bp+tpow) | `_radargrama_cientifico.png` | Revisão técnica (Amilson) | `display_depth_m` → apenas ylim; extent sempre físico |
+| Relatório (dewow+bp+bgremoval+tpow+AGC) | `_radargrama_relatorio.png` / `_processada.png` | Cliente/PDF | `display_depth_m` → apenas ylim; extent sempre físico |
+| readgssi_reference | `_radargrama_readgssi_reference.png` | Paridade visual com readgssi | `display_depth_m` → apenas ylim; sempre symlog |
+| Detector (input: `arr_raw` por padrão — v2.0.0) | `_anotada_completa.png` | Hough+CurveFit+DeltaT | — (não afetado por G3) |
+| Preview visual/export (`arr_dewow_bp → AGC`) | `_radargrama_preview_radan_5m.png` | Exportação visual / comparação RADAN | `depth_preview_m` + `preview_visual_depth_mode` (G3) |
+
+**G3 — dois modos de profundidade para o preview:**
+- `stretch_to_preview_depth` (default, backward compat): `imshow extent = depth_preview_m` — dados esticados visualmente para preencher a profundidade configurada. `visual_stretch_occurred = True` quando `depth_preview_m ≠ depth_max_m`. **Nunca usar para análise técnica.**
+- `axis_limit_no_stretch` (fisicamente correto): `imshow extent = depth_max_m` (físico), `set_ylim(depth_preview_m)` — dados mapeados na profundidade real, espaço vazio abaixo quando `depth_preview_m > depth_max_m`.
+
+**G3 — separação de campos:**
+- `display_depth_m`: controla apenas `set_ylim` das imagens **técnicas** (bruta, científica, relatório, readgssi_reference). Nunca remapeia dados. Aba "Técnico/Relatório" na UI.
+- `depth_preview_m`: alvo de profundidade para imagem **visual/export** (preview RADAN). Interação com `preview_visual_depth_mode`. Aba "Visual/Exportação" na UI.
 
 ---
 
@@ -131,7 +141,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | Rota | Componente | Função |
 |---|---|---|
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "＋ Criar novo preset..." no dropdown + "Salvar configuração como preset" no accordion |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros + Pipeline Log |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros (2 abas: "Técnico/Relatório" com `display_depth_m`/normalization/polarity; "Visual/Exportação" com `depth_preview_m`/`preview_visual_depth_mode`/AGC) + Pipeline Log |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload DZT-first: upload → job `preflight` → tela de confirmação por arquivo (antena/velocity/visual_profile) → `confirmPreflight` → job `gpr`; `_preflight_file_configs` gerado por arquivo |
 | `/presets` | `PresetsClient.tsx` | Cards + modal criar/editar (com toggle Bandpass ON/OFF) |
 | `/treinamento` | `TreinamentoClient.tsx` | Wizard validação manual (4 passos) + modal recalibração |
@@ -156,6 +166,11 @@ DZT → raw → dewow+bp → [bifurcação]
 **Storage:** `gpr-uploads` (privado) | `gpr-images` (público) | `gpr-tabelas` (⚠ público em produção — spec diz privado; ver P21)
 
 **Migrations aplicadas (última):** `20260622000001` — `job_type='preflight'`, `project_status='aguardando_preflight'`/`'aguardando_confirmacao'`
+
+**G3 — campos adicionados ao `index_row` / `pipeline_metrics.json` (sem migration — apenas campos de auditoria no JSON):**
+- `depth_preview_m` — profundidade alvo da imagem visual/export
+- `preview_visual_depth_mode` — `stretch_to_preview_depth` | `axis_limit_no_stretch`
+- `visual_stretch_occurred` — bool; True quando modo stretch e `depth_preview_m ≠ depth_max_m`
 
 ---
 
