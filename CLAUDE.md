@@ -1,5 +1,5 @@
 # CLAUDE.md — ScanSOLO Platform
-> Última atualização: 2026-06-23 (Fase G3: modos visuais de exportação — `preview_visual_depth_mode` + `display_depth_m` separados + UI Técnico/Relatório vs Visual/Exportação — HEAD e997595)
+> Última atualização: 2026-06-23 (Fase H: Módulo Visual/Exportação — `job_visual.py` + `imagem_visual_url`/`visual_config` em `gpr_profiles` + VisualPanel em ProjectDetailClient — HEAD 1d9d73d)
 > Este arquivo é o índice operacional. Detalhes técnicos estão nos docs/ linkados abaixo.
 
 ---
@@ -81,6 +81,7 @@
 | F | Fix campos n/d Pipeline Log (dewow/bgremoval/tpow/agc mapeados do pipeline_metrics.json) + Nova Entrada criar preset redesign (opção `__new__` no dropdown + modal unificado scratch/selection + botão no accordion + campos notas/dataset) | ✅ |
 | G | readgssi DZT-first GPR flow: `gpr_engine/` (reader nativo readgssi + pipeline próprio), `job_preflight.py`, fluxo upload→preflight→`aguardando_confirmacao`→confirmação UI→GPR, `_preflight_file_configs` per-DZT em `processing_config`, novos status `aguardando_preflight`/`aguardando_confirmacao`, migration `20260622000001` | ✅ |
 | G3 | Modos visuais de exportação: `preview_visual_depth_mode` (`stretch_to_preview_depth` / `axis_limit_no_stretch`) + `display_depth_m` separado de `depth_preview_m` + UI "Técnico/Relatório" vs "Visual/Exportação" + métricas `visual_stretch_occurred` + mapeamento de `normalization`/`polarity`/`display_depth_m` em `_filtros_to_pipeline_config` | ✅ |
+| H | Módulo Visual/Exportação: `job_visual.py` (cadeia visual independente — bases `raw`/`dewow_bp`, togles dewow/bp/bgremoval/tpow/agc, modos `real`/`manual` de profundidade, aspect `default`/`panoramic`) + `imagem_visual_url` + `visual_config` JSONB em `gpr_profiles` + `VisualConfig` type + `generateVisual()` server action + `VisualPanel` colapsível no `ProjectDetailClient` + migration `20260623000001` — E2E validado localmente | ✅ |
 
 ---
 
@@ -104,6 +105,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | readgssi_reference | `_radargrama_readgssi_reference.png` | Paridade visual com readgssi | `display_depth_m` → apenas ylim; sempre symlog |
 | Detector (input: `arr_raw` por padrão — v2.0.0) | `_anotada_completa.png` | Hough+CurveFit+DeltaT | — (não afetado por G3) |
 | Preview visual/export (`arr_dewow_bp → AGC`) | `_radargrama_preview_radan_5m.png` | Exportação visual / comparação RADAN | `depth_preview_m` + `preview_visual_depth_mode` (G3) |
+| **Visual (job_visual.py — Fase H)** | `_radargrama_visual.png` em `gpr-images/{pid}/visual/{profid[:8]}/` | Exportação configurável independente; não toca fluxos técnicos | `visual_depth_mode` (`real`/`manual`) + `visual_depth_m`; `visual_aspect_ratio` (`default`=10×4 / `panoramic`=20×4) |
 
 **G3 — dois modos de profundidade para o preview:**
 - `stretch_to_preview_depth` (default, backward compat): `imshow extent = depth_preview_m` — dados esticados visualmente para preencher a profundidade configurada. `visual_stretch_occurred = True` quando `depth_preview_m ≠ depth_max_m`. **Nunca usar para análise técnica.**
@@ -131,6 +133,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | `recalibrar` | `job_recalibrar.handle_recalibrar_job` | Otimiza thresholds via gpr_ground_truth |
 | `recalibrar_velocity` | `job_recalibrar_velocity.handle_recalibrar_velocity_job` | Recalcula profundidades com nova velocity |
 | `preflight` | `job_preflight.handle_preflight_job` | Lê header DZT via readgssi (sem processar), detecta antena/velocity, gera recomendação por arquivo; dispara antes do job `gpr` no fluxo DZT-first |
+| `visual` | `job_visual.handle_visual_job` | Gera imagem visual configurável (base `raw`/`dewow_bp`, filtros independentes, aspect ratio) — nunca toca fluxos técnicos nem `imagem_preview_radan_5m_url` |
 
 ---
 
@@ -141,7 +144,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | Rota | Componente | Função |
 |---|---|---|
 | `/nova-entrada` | `nova-entrada/page.tsx` | Criar projeto com preset + toggle Bandpass + "＋ Criar novo preset..." no dropdown + "Salvar configuração como preset" no accordion |
-| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros (2 abas: "Técnico/Relatório" com `display_depth_m`/normalization/polarity; "Visual/Exportação" com `depth_preview_m`/`preview_visual_depth_mode`/AGC) + Pipeline Log |
+| `/projetos/[id]` | `ProjectDetailClient.tsx` | Status + imagens + Ajustar Filtros (2 abas: "Técnico/Relatório" com `display_depth_m`/normalization/polarity; "Visual/Exportação" com `depth_preview_m`/`preview_visual_depth_mode`/AGC) + Pipeline Log + **VisualPanel** colapsível por perfil (base, filtros, render, profundidade, aspect ratio → `generateVisual()`) |
 | `/projetos/[id]/upload` | `UploadClient.tsx` | Upload DZT-first: upload → job `preflight` → tela de confirmação por arquivo (antena/velocity/visual_profile) → `confirmPreflight` → job `gpr`; `_preflight_file_configs` gerado por arquivo |
 | `/presets` | `PresetsClient.tsx` | Cards + modal criar/editar (com toggle Bandpass ON/OFF) |
 | `/treinamento` | `TreinamentoClient.tsx` | Wizard validação manual (4 passos) + modal recalibração |
@@ -157,7 +160,7 @@ DZT → raw → dewow+bp → [bifurcação]
 |---|---|
 | `projects` | `status`, `preset_id`, `processing_config` JSONB, `auto_accept_ia` |
 | `gpr_presets` | `name`, `parameters` JSONB, `is_system`, `is_active` |
-| `gpr_profiles` | `run_id`, imagens URLs (incl. `imagem_cientifica_url`, `imagem_migrada_url`), `filtros_customizados` JSONB, `metricas_pipeline_url` |
+| `gpr_profiles` | `run_id`, imagens URLs (incl. `imagem_cientifica_url`, `imagem_migrada_url`, `imagem_visual_url`), `filtros_customizados` JSONB, `metricas_pipeline_url`, `visual_config` JSONB (audit da geração visual: base, filtros, depth_max_m_physical, velocity_mns_used, generated_at) |
 | `detected_targets` | `rank`, `depth_m`, `confidence_score_0_100`, `confidence_label_relatorio` |
 | `processing_jobs` | `job_type`, `status`, `payload` JSONB, `error_message` |
 | `gpr_ground_truth` | 12 cols legadas (Fase 11) + 18 cols wizard (Fase 13) |
@@ -165,7 +168,7 @@ DZT → raw → dewow+bp → [bifurcação]
 
 **Storage:** `gpr-uploads` (privado) | `gpr-images` (público) | `gpr-tabelas` (⚠ público em produção — spec diz privado; ver P21)
 
-**Migrations aplicadas (última):** `20260622000001` — `job_type='preflight'`, `project_status='aguardando_preflight'`/`'aguardando_confirmacao'`
+**Migrations aplicadas (última):** `20260623000001` — `imagem_visual_url text` + `visual_config jsonb` em `gpr_profiles` + `job_type='visual'` no enum (aplicada via SQL Editor — não usar `supabase db push`)
 
 **G3 — campos adicionados ao `index_row` / `pipeline_metrics.json` (sem migration — apenas campos de auditoria no JSON):**
 - `depth_preview_m` — profundidade alvo da imagem visual/export
@@ -190,6 +193,7 @@ DZT → raw → dewow+bp → [bifurcação]
 | P19 | UploadClient.tsx caminho legado não mapeia bandpass OFF | Aberto |
 | P20 | `imagem_migrada_url` nunca populada pelo worker (Fase 7 incompleta) — migration adicionada, job_gpr precisa salvar a URL | Aberto |
 | P21 | `gpr-tabelas` bucket configurado como `public=true` no Supabase — spec diz privado; métricas protegidas por signed URL mas bucket deveria ser privado | Aberto |
+| P22 | Worker Railway ainda no commit anterior a `1d9d73d` — `job_visual` nunca será processado em produção até `git push origin main` + redeploy Railway | Aberto — requer push |
 
 ---
 
