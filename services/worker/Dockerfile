@@ -2,13 +2,13 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies for scientific stack (needed in Phase 1)
+# System deps: gcc+libffi para compilação, git para pip install de repos GitHub,
+# libreoffice para conversão DOCX→PDF (job_relatorio)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get install -y --no-install-recommends libreoffice \
+    git \
+    libreoffice \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
